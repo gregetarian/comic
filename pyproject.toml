@@ -46,4 +46,4 @@ include = ["glass_brains*"]
 
 # Ship the web viewer (JS/HTML/JSON) alongside the Python package.
 [tool.setuptools.package-data]
-glass_brains = ["viewer/**/*.js", "viewer/**/*.html", "viewer/**/*.json"]
+glass_brains = ["viewer/**/*.js", "viewer/**/*.html", "viewer/**/*.json", "viewer/**/*.png"]

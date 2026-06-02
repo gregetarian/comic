@@ -10,6 +10,7 @@ import { loadScene } from '../scene/asset-loader.js';
 import { createEngine } from '../scene/renderer.js';
 import { bindControls } from '../controls/bind.js';
 import { createColorbar } from '../controls/colorbar.js';
+import { initKapow } from '../controls/kapow.js';
 
 async function fetchJSON(url, fallback) {
     try { const r = await fetch(url); if (!r.ok) throw 0; return await r.json(); }
@@ -46,6 +47,7 @@ async function main() {
 
     bindControls({ engine, config, colormaps });
     const colorbar = showColorbar ? createColorbar(container, { engine, config, colormaps }) : null;
+    initKapow(document.getElementById('c-kapow'));   // comic SFX on click
 
     const saveBtn = document.getElementById('c-save');
     if (saveBtn) saveBtn.addEventListener('click', () =>
