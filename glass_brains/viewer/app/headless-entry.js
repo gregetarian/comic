@@ -24,8 +24,9 @@ async function main() {
     const colormaps = loadColormaps(cmJson);
     const sceneModel = await loadScene(config.data.manifest);
 
-    // Size the page to the requested figure; hide the control bar.
+    // Size the page to the requested figure; hide the control bar + kapow toggle.
     const ctrls = document.getElementById('controls'); if (ctrls) ctrls.style.display = 'none';
+    const kt = document.querySelector('.kapow-toggle'); if (kt) kt.style.display = 'none';
     const showColorbar = config.render.colorbar !== false;
     document.body.classList.toggle('nobar', !showColorbar);   // before measuring the canvas
     { const r = config.render; const strip = showColorbar ? (r.colorbarHeight ?? 14) + (r.colorbarFontSize ?? 11) + 28 : 0;
