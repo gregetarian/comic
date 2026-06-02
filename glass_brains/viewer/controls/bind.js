@@ -79,7 +79,18 @@ function buildOverlayRows({ engine, config, colormaps }) {
     overlays.forEach((ov, i) => {
         const os = overlayStyle(config, i);
         const maxAbs = ov.maxAbsValue ?? 1.0;
-        const maxClu = Math.max(ov.maxClusterSize ?? 0, 1);
+        // Cluster slider range: prefer the manifest value; if missing (e.g. older
+        // assets), derive it from the loaded per-vertex cluster sizes.
+        let maxClu = ov.maxClusterSize ?? 0;
+        if (!maxClu) {
+            for (const t of (engine.sceneModel.meshes || [])) {
+                if (t.meta.role === 'voxel' && (t.meta.overlay ?? 0) === i) {
+                    const a = t.mesh.geometry.getAttribute('aClusterSize');
+                    if (a) for (let k = 0; k < a.array.length; k++) { const v = a.array[k]; if (v < 1e8 && v > maxClu) maxClu = v; }
+                }
+            }
+        }
+        maxClu = Math.max(maxClu, 1);
         const set = (patch) => setOverlayStyle(config, i, patch);
 
         const row = document.createElement('div'); row.className = 'row overlay-row';
@@ -179,20 +190,23 @@ export function bindControls({ engine, config, colormaps }) {
     // --- Per-overlay rows ---
     buildOverlayRows({ engine, config, colormaps });
 
-    // --- Load NIfTI (append a new overlay, then reload to pick up scene.json) ---
+    // --- Load NIfTI(s): append one row per file, then reload to pick up scene.json ---
     const up = $('c-upload');
     if (up) up.addEventListener('change', async (e) => {
-        const file = e.target.files[0]; if (!file) return;
-        const loading = $('loading'); loading.style.display = ''; loading.textContent = 'Processing overlay…';
-        const fd = new FormData();
-        fd.append('file', file);
-        fd.append('threshold', '2.3');
-        fd.append('cmap', 'YlGnBu');
-        fd.append('name', file.name.replace(/\.nii(\.gz)?$/, ''));
+        const files = [...e.target.files]; if (!files.length) return;
+        const loading = $('loading'); loading.style.display = '';
         try {
-            const r = await fetch('/api/load-overlay', { method: 'POST', body: fd });
-            const res = await r.json();
-            if (!res.ok) throw new Error(res.error || 'upload failed');
+            for (let k = 0; k < files.length; k++) {
+                loading.textContent = files.length > 1 ? `Processing NIfTI ${k + 1}/${files.length}…` : 'Processing overlay…';
+                const fd = new FormData();
+                fd.append('file', files[k]);
+                fd.append('threshold', '2.3');
+                fd.append('cmap', 'YlGnBu');
+                fd.append('name', files[k].name.replace(/\.nii(\.gz)?$/, ''));
+                const r = await fetch('/api/load-overlay', { method: 'POST', body: fd });
+                const res = await r.json();
+                if (!res.ok) throw new Error(res.error || 'upload failed');
+            }
             location.reload();
         } catch (err) {
             loading.textContent = 'Error: ' + err.message;

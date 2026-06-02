@@ -225,7 +225,7 @@ def cli():
     sub = parser.add_subparsers(dest='command')
 
     show_parser = sub.add_parser('show', help='Open the interactive glass brain viewer')
-    show_parser.add_argument('nifti', nargs='?', help='NIfTI stat map to overlay')
+    show_parser.add_argument('nifti', nargs='*', help='one or more NIfTI stat maps (one overlay row each; first = top)')
     show_parser.add_argument('--threshold', type=float, default=2.3)
     show_parser.add_argument('-k', '--cluster-size', type=int, default=105,
                              help='initial cluster-extent threshold in voxels (adjustable live)')
@@ -285,8 +285,8 @@ def cli():
         gb = GlassBrain(include_subcortical=not args.no_subcortical,
                         layout=args.layout, display_cmap=args.cmap,
                         cluster_min=args.cluster_size)
-        if args.nifti:
-            gb.add_overlay(args.nifti, threshold=args.threshold,
+        for nif in (args.nifti or []):
+            gb.add_overlay(nif, threshold=args.threshold,
                            cmap=(args.cmap if args.cmap != 'auto' else 'viridis'))
         gb.show(port=args.port)
 

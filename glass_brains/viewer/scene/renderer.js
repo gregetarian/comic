@@ -61,7 +61,13 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         u.uMaxAbs.value = overlays[i].maxAbsValue ?? 1.0;
         u.uThreshold.value = os.threshold ?? overlays[i].threshold ?? 0;
         uniforms.push(u);
-        voxelMats.push(makeVoxelMaterial({}, u));
+        const mat = makeVoxelMaterial({}, u);
+        // Row order = display priority: where overlays coincide in depth, the
+        // lower index (higher row) wins. A small per-overlay depth bias pushes
+        // later overlays back so the top row draws on top, without disturbing
+        // genuine front/back occlusion at clearly different depths.
+        mat.polygonOffset = true; mat.polygonOffsetFactor = 0; mat.polygonOffsetUnits = i * 6;
+        voxelMats.push(mat);
     }
 
     // --- place meshes, assign materials + layers + shadows ---
