@@ -364,8 +364,16 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         p.zoom = Math.min(8, Math.max(0.25, (p.zoom || 1) * factor));
     }
 
+    // Scale every outline pass's line width by `f`. Outline width is in device
+    // texels, so a higher pixel ratio (Save-PNG supersampling) thins the lines;
+    // the Save path multiplies by savePr/basePr here to keep the on-screen look.
+    function scaleOutlines(f) {
+        cortexOutline.outlineMaterial.uniforms.uLineWidth.value *= f;
+        for (const ep of edgePasses) ep.outlineMaterial.uniforms.uLineWidth.value *= f;
+    }
+
     return {
-        scene, renderFrame, resize, setPixelRatio, getPanelRects, zoomPanel, recolor, applyStyle, setColormap,
+        scene, renderFrame, resize, setPixelRatio, getPanelRects, zoomPanel, scaleOutlines, recolor, applyStyle, setColormap,
         overlays, config, renderer, THREE, sceneModel,
         _internals: { uniforms, glassMat, anatomyMat, voxelMats, dir, amb },
     };
