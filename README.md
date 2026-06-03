@@ -30,12 +30,14 @@ drives both, so figures match the interactive view pixel-for-pixel).
 - **Faithful colour** — the full `cmap` colormap catalogue, auto
   sequential-vs-diverging selection, and a positive-data washout guard; an
   on-screen colorbar (one per overlay) runs the *same* shader pipeline so it
-  matches the voxels.
+  matches the voxels. **Show/hide** the colorbars (the `✕` on them, or the
+  **Colorbar** toggle) so a stack of bars never squashes the brains.
 - **Blocky or smooth** voxels, pial or inflated cortex.
 - **Shared world scale** so every brain renders at the same physical size across
   a figure, plus **per-panel zoom** (hover a panel for `+ / –`).
-- **Save-PNG** — a high-res, print-tuned capture (thinner lines, more spacing)
-  of the current view.
+- **Save brain** / **Save bars** — the brains export at full resolution with no
+  colorbars (never squashed); the colorbars export as a separate legend image you
+  place yourself.
 - **Comic SFX** — because brains rendered like comic panels deserve the
   occasional *BOOM!* (toggle the **Kapow** checkbox).
 
@@ -102,8 +104,10 @@ NIfTI**. Every slider has a type-in box and a hover tooltip.
 
 - **`+ NIfTI`** — load one or more stat maps; each appends a new overlay row.
 - **layout** — switch 4-panel ↔ 9-panel.
-- **Save PNG** — high-res, print-tuned capture (thinner lines, more inter-panel
-  spacing than the on-screen view).
+- **Save brain** — high-res, print-tuned capture of the brains only (no colorbars,
+  full canvas — never squashed by a stack of bars).
+- **Save bars** — the colorbars on their own as a separate legend image.
+- **Colorbar** — show/hide the on-screen colorbars (also the `✕` on the bars).
 - **Inflate / Outline** — inflated vs pial cortex; black silhouette on/off.
 - **cortex α / edge thr / line w** — cortex glass opacity, sulcal-line density, line width.
 - **Light: direct / ambient** — scene lighting (off by default; voxel colour
