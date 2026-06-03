@@ -6,10 +6,13 @@ any grid of any anatomical views, plus all style parameters.
 """
 
 import json
+import shutil
 import tempfile
 import threading
 import http.server
 from pathlib import Path
+
+WEB_DIR = Path(__file__).parent / "web"   # the single viewer (engine + baked template assets)
 
 
 # --- view vocabulary ------------------------------------------------------
@@ -115,19 +118,36 @@ def _deep_merge(base, over):
 
 
 # --- main render ----------------------------------------------------------
+def prepare_render_dir(nifti, threshold=2.3, include_subcortical=True):
+    """Stage a self-contained render dir: a copy of the single viewer with the overlay
+    processed in-process (same pipeline.py the browser runs) and written as ARRAYS
+    (overlay_0.bin + meta in scene.json) — no GLB, no per-render template re-bake.
+    Returns the dir path."""
+    from . import pipeline as P
+    from .arrays import write_overlay_arrays
+
+    out_dir = Path(tempfile.mkdtemp(prefix="gb_render_"))
+    shutil.copytree(WEB_DIR, out_dir, dirs_exist_ok=True)
+    data = out_dir / "data"
+
+    P.init_aseg((data / "aseg_uint8.bin.gz").read_bytes(), (data / "aseg.json").read_text())
+    name = Path(nifti).name.replace(".nii.gz", "").replace(".nii", "")
+    meta = json.loads(P.process_nifti(str(nifti), name, threshold))
+    meta = write_overlay_arrays(data, meta, P.get_all_buffers(), index=0)
+
+    scene = json.loads((data / "scene.json").read_text())
+    if not include_subcortical:
+        scene.pop("subcortical", None)
+    scene["overlays"] = [meta]
+    (data / "scene.json").write_text(json.dumps(scene))
+    return out_dir
+
+
 def render_to_png(nifti, out_png, *, layout, style=None, threshold=2.3, cmap="auto",
                   width=1600, height=1000, scale=2, include_subcortical=True,
                   background="#ffffff", colorbar=True, colorbar_font=None,
                   colorbar_fontsize=None, timeout_ms=90000):
-    from .core import GlassBrain
-
-    gb = GlassBrain(include_subcortical=include_subcortical, display_cmap=cmap)
-    # cmap for the (legacy) Python bake; the JS viewer recolours from style.colormap
-    bake_cmap = cmap if cmap != "auto" else "viridis"
-    gb.add_overlay(nifti, threshold=threshold, cmap=bake_cmap)
-
-    out_dir = Path(tempfile.mkdtemp(prefix="gb_render_"))
-    gb.export(out_dir)
+    out_dir = prepare_render_dir(nifti, threshold, include_subcortical)
 
     # CLI figures (print) want a few things the interactive viewer doesn't:
     # thicker surface lines, a touch more breathing room between brains, and no
