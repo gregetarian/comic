@@ -45,12 +45,13 @@ async function main() {
     const engine = createEngine({ renderer, width: canvas.clientWidth || 1, height: canvas.clientHeight || 1, sceneModel, colormaps, config });
 
     bindControls({ engine, config, colormaps });          // builds the per-overlay rows
-    const colorbar = showColorbar ? createColorbar(container, { engine, config, colormaps }) : null;
+    let colorbarsVisible = showColorbar;
+    let colorbar = showColorbar ? createColorbar(container, { engine, config, colormaps, onHide: () => setColorbarVisible(false) }) : null;
     initKapow(document.getElementById('c-kapow'));         // comic SFX on click
 
-    const saveBtn = document.getElementById('c-save');
-    if (saveBtn) saveBtn.addEventListener('click', () =>
-        saveFigure({ engine, canvas, container, colorbar, config, saveBtn }));
+    const sbBrain = document.getElementById('c-save-brain'); if (sbBrain) sbBrain.addEventListener('click', saveBrain);
+    const sbBars = document.getElementById('c-save-bars'); if (sbBars) sbBars.addEventListener('click', saveBars);
+    const cbTgl = document.getElementById('c-colorbar'); if (cbTgl) cbTgl.addEventListener('click', () => setColorbarVisible(!colorbarsVisible));
 
     // --- per-panel zoom: + / - buttons at each panel's top-left, shown on hover ---
     const zoomEls = engine.getPanelRects().map((p, i) => {
@@ -91,76 +92,88 @@ async function main() {
     window.addEventListener('resize', fit);      // window/viewport resize
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { syncStrip(); fit(); });
 
+    // Show/hide the live colorbars. Hiding drops the strip so the brains reclaim the
+    // full canvas height (no squash); showing recreates the bars.
+    function setColorbarVisible(v) {
+        colorbarsVisible = v;
+        const t = document.getElementById('c-colorbar'); if (t) t.classList.toggle('active', v);
+        if (v && !colorbar) {
+            colorbar = createColorbar(container, { engine, config, colormaps, onHide: () => setColorbarVisible(false) });
+        } else if (!v && colorbar) {
+            colorbar.el.remove(); colorbar = null;
+        }
+        document.body.classList.toggle('nobar', !colorbar);
+        syncStrip(); fit();
+    }
+
+    // Save the brains ONLY at full resolution — no colorbars, never squashed.
+    function saveBrain() {
+        const btn = document.getElementById('c-save-brain'); const label = btn && btn.textContent; if (btn) btn.textContent = 'Saving…';
+        const basePr = window.devicePixelRatio || 1;
+        const saved = { margin: config.style.margin };
+        const barEl = colorbar && colorbar.el;
+        try {
+            if (barEl) barEl.style.display = 'none';
+            document.documentElement.style.setProperty('--cbstrip', '0px');     // canvas → full height
+            const cssW = canvas.clientWidth, cssH = canvas.clientHeight;        // forces reflow; cssH is now full
+            const savePr = Math.min(4, Math.max(basePr, Math.ceil(3800 / cssW)));
+            config.style.margin = (saved.margin ?? 0.95) + 0.13;
+            engine.setPixelRatio(savePr);
+            engine.applyStyle();
+            engine.scaleOutlines(savePr / basePr);                             // keep on-screen line thickness
+            engine.resize(cssW, cssH);
+            engine.renderFrame();
+            const out = document.createElement('canvas');
+            out.width = Math.round(cssW * savePr); out.height = Math.round(cssH * savePr);
+            const g = out.getContext('2d');
+            g.fillStyle = (config.render && config.render.background) || '#ffffff';
+            g.fillRect(0, 0, out.width, out.height);
+            g.drawImage(canvas, 0, 0, out.width, out.height);
+            out.toBlob((blob) => { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'glassbrain.png'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); }, 'image/png');
+        } finally {
+            config.style.margin = saved.margin;
+            if (barEl) barEl.style.display = '';
+            engine.setPixelRatio(basePr);
+            engine.applyStyle();
+            syncStrip(); fit(); engine.renderFrame();
+            if (btn) btn.textContent = label;
+        }
+    }
+
+    // Save the colorbars on their own as a separate image (a legend you place yourself).
+    function saveBars() {
+        const btn = document.getElementById('c-save-bars'); const label = btn && btn.textContent;
+        const ovs = engine.overlays || [];
+        if (!ovs.length) { if (btn) { btn.textContent = 'No bars'; setTimeout(() => { btn.textContent = label; }, 1200); } return; }
+        if (btn) btn.textContent = 'Saving…';
+        const temp = !colorbar;
+        const cb = colorbar || createColorbar(container, { engine, config, colormaps });
+        cb.update();
+        try {
+            const pad = 8, basePr = window.devicePixelRatio || 1, savePr = Math.min(4, Math.max(basePr, 3));
+            const wrap = cb.el.getBoundingClientRect();
+            const out = document.createElement('canvas');
+            out.width = Math.round((wrap.width + pad * 2) * savePr); out.height = Math.round((wrap.height + pad * 2) * savePr);
+            const g = out.getContext('2d');
+            g.fillStyle = (config.render && config.render.background) || '#ffffff';
+            g.fillRect(0, 0, out.width, out.height);
+            const ox = wrap.left - pad, oy = wrap.top - pad; g.textBaseline = 'top';
+            cb.el.querySelectorAll('.cbar-row').forEach((row) => {
+                const bar = row.querySelector('canvas'); const br = bar.getBoundingClientRect();
+                g.drawImage(bar, (br.left - ox) * savePr, (br.top - oy) * savePr, br.width * savePr, br.height * savePr);
+                const nm = row.querySelector('.cbar-name');
+                if (nm) { const nr = nm.getBoundingClientRect(); g.fillStyle = '#555'; g.font = `${10 * savePr}px sans-serif`; g.fillText(nm.textContent, (nr.left - ox) * savePr, (nr.top - oy) * savePr); }
+                g.fillStyle = '#777'; g.font = `${(config.render.colorbarFontSize ?? 11) * savePr}px ${config.render.colorbarFont || 'serif'}`;
+                row.querySelectorAll('.colorbar-labels span').forEach((s) => { const sr = s.getBoundingClientRect(); g.fillText(s.textContent, (sr.left - ox) * savePr, (sr.top - oy) * savePr); });
+            });
+            out.toBlob((blob) => { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'glassbrain_colorbars.png'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); }, 'image/png');
+        } finally { if (temp) cb.el.remove(); if (btn) btn.textContent = label; }
+    }
+
     document.getElementById('loading').style.display = 'none';
     (function loop() { requestAnimationFrame(loop); engine.renderFrame(); colorbar?.update(); })();
 
     window.__engine = engine; // debug handle
-}
-
-/** Save the current view as a high-res PNG: supersample the WebGL panels, then
- *  composite the colorbar (gradient + tick text) on top, and download. */
-function saveFigure({ engine, canvas, container, colorbar, config, saveBtn }) {
-    const label = saveBtn && saveBtn.textContent;
-    if (saveBtn) saveBtn.textContent = 'Saving…';
-    const cssW = canvas.clientWidth;
-    const basePr = window.devicePixelRatio || 1;
-    const savePr = Math.min(4, Math.max(basePr, Math.ceil(3800 / cssW))); // ≳3800px wide
-    // Outline width is in device texels, so the higher savePr would thin the lines;
-    // scale by savePr/basePr so they keep the on-screen thickness. Plus a bit more
-    // space between brains than the GUI. Restored afterwards.
-    const saved = { margin: config.style.margin };
-    try {
-        config.style.margin = (saved.margin ?? 0.95) + 0.13;
-        engine.setPixelRatio(savePr);
-        engine.applyStyle();                       // line widths = the values set in the GUI
-        engine.scaleOutlines(savePr / basePr);     // keep lines the same visual thickness
-        engine.renderFrame();
-        colorbar?.update();
-
-        const out = document.createElement('canvas');
-        out.width = Math.round(container.clientWidth * savePr);
-        out.height = Math.round(container.clientHeight * savePr);
-        const g = out.getContext('2d');
-        g.fillStyle = (config.render && config.render.background) || '#ffffff';
-        g.fillRect(0, 0, out.width, out.height);
-        // Panels (the WebGL canvas covers the top panel region).
-        g.drawImage(canvas, 0, 0, out.width, Math.round(canvas.clientHeight * savePr));
-        // Colorbar(s): one bar per overlay, gradient + name + ticks, from live DOM rects.
-        if (colorbar) {
-            const cont = container.getBoundingClientRect();
-            g.textBaseline = 'top';
-            colorbar.el.querySelectorAll('.cbar-row').forEach((row) => {
-                const bar = row.querySelector('canvas');
-                const br = bar.getBoundingClientRect();
-                g.drawImage(bar, (br.left - cont.left) * savePr, (br.top - cont.top) * savePr, br.width * savePr, br.height * savePr);
-                const nm = row.querySelector('.cbar-name');
-                if (nm) {
-                    const nr = nm.getBoundingClientRect();
-                    g.fillStyle = '#555'; g.font = `${10 * savePr}px sans-serif`;
-                    g.fillText(nm.textContent, (nr.left - cont.left) * savePr, (nr.top - cont.top) * savePr);
-                }
-                g.fillStyle = '#777';
-                g.font = `${(config.render.colorbarFontSize ?? 11) * savePr}px ${config.render.colorbarFont || 'serif'}`;
-                row.querySelectorAll('.colorbar-labels span').forEach((s) => {
-                    const sr = s.getBoundingClientRect();
-                    g.fillText(s.textContent, (sr.left - cont.left) * savePr, (sr.top - cont.top) * savePr);
-                });
-            });
-        }
-        out.toBlob((blob) => {
-            const a = document.createElement('a');
-            a.href = URL.createObjectURL(blob);
-            a.download = 'glassbrain.png';
-            a.click();
-            setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-        }, 'image/png');
-    } finally {
-        config.style.margin = saved.margin;
-        engine.setPixelRatio(basePr);
-        engine.applyStyle();                       // restore on-screen line widths
-        engine.renderFrame();
-        if (saveBtn) saveBtn.textContent = label;
-    }
 }
 
 main().catch((err) => {
