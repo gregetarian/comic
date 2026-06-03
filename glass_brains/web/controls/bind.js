@@ -1,10 +1,12 @@
 /**
- * bind.js — UI controls bound to the engine config (single source of truth).
+ * bind.js — UI controls, static/in-browser variant.
  *
- * Layout: one GLOBAL surface row (inflate, cortex α, cortex edge density/width,
- * outline, lighting) + one row PER overlay (colormap, smooth/voxel, threshold,
- * cluster, +only, edges, edge width, veil, emissive, specular, shine). Per-overlay
- * controls write to config.style.overlays[i]; the renderer resolves them.
+ * Forked from the server app's bind.js. Two differences:
+ *  - Split into bindGlobalControls() (the static surface/light row, bound ONCE) and
+ *    buildOverlayRows() (rebuilt on every overlay add/remove). The engine is recreated
+ *    on each rebuild, so global handlers reach it through getEngine().
+ *  - No server: upload / remove / layout-change call back into app.js (which runs the
+ *    Pyodide pipeline and rebuilds the engine in-place) instead of POSTing + reloading.
  */
 import { resolveColormap } from '../core/colormap.js';
 import { overlayStyle, setOverlayStyle } from '../core/config-schema.js';
@@ -12,7 +14,6 @@ import { overlayStyle, setOverlayStyle } from '../core/config-schema.js';
 const $ = (id) => document.getElementById(id);
 const trimNum = (v) => { const n = parseFloat(v); return Number.isInteger(n) ? String(n) : String(Math.round(n * 1e4) / 1e4); };
 
-// Hover tooltips for the global/surface controls (per-overlay tips are inline).
 const TIPS = {
     'c-inflate': 'Inflated cortical surface vs the folded pial surface.',
     'c-outline': 'Toggle the black cortical-surface outline.',
@@ -23,7 +24,6 @@ const TIPS = {
     'c-ambient': 'Ambient light intensity — global.',
 };
 
-// --- element-based wiring (reused by global ids and per-overlay rows) ---
 function bindRange(el, value, oninput, { min, max, step } = {}, tip) {
     if (!el) return;
     if (min != null) el.min = min;
@@ -51,7 +51,6 @@ function bindToggle(el, active, onchange, tip) {
 const slider = (id, value, oninput, opts) => bindRange($(id), value, oninput, opts, TIPS[id]);
 const toggle = (id, active, onchange) => bindToggle($(id), active, onchange, TIPS[id]);
 
-// --- small DOM builders for the per-overlay rows ---
 function sw(labelText) {
     const wrap = document.createElement('div'); wrap.className = 'sw';
     const span = document.createElement('span'); span.textContent = labelText;
@@ -72,15 +71,14 @@ function populateCmap(sel, colormaps) {
     }
 }
 
-function buildOverlayRows({ engine, config, colormaps }) {
+/** Build one control row per overlay. Re-callable: clears + rebuilds on each engine rebuild. */
+export function buildOverlayRows({ engine, config, colormaps, onRemove }) {
     const host = $('overlay-rows'); if (!host) return;
     host.innerHTML = '';
     const overlays = engine.overlays || [];
     overlays.forEach((ov, i) => {
         const os = overlayStyle(config, i);
         const maxAbs = ov.maxAbsValue ?? 1.0;
-        // Cluster slider range: prefer the manifest value; if missing (e.g. older
-        // assets), derive it from the loaded per-vertex cluster sizes.
         let maxClu = ov.maxClusterSize ?? 0;
         if (!maxClu) {
             for (const t of (engine.sceneModel.meshes || [])) {
@@ -100,15 +98,7 @@ function buildOverlayRows({ engine, config, colormaps }) {
         nm.title = ov.name || '';
         const rm = document.createElement('button'); rm.className = 'btn rm'; rm.textContent = '✕';
         rm.title = 'Remove this overlay';
-        rm.addEventListener('click', async () => {
-            rm.disabled = true; rm.textContent = '…';
-            try {
-                const r = await fetch('/api/remove-overlay', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ index: i }) });
-                const res = await r.json();
-                if (!res.ok) throw new Error(res.error || 'remove failed');
-                location.reload();
-            } catch (err) { rm.disabled = false; rm.textContent = '✕'; alert('Remove failed: ' + err.message); }
-        });
+        rm.addEventListener('click', () => onRemove(i));
         gName.append(nm, rm); row.append(gName);
 
         const g = document.createElement('div'); g.className = 'grp';
@@ -172,50 +162,30 @@ function buildOverlayRows({ engine, config, colormaps }) {
     });
 }
 
-export function bindControls({ engine, config, colormaps }) {
+/** Bind the static global surface/light row + upload + layout. Called ONCE; reaches
+ *  the live engine through getEngine() since the engine is recreated on rebuild. */
+export function bindGlobalControls({ config, colormaps, getEngine, preset, onUpload, onPreset }) {
     const s = config.style;
+    const apply = () => getEngine().applyStyle();
 
-    // Layout (reload with a preset query).
     const lay = $('c-layout');
     if (lay) {
-        lay.value = new URLSearchParams(location.search).get('preset') || 'ninePanel';
-        lay.addEventListener('change', () => { location.search = '?preset=' + lay.value; });
+        lay.value = preset || 'ninePanel';
+        lay.addEventListener('change', () => onPreset(lay.value));
     }
 
-    // --- Surface row (global) ---
     toggle('c-inflate', s.cortexSurface === 'inflated', (on) => { s.cortexSurface = on ? 'inflated' : 'pial'; });
     toggle('c-outline', s.outline.enabled, (on) => { s.outline.enabled = on; });
-    slider('c-cortex', s.glass.maxOpacity, (v) => { s.glass.maxOpacity = v; engine.applyStyle(); }, { min: 0, max: 0.3, step: 0.005 });
-    slider('c-outline-thresh', s.outline.threshold, (v) => { s.outline.threshold = v; engine.applyStyle(); }, { min: 0.001, max: 0.02, step: 0.0005 });
-    slider('c-outline-width', s.outline.width, (v) => { s.outline.width = v; engine.applyStyle(); }, { min: 0.3, max: 8, step: 0.1 });
-    slider('c-directional', s.lighting.directional, (v) => { s.lighting.directional = v; engine.applyStyle(); }, { min: 0, max: 4, step: 0.05 });
-    slider('c-ambient', s.lighting.ambient, (v) => { s.lighting.ambient = v; engine.applyStyle(); }, { min: 0, max: 4, step: 0.05 });
+    slider('c-cortex', s.glass.maxOpacity, (v) => { s.glass.maxOpacity = v; apply(); }, { min: 0, max: 0.3, step: 0.005 });
+    slider('c-outline-thresh', s.outline.threshold, (v) => { s.outline.threshold = v; apply(); }, { min: 0.001, max: 0.02, step: 0.0005 });
+    slider('c-outline-width', s.outline.width, (v) => { s.outline.width = v; apply(); }, { min: 0.3, max: 8, step: 0.1 });
+    slider('c-directional', s.lighting.directional, (v) => { s.lighting.directional = v; apply(); }, { min: 0, max: 4, step: 0.05 });
+    slider('c-ambient', s.lighting.ambient, (v) => { s.lighting.ambient = v; apply(); }, { min: 0, max: 4, step: 0.05 });
 
-    // --- Per-overlay rows ---
-    buildOverlayRows({ engine, config, colormaps });
-
-    // --- Load NIfTI(s): append one row per file, then reload to pick up scene.json ---
     const up = $('c-upload');
-    if (up) up.addEventListener('change', async (e) => {
-        const files = [...e.target.files]; if (!files.length) return;
-        const loading = $('loading'); loading.style.display = '';
-        try {
-            for (let k = 0; k < files.length; k++) {
-                loading.textContent = files.length > 1 ? `Processing NIfTI ${k + 1}/${files.length}…` : 'Processing overlay…';
-                const fd = new FormData();
-                fd.append('file', files[k]);
-                fd.append('threshold', '2.3');
-                fd.append('cmap', 'YlGnBu');
-                fd.append('name', files[k].name.replace(/\.nii(\.gz)?$/, ''));
-                const r = await fetch('/api/load-overlay', { method: 'POST', body: fd });
-                const res = await r.json();
-                if (!res.ok) throw new Error(res.error || 'upload failed');
-            }
-            location.reload();
-        } catch (err) {
-            loading.textContent = 'Error: ' + err.message;
-            setTimeout(() => { loading.style.display = 'none'; }, 3000);
-            e.target.value = '';
-        }
+    if (up) up.addEventListener('change', (e) => {
+        const files = [...e.target.files];
+        e.target.value = '';
+        if (files.length) onUpload(files);
     });
 }

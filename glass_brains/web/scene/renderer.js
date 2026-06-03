@@ -437,8 +437,21 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         for (const ep of edgePasses) ep.outlineMaterial.uniforms.uLineWidth.value *= f;
     }
 
+    // Free this engine's GPU resources so it can be rebuilt in-place when the
+    // overlay set changes (the static app adds/removes overlays without a reload).
+    // Mesh geometries are NOT disposed — they're owned by the app and reused across
+    // rebuilds; only this engine's materials, outline passes, and targets are freed.
+    function dispose() {
+        glassMat.dispose(); anatomyMat.dispose();
+        for (const m of voxelMats) m.dispose();
+        cortexOutline.dispose();
+        for (const ep of edgePasses) ep.dispose();
+        clipTarget.dispose();
+        scene.clear();
+    }
+
     return {
-        scene, renderFrame, resize, setPixelRatio, getPanelRects, zoomPanel, scaleOutlines, recolor, applyStyle, applySmoothing, setColormap,
+        scene, renderFrame, resize, setPixelRatio, getPanelRects, zoomPanel, scaleOutlines, recolor, applyStyle, applySmoothing, setColormap, dispose,
         overlays, config, renderer, THREE, sceneModel,
         _internals: { uniforms, glassMat, anatomyMat, voxelMats, dir, amb },
     };

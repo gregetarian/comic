@@ -132,4 +132,12 @@ export class OutlinePass {
         r.setScissorTest(true);
         r.render(this.quadScene, this.quadCamera);
     }
+
+    /** Free GPU resources. Called when the engine is rebuilt (overlay add/remove). */
+    dispose() {
+        this.depthTarget.dispose();
+        this.depthMaterial.dispose();
+        this.outlineMaterial.dispose();
+        this.quad.geometry.dispose();
+    }
 }
