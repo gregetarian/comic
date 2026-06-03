@@ -20,6 +20,11 @@
 
     /* on-screen horizontal colorbar (matches the voxel colours exactly), centred in the bottom strip */
     .colorbar { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 7px; pointer-events: none; }
+    /* ✕ to hide the colorbars (the rest of .colorbar is pointer-events:none so it never eats clicks on the brains) */
+    .cbar-close { position: absolute; top: -4px; right: -22px; width: 18px; height: 18px; line-height: 1; padding: 0;
+      font-size: 11px; border: 1px solid #ddd; border-radius: 3px; background: rgba(255,255,255,0.85); color: #888;
+      cursor: pointer; pointer-events: auto; }
+    .cbar-close:hover { color: #c0392b; border-color: #bbb; }
     .cbar-row { display: flex; flex-direction: column; align-items: center; gap: 2px; }
     .cbar-name { font-size: 9px; color: #555; text-align: center; line-height: 1; }
     .colorbar canvas { position: static; border: 1px solid #d0d0d0; display: block; }
@@ -82,7 +87,9 @@
           <option value="ninePanel">9-panel</option>
           <option value="overview">overview</option>
         </select>
-        <button class="btn" id="c-save" title="Save the current view as a high-res PNG">Save PNG</button>
+        <button class="btn" id="c-save-brain" title="Save the brains at full resolution (no colorbars, never squashed)">Save brain</button>
+        <button class="btn" id="c-save-bars" title="Save the colorbars on their own as a separate image">Save bars</button>
+        <button class="btn active" id="c-colorbar" title="Show/hide the colorbars in the live view (hiding reclaims the full canvas so the brains aren't squashed)">Colorbar</button>
       </div>
       <div class="grp">
         <span class="lab">Surface</span>

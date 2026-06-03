@@ -167,9 +167,23 @@ def render_to_png(nifti, out_png, *, layout, style=None, threshold=2.3, cmap="au
             err = page.evaluate("window.__GB_ERR__ || null")
             if err:
                 raise RuntimeError(f"viewer error: {err}")
+            # Brain figure: hide the colorbar so the brains fill the full frame (never
+            # squashed), then screenshot.
+            page.evaluate("() => { const c = document.querySelector('.colorbar'); if (c) c.style.display = 'none'; }")
             page.locator("#viewer").screenshot(path=str(out_png))
+            outputs = [out_png]
+            # Colorbar legend as a SEPARATE sidecar image (place it in your figure yourself).
+            if colorbar:
+                page.evaluate("() => { const c = document.querySelector('.colorbar'); if (c) c.style.display = ''; }")
+                page.wait_for_timeout(60)
+                bar = page.locator('.colorbar')
+                if bar.count() and bar.bounding_box():
+                    side = Path(out_png)
+                    side = side.with_name(side.stem + "_colorbars" + side.suffix)
+                    bar.screenshot(path=str(side))
+                    outputs.append(side)
             browser.close()
     finally:
         httpd.shutdown()
-    print(f"Rendered {out_png}  ({width}x{height} @{scale}x)")
+    print("Rendered " + ", ".join(str(o) for o in outputs) + f"  ({width}x{height} @{scale}x)")
     return out_png

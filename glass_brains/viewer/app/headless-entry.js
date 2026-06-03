@@ -39,12 +39,13 @@ async function main() {
     const engine = createEngine({ renderer, width: canvas.clientWidth || W, height: canvas.clientHeight || H, sceneModel, colormaps, config });
     const colorbar = showColorbar ? createColorbar(container, { engine, config, colormaps }) : null;
 
-    // Reserve the strip from the MEASURED colorbar height (after the web font loads,
-    // so the height is final), then size the renderer to the resulting canvas.
+    // The brains fill the FULL figure (no colorbar strip → never squashed). The
+    // colorbar, if any, overlays the bottom and is captured SEPARATELY as a sidecar
+    // image by the render driver (which hides it before the brain screenshot).
     if (document.fonts && document.fonts.ready) { try { await document.fonts.ready; } catch (_) {} }
-    const strip = (!colorbar) ? 0 : Math.ceil(colorbar.el.getBoundingClientRect().height) + 22;
-    document.documentElement.style.setProperty('--cbstrip', strip + 'px');
+    document.documentElement.style.setProperty('--cbstrip', '0px');
     engine.resize(canvas.clientWidth, canvas.clientHeight);
+    window.__engine = engine;
 
     document.getElementById('loading').style.display = 'none';
     // A few frames to compile shaders + populate the colorbar, then flag done.

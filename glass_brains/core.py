@@ -272,7 +272,8 @@ def cli():
     r.add_argument('--shadows', action=argparse.BooleanOptionalAction, default=None,
                    help='inter-voxel shadows (clusters cast onto each other); off by default')
     r.add_argument('--colorbar', action=argparse.BooleanOptionalAction, default=True,
-                   help='draw the horizontal colorbar at the bottom (--no-colorbar to hide)')
+                   help='also write the colorbar legend as a separate <out>_colorbars.png '
+                        '(the brain PNG is always clean + full-size; --no-colorbar skips the legend)')
     r.add_argument('--colorbar-font', default=None,
                    help="colorbar tick font-family (default Computer Modern roman)")
     r.add_argument('--colorbar-fontsize', type=float, default=None, help='colorbar tick font size (px)')

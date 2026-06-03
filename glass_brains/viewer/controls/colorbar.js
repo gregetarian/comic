@@ -17,10 +17,16 @@ function swatch(t, os, lighting, cmap) {
     return [r, g, b].map((c) => Math.round(clamp01(linearToSrgb(srgbToLinear(c) * k + glint)) * 255));
 }
 
-export function createColorbar(container, { engine, config, colormaps }) {
+export function createColorbar(container, { engine, config, colormaps, onHide }) {
     const overlays = engine.overlays || engine.sceneModel.manifest.overlays || [];
     const wrap = document.createElement('div');
     wrap.className = 'colorbar';
+    if (onHide) {
+        const close = document.createElement('button');
+        close.className = 'cbar-close'; close.textContent = '✕'; close.title = 'Hide colorbars';
+        close.addEventListener('click', onHide);
+        wrap.appendChild(close);
+    }
     container.appendChild(wrap);
 
     const cbW = config.render?.colorbarWidth ?? 240;
