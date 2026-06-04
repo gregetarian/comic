@@ -372,6 +372,11 @@ export function createFreeCanvasEditor({ container, canvas, config, getEngine, o
             fr.el.style.top = r.cssTop + 'px';
             fr.el.style.width = r.w + 'px';
             fr.el.style.height = r.h + 'px';
+            // Stack frames by paint order (place.z); LIFT the hovered/editing one well above
+            // the rest so its header/handles stay clickable even where panels overlap.
+            const z = (fr.panel.place && fr.panel.place.z != null) ? fr.panel.place.z : i;
+            const lifted = fr.el.classList.contains('hover') || fr.el.classList.contains('fc-editing');
+            fr.el.style.zIndex = lifted ? 200 : (14 + z);
             updateSliceHandles(fr);
         });
     }
