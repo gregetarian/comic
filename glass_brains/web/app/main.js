@@ -91,8 +91,8 @@ async function main() {
     startLoopAndResize();
     setLoading(null);
 
-    // Demo overlay from baked buffers — instant, no Pyodide download.
-    loadDemo().catch((e) => console.warn('demo overlay unavailable:', e));
+    // Bundled default overlays (the boot figure) from baked buffers — no Pyodide download.
+    loadDefaults().catch((e) => console.warn('default overlays unavailable:', e));
 }
 
 /** Headless render (glass-brains render): fixed-size figure, overlays from the manifest's
@@ -131,6 +131,23 @@ async function loadDemo() {
     const meta = await fetch(DATA + 'demo/meta.json').then((r) => r.json());
     const buffers = await loadOverlayArrays(DATA + 'demo/', meta);
     addOverlay(meta, buffers);
+}
+
+/** Load the bundled default overlays (data/defaults/manifest.json) — the boot figure.
+ *  Each overlay is a pre-baked array set with its own colormap/style. Falls back to the
+ *  single demo overlay if the manifest is missing. */
+async function loadDefaults() {
+    const man = await fetchJSON(DATA + 'defaults/manifest.json', null);
+    if (!man || !Array.isArray(man.overlays) || !man.overlays.length) return loadDemo();
+    for (const ov of man.overlays) {
+        const base = DATA + 'defaults/' + ov.dir + '/';
+        const meta = await fetch(base + 'meta.json').then((r) => r.json());
+        if (ov.name) meta.name = ov.name;
+        const buffers = await loadOverlayArrays(base, meta);
+        overlays.push({ meta, meshObjs: buildOverlayMeshes(meta, buffers, overlays.length) });
+        (config.style.overlays ||= []).push(ov.style || {});
+    }
+    rebuild();   // one rebuild for all default overlays + their per-overlay styles
 }
 
 /** Build + register one overlay from a (meta, flat-buffers) pair, then rebuild. */
