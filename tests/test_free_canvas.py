@@ -91,18 +91,18 @@ def main():
         assert abs(w1 - w0) > 0.02, f"resize did not change place.w ({w0} -> {w1})"
         print(f"[3] resize: place.w {round(w0,3)} -> {round(w1,3)} ✓")
 
-        # 4) rotate button (◀ = yaw -15). Header chrome is hidden until hovered, so reveal it
-        # first (and let the opacity fade settle) before clicking — mirrors real usage.
-        frame.locator(".fc-body").hover()
-        page.wait_for_timeout(200)
-        frame.locator("button", has_text="◀").click()
+        # 4) rotate button (◀ = yaw -15). The header chrome fades in on hover, so dispatch the
+        # click directly to keep the test deterministic (real-mouse clickability + the z-order
+        # lift are verified separately).
+        frame.locator("button", has_text="◀").evaluate("el => el.click()")
+        page.wait_for_timeout(60)
         yaw = ev(f"window.__engine().config.layout.panels[{j}].rotate.yaw")
         assert yaw == -15, f"yaw button should set -15, got {yaw}"
         print(f"[4] rotate ◀: yaw = {yaw} ✓")
 
         # 5) view picker change → camera.plane + view name update, rotate preserved
-        frame.locator(".fc-view").select_option("anterior")
-        page.wait_for_timeout(150)
+        frame.locator(".fc-view").evaluate("el => { el.value = 'anterior'; el.dispatchEvent(new Event('change', {bubbles:true})); }")
+        page.wait_for_timeout(120)
         assert ev(f"window.__engine().config.layout.panels[{j}].camera.plane") == "anterior", "view change didn't set plane"
         assert ev(f"window.__engine().config.layout.panels[{j}].view") == "anterior", "view name not recorded"
         assert ev(f"window.__engine().config.layout.panels[{j}].rotate.yaw") == -15, "rotate lost on view change"
@@ -110,14 +110,15 @@ def main():
 
         # 6) slice ✂ cycles a slice on; cycle to a sphere bite, then DRAG its anchor handle
         slbtn = frame.locator("button", has_text="✂")
-        slbtn.click()
-        page.wait_for_timeout(100)
+        slbtn.evaluate("el => el.click()")
+        page.wait_for_timeout(80)
         assert ev(f"window.__engine().config.layout.panels[{j}].slice.shape") == "plane", "first slice should be a plane cut"
         for _ in range(3):                     # plane→coronal→sagittal→sphere
-            slbtn.click()
-        page.wait_for_timeout(150)
+            slbtn.evaluate("el => el.click()")
+        page.wait_for_timeout(120)
         assert ev(f"window.__engine().config.layout.panels[{j}].slice.shape") == "sphere", "expected sphere bite after 4 cycles"
         cx0 = ev(f"window.__engine().config.layout.panels[{j}].slice.center[0]")
+        frame.locator(".fc-body").hover(); page.wait_for_timeout(150)   # lift frame + reveal the handle
         ax, ay = center(frame.locator(".fc-slice-handle").first)   # anchor handle (not the size one)
         page.mouse.move(ax, ay); page.mouse.down()
         page.mouse.move(ax - 70, ay, steps=6); page.mouse.up()

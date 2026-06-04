@@ -1,0 +1,44 @@
+{
+  "overlays": [
+    {
+      "dir": "faces",
+      "name": "Faces (Neurosynth)",
+      "style": {
+        "colormap": "Reds",
+        "voxel": {
+          "representation": "smooth"
+        }
+      }
+    },
+    {
+      "dir": "addiction",
+      "name": "Addiction (Neurosynth)",
+      "style": {
+        "colormap": "Greens",
+        "voxel": {
+          "representation": "smooth"
+        }
+      }
+    },
+    {
+      "dir": "default_network",
+      "name": "Default network (Neurosynth)",
+      "style": {
+        "colormap": "Blues",
+        "voxel": {
+          "representation": "smooth"
+        }
+      }
+    },
+    {
+      "dir": "language",
+      "name": "Language (Neurosynth)",
+      "style": {
+        "colormap": "Purples",
+        "voxel": {
+          "representation": "smooth"
+        }
+      }
+    }
+  ]
+}
