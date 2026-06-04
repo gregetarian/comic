@@ -91,7 +91,10 @@ def main():
         assert abs(w1 - w0) > 0.02, f"resize did not change place.w ({w0} -> {w1})"
         print(f"[3] resize: place.w {round(w0,3)} -> {round(w1,3)} ✓")
 
-        # 4) rotate button (◀ = yaw -15)
+        # 4) rotate button (◀ = yaw -15). Header chrome is hidden until hovered, so reveal it
+        # first (and let the opacity fade settle) before clicking — mirrors real usage.
+        frame.locator(".fc-body").hover()
+        page.wait_for_timeout(200)
         frame.locator("button", has_text="◀").click()
         yaw = ev(f"window.__engine().config.layout.panels[{j}].rotate.yaw")
         assert yaw == -15, f"yaw button should set -15, got {yaw}"
