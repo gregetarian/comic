@@ -7,12 +7,17 @@
  * (layer 1, with a threshold-aware depth material so edges track the slider).
  */
 import * as THREE from 'three';
+import { sliceUniforms, SLICE_FRAG_PARS, SLICE_VERT_PARS, SLICE_VERT_ASSIGN } from './materials.js';
 
 const screenQuadVert = `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy,0.,1.); }`;
 
+// Cortex-outline depth material — sliced so the silhouette follows a Free Canvas cut.
 const depthVert = `varying float vDepth;
-void main(){ vec4 p = modelViewMatrix*vec4(position,1.); vDepth = -p.z; gl_Position = projectionMatrix*p; }`;
-const depthFrag = `varying float vDepth; void main(){ gl_FragColor = vec4(vDepth/500.,0.,0.,1.); }`;
+${SLICE_VERT_PARS}
+void main(){ vec4 p = modelViewMatrix*vec4(position,1.); vDepth = -p.z; ${SLICE_VERT_ASSIGN} gl_Position = projectionMatrix*p; }`;
+const depthFrag = `varying float vDepth;
+${SLICE_FRAG_PARS}
+void main(){ if (gbSliceDiscard(vWorldPos)) discard; gl_FragColor = vec4(vDepth/500.,0.,0.,1.); }`;
 
 const outlineFrag = `
 uniform sampler2D tDepth; uniform vec2 uResolution; uniform float uLineWidth, uThreshold, uOpacity; uniform vec3 uColor;
@@ -48,17 +53,25 @@ void main(){
 /** Threshold-aware depth material — discards voxels below the live threshold so
  *  the voxel edge outline recomputes on the fly. Bound to shared voxel uniforms. */
 export function makeThresholdDepthMaterial(sharedUniforms) {
+    const s = sharedUniforms;
     return new THREE.ShaderMaterial({
         side: THREE.DoubleSide,
         uniforms: {
-            uThreshold: sharedUniforms.uThreshold,
-            uPositiveOnly: sharedUniforms.uPositiveOnly,
-            uClusterMin: sharedUniforms.uClusterMin,
+            uThreshold: s.uThreshold,
+            uPositiveOnly: s.uPositiveOnly,
+            uClusterMin: s.uClusterMin,
+            // share the overlay's slice uniforms so the voxel edges follow the cut too
+            uSliceType: s.uSliceType, uSliceMode: s.uSliceMode,
+            uSliceNormal: s.uSliceNormal, uSliceOffset: s.uSliceOffset,
+            uSliceCenter: s.uSliceCenter, uSliceRadius: s.uSliceRadius,
+            uSliceMin: s.uSliceMin, uSliceMax: s.uSliceMax,
         },
         vertexShader: `attribute float aValue; attribute float aClusterSize; varying float vDepth; varying float vT; varying float vC;
-            void main(){ vec4 p = modelViewMatrix*vec4(position,1.); vDepth=-p.z; vT=aValue; vC=aClusterSize; gl_Position=projectionMatrix*p; }`,
+            ${SLICE_VERT_PARS}
+            void main(){ vec4 p = modelViewMatrix*vec4(position,1.); vDepth=-p.z; vT=aValue; vC=aClusterSize; ${SLICE_VERT_ASSIGN} gl_Position=projectionMatrix*p; }`,
         fragmentShader: `uniform float uThreshold, uPositiveOnly, uClusterMin; varying float vDepth; varying float vT; varying float vC;
-            void main(){ if(abs(vT)<uThreshold) discard; if(uPositiveOnly>0.5 && vT<0.0) discard; if(vC<uClusterMin) discard; gl_FragColor=vec4(vDepth/500.,0.,0.,1.); }`,
+            ${SLICE_FRAG_PARS}
+            void main(){ if (gbSliceDiscard(vWorldPos)) discard; if(abs(vT)<uThreshold) discard; if(uPositiveOnly>0.5 && vT<0.0) discard; if(vC<uClusterMin) discard; gl_FragColor=vec4(vDepth/500.,0.,0.,1.); }`,
     });
 }
 
@@ -77,6 +90,7 @@ export class OutlinePass {
         });
         this.depthMaterial = opts.depthMaterial || new THREE.ShaderMaterial({
             vertexShader: depthVert, fragmentShader: depthFrag, side: THREE.DoubleSide,
+            uniforms: sliceUniforms(),   // cortex outline follows a Free Canvas cut (set per panel)
         });
         const col = new THREE.Color(opts.color ?? 0x000000);
         this.outlineMaterial = new THREE.ShaderMaterial({

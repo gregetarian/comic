@@ -36,6 +36,12 @@ view pixel-for-pixel.
 - **Fully customisable layouts** — any grid of any anatomical views
   (`left_lateral`, `right_medial`, `dorsal`/`axial`, `anterior`/`frontal`,
   subcortical close-ups, …), 2×2 to N×M, from the CLI.
+- **Free Canvas** — a "Canva for brains" mode: drop panels anywhere on a free
+  2D canvas, **move / resize / overlap** them, **rotate** each view (l/r/u/d/roll
+  buttons or shift-drag orbit), **slice** any panel (a plane cut or a sphere/cube
+  **"bite"** out of the whole brain), and toggle a **transparent background**. It
+  still **Copy-CLI**s to a self-contained `--spec figure.json` that reproduces the
+  figure headlessly, pixel-faithful.
 - **Statistical controls** — voxelwise threshold, **cluster-extent threshold**
   (drop clusters below *k* voxels), positive-only.
 - **Faithful colour** — the full `cmap` colormap catalogue, auto
@@ -115,7 +121,7 @@ toggle) for a one-line explanation.**
 - **`+ NIfTI`** — load one or more stat maps (meshed in-browser via Pyodide; the first
   upload fetches the ~30 MB scientific stack once). Each appends a new overlay row.
 - **Copy CLI** — copy a `glass-brains render` command that reproduces the current view.
-- **layout** — switch 4-panel / 9-panel / overview.
+- **layout** — switch 4-panel / 9-panel / overview / **Free Canvas** (see below).
 - **Save brain** — high-res, print-tuned capture of the brains only (no colorbars,
   full canvas — never squashed by a stack of bars).
 - **Save bars** — the colorbars on their own as a separate legend image.
@@ -140,11 +146,38 @@ toggle) for a one-line explanation.**
 - **Hover a panel** → a small **`+ / –`** appears top-left to rescale just that view.
 - **Kapow** (top-right checkbox) → comic SFX on click, for fun.
 
+### Free Canvas
+
+Pick **Free Canvas** in the layout menu (it seeds from your current layout, so the
+switch is seamless) to turn the figure into a free 2D canvas of brain panels:
+
+- **Move / resize** — drag a panel's brain (or its header bar) to move it; drag the
+  bottom-right **corner** to resize. Panels can overlap; **⤒** brings one to the front.
+- **Rotate** — each panel's header has **◀ ▶ ▲ ▼** (yaw/pitch) and **⟲ ⟳** (roll)
+  step buttons; **shift-drag** the brain to free-orbit.
+- **View** — the per-panel dropdown picks any named view (lateral/medial, anterior,
+  dorsal/axial, ventral, subcortical L/R, …).
+- **Slice (`✂`)** — cycles a cut on that panel: axial / coronal / sagittal plane →
+  **sphere bite** → **cube bite**. The cut goes through the *whole* brain (cortex shell
+  and overlay together) and the outlines follow it. Two handles appear — drag the
+  **orange** dot to move the cut (shift-drag for depth), the **teal** dot to resize it.
+- **Toolbar** — seed an *R × C* grid of panels, **+ panel**, or tick **transparent**
+  for a transparent figure background (exports a transparent PNG).
+- **Copy CLI** — emits `glass-brains render … --spec figure.json` and downloads the
+  `figure.json`; running that command reproduces the exact figure headlessly.
+
+> Slicing supports arbitrary plane normals / sphere centres / cube bounds in the
+> `figure.json` (and `--spec`); the editor's `✂` offers the common presets one click
+> at a time. Overlapping panels paint in z-order (no cross-panel alpha blending).
+
 ## CLI reference
 
 `glass-brains render` is fully parameterised — `--grid RxC`, `--views ...`
-(row-major; `_` = blank cell; aliases like `axial=dorsal`, `frontal=anterior`),
-plus style flags: `--surface`, `--voxels`, `--smooth` (extra surface smoothing),
+(row-major; `_` = blank cell; aliases like `axial=dorsal`, `frontal=anterior`), or
+**`--spec figure.json`** for a Free Canvas figure (a self-contained canvas document —
+layout + style + size — as emitted by the browser's *Copy CLI*; it overrides
+`--grid/--views`), plus `--bg-alpha 0` for a transparent PNG, plus style flags:
+`--surface`, `--voxels`, `--smooth` (extra surface smoothing),
 `--cmap`, `-k/--cluster-size`, `--threshold`, `--veil`, `--veil-k`, `--emissive`, `--specular`, `--shininess`,
 `--directional`, `--ambient`, `--cortex-alpha`, `--edge-thr`, `--line-w`,
 `--voxel-edge-w`, `--margin`, `--colorbar/--no-colorbar`, `--colorbar-font`,
@@ -218,6 +251,7 @@ python tests/test_pipeline_parity.py   # CPython pipeline == browser ground trut
 python tests/test_cli_arrays.py        # render uses array overlays, not GLB
 python tests/test_pyodide_sync.py      # web/pyodide/pipeline.py == glass_brains/pipeline.py
 python tests/test_smoothing.py         # smooth+ moves vertices, scales, restores, preserves aValue
+python tests/test_free_canvas.py       # Free Canvas: move/resize/rotate/view/slice + --spec round-trip
 python tests/smoketest.py              # Pyodide boots + meshes the demo in a browser
 python tests/integration_test.py       # full app: demo, upload, preset switch, remove
 ```

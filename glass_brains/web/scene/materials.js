@@ -12,14 +12,51 @@
  */
 import * as THREE from 'three';
 
+// ---- Slicing (Free Canvas) ----------------------------------------------
+// A per-panel SDF "cut" shared by EVERY material (voxel, glass, anatomy, and the
+// two depth materials in passes.js) so the whole brain slices together and the
+// edge/outline passes follow the cut. THREE.clippingPlanes can't do this (materials
+// are shared across panels, and it can't express a sphere/box BITE), so we inject a
+// world-space discard. uSliceType 0 = off (default), so unsliced panels are untouched.
+export function sliceUniforms() {
+    return {
+        uSliceType: { value: 0 },   // 0 none · 1 plane · 2 sphere · 3 cube
+        uSliceMode: { value: 0 },   // 0 keep (show region) · 1 bite (remove region)
+        uSliceNormal: { value: new THREE.Vector3(0, 0, 1) },
+        uSliceOffset: { value: 0 },
+        uSliceCenter: { value: new THREE.Vector3(0, 0, 0) },
+        uSliceRadius: { value: 0 },
+        uSliceMin: { value: new THREE.Vector3(0, 0, 0) },
+        uSliceMax: { value: new THREE.Vector3(0, 0, 0) },
+    };
+}
+// Fragment-stage declarations + the discard predicate (global scope, so it can be
+// prepended before main()). Coordinates are world mm (== vertex position; meshes at identity).
+export const SLICE_FRAG_PARS = `
+uniform float uSliceType, uSliceMode, uSliceOffset, uSliceRadius;
+uniform vec3 uSliceNormal, uSliceCenter, uSliceMin, uSliceMax;
+varying vec3 vWorldPos;
+bool gbSliceDiscard(vec3 p){
+    if (uSliceType < 0.5) return false;
+    bool ins;
+    if (uSliceType < 1.5) ins = dot(p, normalize(uSliceNormal)) > uSliceOffset;     // plane half-space
+    else if (uSliceType < 2.5) ins = length(p - uSliceCenter) < uSliceRadius;        // sphere
+    else ins = all(greaterThan(p, uSliceMin)) && all(lessThan(p, uSliceMax));        // cube AABB
+    return (uSliceMode < 0.5) ? !ins : ins;   // keep: drop outside · bite: drop inside
+}`;
+export const SLICE_VERT_PARS = `varying vec3 vWorldPos;`;
+export const SLICE_VERT_ASSIGN = `vWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;`;
+
 // ---- Glass cortex --------------------------------------------------------
 const glassVert = `
 varying vec3 vNormal;
 varying vec3 vViewDir;
+${SLICE_VERT_PARS}
 void main() {
     vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
     vNormal = normalize(normalMatrix * normal);
     vViewDir = normalize(-mvPosition.xyz);
+    ${SLICE_VERT_ASSIGN}
     gl_Position = projectionMatrix * mvPosition;
 }`;
 const glassFrag = `
@@ -28,7 +65,9 @@ uniform float uFresnelPower, uMinOpacity, uMaxOpacity, uCelBands;
 uniform vec3 uLightDir;
 varying vec3 vNormal;
 varying vec3 vViewDir;
+${SLICE_FRAG_PARS}
 void main() {
+    if (gbSliceDiscard(vWorldPos)) discard;
     vec3 n = gl_FrontFacing ? normalize(vNormal) : -normalize(vNormal);
     vec3 v = normalize(vViewDir);
     float fresnel = pow(1.0 - abs(dot(v, n)), uFresnelPower);
@@ -53,6 +92,7 @@ export function makeGlassMaterial(glass = {}) {
             uMaxOpacity: { value: glass.maxOpacity ?? 0.08 },
             uCelBands: { value: glass.celBands ?? 3.0 },
             uLightDir: { value: new THREE.Vector3(0, 0, 1) }, // view-space headlight
+            ...sliceUniforms(),                               // per-panel cut (set by the renderer)
         },
     });
 }
@@ -92,6 +132,8 @@ export function makeSharedVoxelUniforms(style = {}) {
         // specular/shine sliders work even with the scene lights at zero.
         uGlintAmt: { value: v.specular ?? 0.10 },
         uGlintPow: { value: v.shininess ?? 80 },
+        // Per-panel slice (shared with this overlay's edge depth material in passes.js).
+        ...sliceUniforms(),
     };
 }
 
@@ -114,17 +156,19 @@ export function makeVoxelMaterial(style = {}, shared) {
         Object.assign(shader.uniforms, shared);
         shader.vertexShader = shader.vertexShader
             .replace('#include <common>',
-                `#include <common>\n attribute float aValue;\n attribute float aClusterSize;\n varying float vThreshValue;\n varying float vClusterSize;\n varying float vViewZ;`)
+                `#include <common>\n attribute float aValue;\n attribute float aClusterSize;\n varying float vThreshValue;\n varying float vClusterSize;\n varying float vViewZ;\n ${SLICE_VERT_PARS}`)
             .replace('#include <begin_vertex>',
                 `#include <begin_vertex>\n vThreshValue = aValue;\n vClusterSize = aClusterSize;`)
             .replace('#include <project_vertex>',
-                `#include <project_vertex>\n vViewZ = -mvPosition.z;`);
+                `#include <project_vertex>\n vViewZ = -mvPosition.z;\n ${SLICE_VERT_ASSIGN}`);
         shader.fragmentShader =
             `uniform float uThreshold, uMaxAbs, uPositiveOnly, uClusterMin, uNearZ, uFarZ, uVeilStrength, uVeilK, uEmissiveBoost, uGlintAmt, uGlintPow;
              uniform vec3 uVeilColor;
-             varying float vThreshValue; varying float vClusterSize; varying float vViewZ;\n` + shader.fragmentShader;
+             varying float vThreshValue; varying float vClusterSize; varying float vViewZ;
+             ${SLICE_FRAG_PARS}\n` + shader.fragmentShader;
         shader.fragmentShader = shader.fragmentShader.replace('#include <color_fragment>',
             `#include <color_fragment>
+             if (gbSliceDiscard(vWorldPos)) discard;
              if (abs(vThreshValue) < uThreshold) discard;
              if (uPositiveOnly > 0.5 && vThreshValue < 0.0) discard;
              if (vClusterSize < uClusterMin) discard;

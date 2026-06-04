@@ -56,7 +56,14 @@ export const DEFAULTS = {
         shadows: { enabled: false, offset: 0.30, mapSize: 1024 },
     },
     layout: {
+        // 'grid' (default) = panels positioned by grid cells; 'free' = Free Canvas,
+        // panels positioned by per-panel `place` fractions (see normalizeConfig).
+        mode: 'grid',
         grid: { rows: 2, cols: 2, rowWeights: [1, 1], colWeights: [1, 1] },
+        // Free-canvas reference design space. w/h pin the aspect the `place` fractions
+        // were authored against (so the CLI reproduces identical RELATIVE geometry at
+        // any --width/--height); bgAlpha 0..1 is the canvas background opacity (1 = opaque).
+        canvas: { w: 1600, h: 1000, bgAlpha: 1 },
         panels: [],
     },
 };
@@ -118,7 +125,11 @@ export function validateConfig(cfg) {
     panels.forEach((p, i) => {
         if (!p.id) errors.push(`panel[${i}] missing id`);
         if (!p.camera) errors.push(`panel[${i}] (${p.id}) missing camera`);
-        if (!p.cell || p.cell.row == null || p.cell.col == null) errors.push(`panel[${i}] (${p.id}) missing cell {row,col}`);
+        // A panel is positioned EITHER by a grid cell (grid mode) OR by a free-canvas
+        // `place` rectangle (free mode) — exactly one, never both, never neither.
+        const hasCell = p.cell && p.cell.row != null && p.cell.col != null;
+        const hasPlace = p.place && p.place.w != null && p.place.h != null;
+        if (hasCell === hasPlace) errors.push(`panel[${i}] (${p.id}) needs exactly one of cell {row,col} or place {x,y,w,h}`);
         const content = p.content || {};
         (content.roles || []).forEach((r) => { if (!ROLES.has(r)) errors.push(`panel ${p.id}: bad role '${r}'`); });
         if (content.hemisphere && !HEMI.has(content.hemisphere)) errors.push(`panel ${p.id}: bad hemisphere '${content.hemisphere}'`);
