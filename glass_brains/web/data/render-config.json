@@ -1,5 +1,5 @@
 {
-  "preset": "ninePanel",
+  "preset": "freeDefault",
   "style": {
     "colormap": "YlGnBu",
     "voxel": {

@@ -219,7 +219,7 @@ export function bindGlobalControls({ config, colormaps, getEngine, preset, onUpl
 
     const lay = $('c-layout');
     if (lay) {
-        lay.value = preset || 'ninePanel';
+        lay.value = preset || 'freeDefault';
         lay.addEventListener('change', () => onPreset(lay.value));
     }
 
