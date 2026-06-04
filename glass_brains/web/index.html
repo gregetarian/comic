@@ -67,6 +67,15 @@
       background: rgba(255,255,255,0.92); border: 1px solid #e3e3e3; border-radius: 5px; padding: 5px 8px; font-size: 12px; }
     .fc-toolbar .fc-tag { font-weight: 700; color: #4a90d9; letter-spacing: 0.3px; }
     .fc-toolbar input.fc-grid { width: 34px; font-size: 12px; padding: 2px 3px; border: 1px solid #ccc; border-radius: 3px; text-align: center; }
+    .fc-toolbar label.fc-chk { display: inline-flex; align-items: center; gap: 3px; font-size: 12px; color: #444; cursor: pointer; user-select: none; }
+    /* faint snap grid behind the panels (only while snapping) */
+    .fc-gridlines { position: absolute; display: none; pointer-events: none; z-index: 13;
+      background-image: linear-gradient(rgba(74,144,217,0.13) 1px, transparent 1px),
+                        linear-gradient(90deg, rgba(74,144,217,0.13) 1px, transparent 1px); }
+    /* delayed hover tooltip for editor controls */
+    .fc-tip { position: fixed; display: none; z-index: 9999; max-width: 240px; background: #2b2b2b; color: #fff;
+      font-size: 11px; line-height: 1.35; padding: 5px 8px; border-radius: 4px; box-shadow: 0 3px 10px rgba(0,0,0,0.32);
+      pointer-events: none; white-space: nowrap; }
     .fc-frame { position: absolute; border: 1.5px solid rgba(74,144,217,0.85); border-radius: 4px; z-index: 14;
       pointer-events: none; box-shadow: 0 0 0 1px rgba(255,255,255,0.5); }
     .fc-frame .fc-body { position: absolute; inset: 0; pointer-events: auto; cursor: move; } /* drag=move; shift+drag=orbit */
