@@ -345,8 +345,15 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
             const { def, camera } = panel;
             const rect = panelRect(def);
             const aabb = panelAABB(def.content);
+            // Grid panels use the global (snug) margin; free-canvas panels use their own
+            // roomier margin (default 1.1) so the volume + its outline stroke aren't
+            // clipped by the frame — a rotated/standalone panel has no neighbour to hide a
+            // slight overflow behind.
+            const margin = def.place
+                ? (def.framing && def.framing.margin != null ? def.framing.margin : 1.1)
+                : (config.style.margin ?? def.framing.margin);
             const fr = frameContent(aabb, def.camera, rect.aspect,
-                { ...def.framing, margin: config.style.margin ?? def.framing.margin, tilt: config.style.tilt, rotate: def.rotate });
+                { ...def.framing, margin, tilt: config.style.tilt, rotate: def.rotate });
             // Paint order: explicit place.z, else the array index (so grid panels keep
             // their natural order and free panels overdraw lower-z neighbours).
             const z = (def.place && def.place.z != null) ? def.place.z : idx;

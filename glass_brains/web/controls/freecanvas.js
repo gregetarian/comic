@@ -22,6 +22,29 @@ const el = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) 
 const ROT_STEP = 15;     // degrees per button press
 const ORBIT_SENS = 0.45; // degrees per pixel of body drag
 const MIN_FRAC = 0.06;   // smallest panel (fraction of canvas)
+const SNAP_PX = 16;      // snap-to-grid step (CSS px) when snapping is on
+
+// Delayed, styled hover tooltip for editor controls — native `title` is slow and
+// inconsistent. `text` may be a string or a function (for controls whose label changes).
+let _tip = null, _tipTimer = 0;
+const hideTip = () => { clearTimeout(_tipTimer); if (_tip) _tip.style.display = 'none'; };
+function attachTip(node, text) {
+    if (!text) return;
+    node.setAttribute('aria-label', typeof text === 'function' ? 'control' : text);
+    node.addEventListener('mouseenter', () => {
+        _tipTimer = setTimeout(() => {
+            if (!_tip) { _tip = el('div', 'fc-tip'); document.body.appendChild(_tip); }
+            _tip.textContent = typeof text === 'function' ? text() : text;
+            _tip.style.display = 'block';
+            const r = node.getBoundingClientRect();
+            _tip.style.left = Math.max(6, Math.min(r.left, window.innerWidth - _tip.offsetWidth - 6)) + 'px';
+            const below = r.bottom + 6;
+            _tip.style.top = (below + _tip.offsetHeight <= window.innerHeight ? below : r.top - _tip.offsetHeight - 6) + 'px';
+        }, 450);
+    });
+    node.addEventListener('mouseleave', hideTip);
+    node.addEventListener('mousedown', hideTip);
+}
 
 // ✂ cycle: off → 3 orthogonal plane cuts → sphere bite → cube bite. Geometry is in
 // world mm (MNI), centred on the brain. Arbitrary normals/centres are expressible in
@@ -76,30 +99,40 @@ const newPanelId = () => `fc${++_uid}`;
 
 export function createFreeCanvasEditor({ container, canvas, config, getEngine, onStructureChange, onBgAlpha }) {
     let frames = [];
+    let snap = true;                                 // snap move/resize to a fine px grid
+    const gridOverlay = el('div', 'fc-gridlines');   // faint grid shown while snapping
     const toolbar = buildToolbar();
 
     function layout() { return config.layout; }
     function panels() { return config.layout.panels; }
     function maxZ() { return panels().reduce((m, p) => Math.max(m, (p.place && p.place.z) || 0), 0); }
+    // Snap a fraction to the nearest SNAP_PX step of the live canvas (no-op when off).
+    const snapF = (frac, dim) => (snap ? Math.round(frac * dim / SNAP_PX) * SNAP_PX / dim : frac);
+    const updateGrid = () => { gridOverlay.style.display = (layout().mode === 'free' && snap) ? 'block' : 'none'; };
 
     // --- toolbar: grid seeder + add panel ---
     function buildToolbar() {
         const bar = el('div', 'fc-toolbar');
         bar.append(el('span', 'fc-tag', 'Free Canvas'));
-        const rows = el('input', 'fc-grid'); rows.type = 'number'; rows.min = 1; rows.max = 6; rows.value = 2; rows.title = 'rows';
-        const cols = el('input', 'fc-grid'); cols.type = 'number'; cols.min = 1; cols.max = 6; cols.value = 2; cols.title = 'cols';
-        const seed = el('button', 'btn', 'Seed grid'); seed.title = 'Replace the canvas with an R×C grid of panels';
+        const rows = el('input', 'fc-grid'); rows.type = 'number'; rows.min = 1; rows.max = 6; rows.value = 2; attachTip(rows, 'Rows');
+        const cols = el('input', 'fc-grid'); cols.type = 'number'; cols.min = 1; cols.max = 6; cols.value = 2; attachTip(cols, 'Columns');
+        const seed = el('button', 'btn', 'Seed grid'); attachTip(seed, 'Replace the canvas with an R×C grid of panels');
         seed.addEventListener('click', () => seedGrid(clamp(+rows.value | 0, 1, 6), clamp(+cols.value | 0, 1, 6)));
-        const add = el('button', 'btn', '+ panel'); add.title = 'Add a panel at the centre';
+        const add = el('button', 'btn', '+ panel'); attachTip(add, 'Add a panel at the centre of the canvas');
         add.addEventListener('click', addPanel);
         bar.append(rows, el('span', null, '×'), cols, seed, add);
+        // Snap to grid — snaps move/resize to a fine grid (with a faint grid overlay).
+        const snapLab = el('label', 'fc-chk'); const snapCb = el('input'); snapCb.type = 'checkbox'; snapCb.checked = snap;
+        snapCb.addEventListener('change', () => { snap = snapCb.checked; updateGrid(); });
+        snapLab.append(snapCb, el('span', null, ' snap')); attachTip(snapLab, 'Snap moving & resizing to a fine grid');
+        bar.append(snapLab);
         // Transparent background (whole canvas) — exports a transparent PNG.
         if (onBgAlpha) {
-            const lab = el('label', 'fc-bg'); lab.title = 'Transparent figure background (exports a transparent PNG)';
+            const lab = el('label', 'fc-chk');
             const cb = el('input'); cb.type = 'checkbox';
             cb.checked = ((config.layout.canvas && config.layout.canvas.bgAlpha) ?? 1) < 1;
             cb.addEventListener('change', () => onBgAlpha(cb.checked ? 0 : 1));
-            lab.append(cb, el('span', null, ' transparent'));
+            lab.append(cb, el('span', null, ' transparent')); attachTip(lab, 'Transparent figure background (exports a transparent PNG)');
             bar.append(lab);
         }
         return bar;
@@ -110,7 +143,7 @@ export function createFreeCanvasEditor({ container, canvas, config, getEngine, o
         const pad = 0.012, list = [];
         for (let i = 0; i < r * c; i++) {
             const ri = Math.floor(i / c), ci = i % c;
-            const p = applyView({ id: newPanelId(), framing: { fit: 'auto' } }, VIEW_ORDER[i % VIEW_ORDER.length]);
+            const p = applyView({ id: newPanelId(), framing: { fit: 'auto', margin: 1.1 } }, VIEW_ORDER[i % VIEW_ORDER.length]);
             p.place = { x: ci / c + pad, y: ri / r + pad, w: 1 / c - 2 * pad, h: 1 / r - 2 * pad, z: i };
             list.push(p);
         }
@@ -118,7 +151,7 @@ export function createFreeCanvasEditor({ container, canvas, config, getEngine, o
         onStructureChange();
     }
     function addPanel() {
-        const p = applyView({ id: newPanelId(), framing: { fit: 'auto' } }, 'dorsal');
+        const p = applyView({ id: newPanelId(), framing: { fit: 'auto', margin: 1.1 } }, 'dorsal');
         p.place = { x: 0.35, y: 0.35, w: 0.3, h: 0.3, z: maxZ() + 1 };
         panels().push(p);
         onStructureChange();
@@ -140,12 +173,12 @@ export function createFreeCanvasEditor({ container, canvas, config, getEngine, o
         const view = el('select', 'fc-view');
         for (const name of VIEW_ORDER) { const o = el('option', null, VIEWS[name].title); o.value = name; view.append(o); }
         view.value = panelViewName(panel);
-        view.title = 'View for this panel';
+        attachTip(view, 'View shown in this panel');
         view.addEventListener('pointerdown', (e) => e.stopPropagation());
         view.addEventListener('change', () => { applyView(panel, view.value); });
 
-        const mkBtn = (txt, title, fn) => {
-            const b = el('button', null, txt); b.title = title; b.type = 'button';
+        const mkBtn = (txt, tip, fn) => {
+            const b = el('button', null, txt); b.type = 'button'; attachTip(b, tip);
             b.addEventListener('pointerdown', (e) => e.stopPropagation());
             b.addEventListener('click', (e) => { e.stopPropagation(); fn(); });
             return b;
@@ -153,14 +186,14 @@ export function createFreeCanvasEditor({ container, canvas, config, getEngine, o
         const rot = (k, d) => () => { (panel.rotate ||= { yaw: 0, pitch: 0, roll: 0 })[k] += d; };
         let sliceIdx = sliceCycleIndex(panel.slice);
         const sliceBtn = el('button', null, '✂'); sliceBtn.type = 'button';
-        const setSliceTitle = () => { sliceBtn.title = 'Slice: ' + (SLICE_CYCLE[sliceIdx] ? SLICE_CYCLE[sliceIdx].label : 'off') + ' — click to cycle'; };
-        sliceBtn.classList.toggle('on', !!panel.slice); setSliceTitle();
+        sliceBtn.classList.toggle('on', !!panel.slice);
+        attachTip(sliceBtn, () => 'Slice: ' + (SLICE_CYCLE[sliceIdx] ? SLICE_CYCLE[sliceIdx].label : 'off') + ' — click to cycle');
         sliceBtn.addEventListener('pointerdown', (e) => e.stopPropagation());
         sliceBtn.addEventListener('click', (e) => {
             e.stopPropagation();
             sliceIdx = (sliceIdx + 1) % SLICE_CYCLE.length;
             panel.slice = materializeSlice(SLICE_CYCLE[sliceIdx]);
-            sliceBtn.classList.toggle('on', !!panel.slice); setSliceTitle();
+            sliceBtn.classList.toggle('on', !!panel.slice);
         });
         head.append(view,
             mkBtn('◀', 'Turn left (yaw −)', rot('yaw', -ROT_STEP)),
@@ -180,6 +213,10 @@ export function createFreeCanvasEditor({ container, canvas, config, getEngine, o
         f.append(body, head, resize, anchorH, sizeH);
         container.appendChild(f);
 
+        attachTip(body, 'Drag to move · Shift-drag to rotate');
+        attachTip(resize, 'Drag to resize this panel');
+        attachTip(anchorH, 'Drag to move the cut · Shift-drag for depth');
+        attachTip(sizeH, 'Drag to resize the cut');
         dragMove(head, panel);        // drag the header bar to move
         dragBody(body, panel);        // drag the brain to move; SHIFT+drag to orbit
         dragResize(resize, panel);
@@ -243,8 +280,8 @@ export function createFreeCanvasEditor({ container, canvas, config, getEngine, o
     }
     function moveBy(panel, start, dx, dy) {
         const W = canvas.clientWidth, H = canvas.clientHeight, pl = panel.place;
-        pl.x = clamp(start.x + dx / W, -pl.w + 0.02, 1 - 0.02);
-        pl.y = clamp(start.y + dy / H, -pl.h + 0.02, 1 - 0.02);
+        pl.x = snapF(clamp(start.x + dx / W, -pl.w + 0.02, 1 - 0.02), W);
+        pl.y = snapF(clamp(start.y + dy / H, -pl.h + 0.02, 1 - 0.02), H);
     }
     function dragMove(handle, panel) {
         startDrag(handle, () => ({ x: panel.place.x, y: panel.place.y }),
@@ -253,8 +290,8 @@ export function createFreeCanvasEditor({ container, canvas, config, getEngine, o
     function dragResize(handle, panel) {
         startDrag(handle, () => ({ w: panel.place.w, h: panel.place.h }), (c, dx, dy) => {
             const W = canvas.clientWidth, H = canvas.clientHeight, pl = panel.place;
-            pl.w = clamp(c.w + dx / W, MIN_FRAC, 1);
-            pl.h = clamp(c.h + dy / H, MIN_FRAC, 1);
+            pl.w = snapF(clamp(c.w + dx / W, MIN_FRAC, 1), W);
+            pl.h = snapF(clamp(c.h + dy / H, MIN_FRAC, 1), H);
         });
     }
     function dragBody(handle, panel) {
@@ -279,15 +316,20 @@ export function createFreeCanvasEditor({ container, canvas, config, getEngine, o
     // --- public: refresh (rebuild frames) / reposition (track panel rects) / destroy ---
     function refresh() {
         frames.forEach((fr) => fr.el.remove());
-        frames = (layout().mode === 'free')
-            ? panels().map((p, i) => makeFrame(p, i))
-            : [];
-        toolbar.style.display = (layout().mode === 'free') ? '' : 'none';
-        if (!toolbar.isConnected && layout().mode === 'free') container.appendChild(toolbar);
+        const free = layout().mode === 'free';
+        frames = free ? panels().map((p, i) => makeFrame(p, i)) : [];
+        toolbar.style.display = free ? '' : 'none';
+        if (free && !toolbar.isConnected) container.appendChild(toolbar);
+        if (free && !gridOverlay.isConnected) container.appendChild(gridOverlay);
+        updateGrid();
         reposition();
     }
     function reposition() {
         if (layout().mode !== 'free') return;
+        // grid overlay tracks the canvas area (behind the frames)
+        gridOverlay.style.left = '0px'; gridOverlay.style.top = '0px';
+        gridOverlay.style.width = canvas.clientWidth + 'px'; gridOverlay.style.height = canvas.clientHeight + 'px';
+        gridOverlay.style.backgroundSize = SNAP_PX + 'px ' + SNAP_PX + 'px';
         const rects = getEngine().getPanelRects();
         frames.forEach((fr, i) => {
             const r = rects[i]; if (!r) return;
@@ -302,6 +344,8 @@ export function createFreeCanvasEditor({ container, canvas, config, getEngine, o
         frames.forEach((fr) => fr.el.remove());
         frames = [];
         toolbar.remove();
+        gridOverlay.remove();
+        hideTip();
     }
 
     return { refresh, reposition, destroy };

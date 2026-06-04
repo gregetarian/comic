@@ -198,7 +198,7 @@ function toFreeCanvas(curLayout, rects, W, H) {
         const { cell, rowSpan, colSpan, ...rest } = p;     // drop grid-only fields
         return {
             ...rest,
-            framing: { ...(p.framing || {}), fit: 'auto' },
+            framing: { ...(p.framing || {}), fit: 'auto', margin: 1.1 },   // roomy: don't clip the volume
             place: { x: r.cssLeft / W, y: r.cssTop / H, w: r.w / W, h: r.h / H, z: i },
         };
     });
