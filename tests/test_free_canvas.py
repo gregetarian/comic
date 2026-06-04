@@ -42,6 +42,12 @@ def main():
         page.goto(url)
 
         ev = page.evaluate
+        # Center of an element via JS rect — robust for tiny absolutely-positioned handles
+        # (Playwright's bounding_box() auto-visibility check is finicky with these; a real
+        # mouse at these coords hits them, which is what we simulate).
+        def center(loc):
+            c = loc.evaluate("e => { const b = e.getBoundingClientRect(); return [b.x + b.width / 2, b.y + b.height / 2]; }")
+            return c[0], c[1]
         page.wait_for_function("window.__engine && window.__engine() && window.__engine().overlays.length >= 1", timeout=60_000)
         assert ev("window.__engine().config.layout.mode") == "grid", "default layout should be grid mode"
 
@@ -63,12 +69,10 @@ def main():
         pj = lambda field: ev(f"window.__engine().config.layout.panels[{j}].place.{field}")
 
         # 2) drag the body to MOVE → place.x/y change
-        box = frame.locator(".fc-body").bounding_box()
+        bx, by = center(frame.locator(".fc-body"))
         x0 = pj("x")
-        page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
-        page.mouse.down()
-        page.mouse.move(box["x"] + box["width"] / 2 - 120, box["y"] + box["height"] / 2 - 70, steps=8)
-        page.mouse.up()
+        page.mouse.move(bx, by); page.mouse.down()
+        page.mouse.move(bx - 120, by - 70, steps=8); page.mouse.up()
         page.wait_for_timeout(120)   # let the RAF loop reposition the frame
         x1 = pj("x")
         assert abs(x1 - x0) > 0.02, f"move did not change place.x ({x0} -> {x1})"
@@ -76,11 +80,9 @@ def main():
 
         # 3) drag the corner to RESIZE → place.w changes
         w0 = pj("w")
-        rz = frame.locator(".fc-resize").bounding_box()
-        page.mouse.move(rz["x"] + 7, rz["y"] + 7)
-        page.mouse.down()
-        page.mouse.move(rz["x"] + 7 + 80, rz["y"] + 7 + 55, steps=6)
-        page.mouse.up()
+        rx, ry = center(frame.locator(".fc-resize"))
+        page.mouse.move(rx, ry); page.mouse.down()
+        page.mouse.move(rx + 80, ry + 55, steps=6); page.mouse.up()
         page.wait_for_timeout(120)
         w1 = pj("w")
         assert abs(w1 - w0) > 0.02, f"resize did not change place.w ({w0} -> {w1})"
@@ -110,11 +112,9 @@ def main():
         page.wait_for_timeout(150)
         assert ev(f"window.__engine().config.layout.panels[{j}].slice.shape") == "sphere", "expected sphere bite after 4 cycles"
         cx0 = ev(f"window.__engine().config.layout.panels[{j}].slice.center[0]")
-        bb = frame.locator(".fc-slice-handle").first.bounding_box()   # anchor handle (not the size one)
-        page.mouse.move(bb["x"] + 6, bb["y"] + 6)
-        page.mouse.down()
-        page.mouse.move(bb["x"] + 6 - 70, bb["y"] + 6, steps=6)
-        page.mouse.up()
+        ax, ay = center(frame.locator(".fc-slice-handle").first)   # anchor handle (not the size one)
+        page.mouse.move(ax, ay); page.mouse.down()
+        page.mouse.move(ax - 70, ay, steps=6); page.mouse.up()
         page.wait_for_timeout(120)
         cx1 = ev(f"window.__engine().config.layout.panels[{j}].slice.center[0]")
         assert abs(cx1 - cx0) > 1.0, f"slice anchor drag did not move center.x ({cx0} -> {cx1})"
