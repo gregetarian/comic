@@ -166,7 +166,13 @@ export function buildOverlayRows({ engine, config, colormaps, onRemove }) {
         g.append(clu.wrap);
 
         const sm = sw('smooth+');
-        bindRange(sm.range, os.smoothing ?? 0, (v) => { set({ voxel: { smoothing: v } }); engine.applySmoothing(i); }, { min: 0, max: 20, step: 1 }, 'Extra surface smoothing of the smooth (0.5mm-grid) mesh — rounds rough cluster surfaces (size-preserving). 0 = off. Most visible on irregular real data.');
+        bindRange(sm.range, os.smoothing ?? 0, (v) => {
+            set({ voxel: { smoothing: v } });
+            // smooth+ only affects the SMOOTH mesh — if the overlay is showing blocky voxels
+            // the smoothing would be invisible, so switch it to smooth when the user dials it up.
+            if (v > 0) { set({ voxel: { representation: 'smooth' } }); smooth.classList.add('active'); }
+            engine.applySmoothing(i);
+        }, { min: 0, max: 20, step: 1 }, 'Extra surface smoothing of the smooth (marching-cubes) mesh — rounds rough cluster surfaces (size-preserving). Auto-switches the overlay to Smooth. 0 = off; most visible on large/irregular blobs.');
         g.append(sm.wrap);
 
         const pos = btn('+only');

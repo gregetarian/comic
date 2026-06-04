@@ -163,8 +163,13 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         const T = meshTopo(geo), pos = geo.attributes.position.array;
         pos.set(T.orig);                                     // always re-smooth from the original
         if (iters > 0) {
+            // A finely-triangulated marching-cubes blob is already fairly smooth, so each
+            // Laplacian pass barely moves it (displacement grows ~sqrt(passes)). Drive MANY
+            // passes per slider unit so the 0–20 slider gives a VISIBLE range of rounding
+            // (~2–3 mm at the top); the per-component rescale below keeps the blob's size.
+            const passes = iters * 10;
             const n = pos.length / 3, adj = T.adj, tmp = new Float32Array(pos.length);
-            for (let it = 0; it < iters; it++) {
+            for (let it = 0; it < passes; it++) {
                 for (let v = 0; v < n; v++) {
                     const ns = adj[v], k = ns.length;
                     if (!k) { tmp[3 * v] = pos[3 * v]; tmp[3 * v + 1] = pos[3 * v + 1]; tmp[3 * v + 2] = pos[3 * v + 2]; continue; }

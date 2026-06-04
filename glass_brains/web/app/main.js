@@ -414,6 +414,10 @@ function saveBrain() {
         config.style.margin = (saved.margin ?? 0.95) + 0.13;
         engine.applyStyle();
         engine.setPixelRatio(savePr);
+        // Outline/edge widths are in DEVICE TEXELS, so the higher save pixel ratio would
+        // thin them (and make the line-width slider look inert in the PNG). Compensate so
+        // the saved line keeps its on-screen relative thickness. Restored by applyStyle() below.
+        engine.scaleOutlines(savePr / basePr);
         engine.resize(cssW, cssH);
         engine.renderFrame();
 
