@@ -236,8 +236,14 @@ export function createFreeCanvasEditor({ container, canvas, config, getEngine, o
         // (in-plane; SHIFT = depth along the view), size = radius/extent.
         const anchorH = el('div', 'fc-slice-handle');
         const sizeH = el('div', 'fc-slice-handle fc-slice-size');
-        f.append(body, head, resize, anchorH, sizeH);
+        // Chrome (header, resize, slice handles) lives INSIDE the body so moving among them
+        // never fires the body's mouseleave (no hover flicker). The frame border + chrome are
+        // hidden until the panel is hovered (or being edited) — see the .hover/.fc-editing CSS.
+        body.append(head, resize, anchorH, sizeH);
+        f.append(body);
         container.appendChild(f);
+        body.addEventListener('mouseenter', () => f.classList.add('hover'));
+        body.addEventListener('mouseleave', () => f.classList.remove('hover'));
 
         attachTip(body, 'Drag to move · Shift-drag to rotate');
         attachTip(resize, 'Drag to resize this panel');
@@ -293,10 +299,13 @@ export function createFreeCanvasEditor({ container, canvas, config, getEngine, o
             if (e.button !== 0) return;
             e.preventDefault(); e.stopPropagation();
             handle.setPointerCapture(e.pointerId);
+            const fr = handle.closest('.fc-frame');
+            if (fr) fr.classList.add('fc-editing');   // keep chrome shown during the drag
             const x0 = e.clientX, y0 = e.clientY, ctx = onStart(e);
             const move = (ev) => onMove(ctx, ev.clientX - x0, ev.clientY - y0);
             const up = () => {
                 handle.style.cursor = '';
+                if (fr) fr.classList.remove('fc-editing');
                 handle.removeEventListener('pointermove', move);
                 handle.removeEventListener('pointerup', up);
             };

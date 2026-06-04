@@ -49,7 +49,10 @@ def main():
             c = loc.evaluate("e => { const b = e.getBoundingClientRect(); return [b.x + b.width / 2, b.y + b.height / 2]; }")
             return c[0], c[1]
         page.wait_for_function("window.__engine && window.__engine() && window.__engine().overlays.length >= 1", timeout=60_000)
-        assert ev("window.__engine().config.layout.mode") == "grid", "default layout should be grid mode"
+        # The app boots into the free-canvas default now, so establish a known grid baseline first.
+        page.select_option("#c-layout", "ninePanel")
+        page.wait_for_timeout(300)
+        assert ev("window.__engine().config.layout.mode") == "grid", "ninePanel should be grid mode"
 
         # 1) switch to Free Canvas: frames appear, mode flips, panels keep their count
         n_panels = ev("window.__engine().getPanelRects().length")
