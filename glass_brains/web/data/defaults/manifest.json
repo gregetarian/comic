@@ -5,10 +5,9 @@
       "name": "Faces (Neurosynth)",
       "threshold": 2.3,
       "style": {
-        "colormap": "Reds",
-        "voxel": {
-          "representation": "smooth"
-        }
+        "colormap": "Purples",
+        "threshold": 2.3418,
+        "voxel": { "representation": "smooth", "clusterMin": 100, "veil": { "strength": 0.1, "k": 0.1 }, "edges": { "width": 0.3 } }
       }
     },
     {
@@ -16,10 +15,8 @@
       "name": "Addiction (Neurosynth)",
       "threshold": 2.3,
       "style": {
-        "colormap": "Greens",
-        "voxel": {
-          "representation": "smooth"
-        }
+        "colormap": "Reds",
+        "voxel": { "representation": "smooth", "clusterMin": 100, "veil": { "strength": 0.1, "k": 0.1 }, "edges": { "width": 0.3 } }
       }
     },
     {
@@ -27,10 +24,8 @@
       "name": "Default network (Neurosynth)",
       "threshold": 2.3,
       "style": {
-        "colormap": "Blues",
-        "voxel": {
-          "representation": "smooth"
-        }
+        "colormap": "Greens",
+        "voxel": { "representation": "smooth", "clusterMin": 100, "veil": { "strength": 0.1, "k": 0.1 }, "edges": { "width": 0.3 } }
       }
     },
     {
@@ -38,10 +33,8 @@
       "name": "Language (Neurosynth)",
       "threshold": 2.3,
       "style": {
-        "colormap": "Purples",
-        "voxel": {
-          "representation": "smooth"
-        }
+        "colormap": "YlGnBu",
+        "voxel": { "representation": "smooth", "clusterMin": 100, "veil": { "strength": 0.1, "k": 0.1 }, "edges": { "width": 0.3 } }
       }
     }
   ]
