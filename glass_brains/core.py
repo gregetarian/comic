@@ -92,13 +92,16 @@ def cli():
                    default='left_lateral,right_lateral,left_medial,right_medial,anterior,dorsal,subcortical_l,subcortical_r',
                    help="comma-separated views, row-major. e.g. left_lateral,right_lateral,axial,frontal. "
                         "'_' = blank cell. Aliases: axial=dorsal, frontal=anterior, etc.")
+    r.add_argument('--spec', default=None,
+                   help="path to a Free-Canvas figure JSON (the canvas document, as emitted by the "
+                        "browser's Copy CLI). When given, it supplies the layout and overrides --grid/--views.")
     r.add_argument('--threshold', type=float, default=2.3)
     r.add_argument('-k', '--cluster-size', type=int, default=105,
                    help='cluster-extent threshold: drop clusters smaller than this many voxels')
     r.add_argument('--cmap', default='YlGnBu', help="colormap name, or 'auto' (seq/div from data)")
     r.add_argument('--colormap-mode', choices=['auto', 'sequential', 'diverging'], default=None)
-    r.add_argument('--width', type=int, default=1600)
-    r.add_argument('--height', type=int, default=1000)
+    r.add_argument('--width', type=int, default=None, help='output width px (default 1600, or the --spec canvas width)')
+    r.add_argument('--height', type=int, default=None, help='output height px (default 1000, or the --spec canvas height)')
     r.add_argument('--scale', type=float, default=2, help='pixel ratio / supersampling (DPI)')
     r.add_argument('--no-subcortical', action='store_true')
     # style overrides (unset = use viewer defaults)
@@ -131,6 +134,9 @@ def cli():
     r.add_argument('--colorbar-fontsize', type=float, default=None, help='colorbar tick font size (px)')
     r.add_argument('--margin', type=float, default=None,
                    help='framing tightness; <1 packs brains closer (1.0 = no padding, default)')
+    r.add_argument('--bg-alpha', type=float, default=None,
+                   help='canvas background opacity 0..1; <1 writes a TRANSPARENT PNG (Free Canvas). '
+                        'Defaults to the spec canvas.bgAlpha, or 1 (opaque).')
 
     args = parser.parse_args()
 
@@ -145,50 +151,66 @@ def cli():
         bake.bake()
 
     elif args.command == 'render':
-        from .render import build_layout, render_to_png
+        from .render import build_layout, render_to_png, load_spec
 
-        layout = build_layout(args.grid, [v for v in args.views.split(',')])
+        if args.spec:
+            # --spec is self-contained (layout + style + size): reproduce it verbatim.
+            # CLI style flags are ignored here; --width/--height/--bg-alpha still override.
+            layout, style, spec_render = load_spec(args.spec)
+            cmap = style.get('colormap', args.cmap)
+            width = args.width if args.width is not None else spec_render.get('width', 1600)
+            height = args.height if args.height is not None else spec_render.get('height', 1000)
+        else:
+            layout = build_layout(args.grid, [v for v in args.views.split(',')])
+            style = {}
+            def setp(path, val):
+                if val is None:
+                    return
+                d = style
+                keys = path.split('.')
+                for k in keys[:-1]:
+                    d = d.setdefault(k, {})
+                d[keys[-1]] = val
 
-        style = {}
-        def setp(path, val):
-            if val is None:
-                return
-            d = style
-            keys = path.split('.')
-            for k in keys[:-1]:
-                d = d.setdefault(k, {})
-            d[keys[-1]] = val
+            setp('cortexSurface', args.surface)
+            setp('voxel.representation', args.voxels)
+            setp('voxel.clusterMin', args.cluster_size)
+            setp('voxel.smoothing', args.smooth)
+            setp('margin', args.margin)
+            setp('shadows.enabled', args.shadows)
+            setp('colormapMode', args.colormap_mode)
+            setp('gamma', args.gamma)
+            setp('voxel.veil.strength', args.veil)
+            setp('voxel.veil.k', args.veil_k)
+            setp('voxel.emissive', args.emissive)
+            setp('voxel.specular', args.specular)
+            setp('voxel.shininess', args.shininess)
+            setp('lighting.directional', args.directional)
+            setp('lighting.ambient', args.ambient)
+            setp('glass.maxOpacity', args.cortex_alpha)
+            setp('outline.threshold', args.edge_thr)
+            setp('outline.width', args.line_w)
+            setp('voxel.edges.width', args.voxel_edge_w)
+            if args.positive_only:
+                setp('positiveOnly', True)
+            if args.no_edges:
+                setp('voxel.edges.enabled', False)
+            if args.no_outline:
+                setp('outline.enabled', False)
+            cmap = args.cmap
+            width = args.width if args.width is not None else 1600
+            height = args.height if args.height is not None else 1000
 
-        setp('cortexSurface', args.surface)
-        setp('voxel.representation', args.voxels)
-        setp('voxel.clusterMin', args.cluster_size)
-        setp('voxel.smoothing', args.smooth)
-        setp('margin', args.margin)
-        setp('shadows.enabled', args.shadows)
-        setp('colormapMode', args.colormap_mode)
-        setp('gamma', args.gamma)
-        setp('voxel.veil.strength', args.veil)
-        setp('voxel.veil.k', args.veil_k)
-        setp('voxel.emissive', args.emissive)
-        setp('voxel.specular', args.specular)
-        setp('voxel.shininess', args.shininess)
-        setp('lighting.directional', args.directional)
-        setp('lighting.ambient', args.ambient)
-        setp('glass.maxOpacity', args.cortex_alpha)
-        setp('outline.threshold', args.edge_thr)
-        setp('outline.width', args.line_w)
-        setp('voxel.edges.width', args.voxel_edge_w)
-        if args.positive_only:
-            setp('positiveOnly', True)
-        if args.no_edges:
-            setp('voxel.edges.enabled', False)
-        if args.no_outline:
-            setp('outline.enabled', False)
+        # Transparent background: explicit --bg-alpha wins; else the spec's canvas.bgAlpha; else opaque.
+        bg_alpha = args.bg_alpha
+        if bg_alpha is None:
+            bg_alpha = (layout.get('canvas') or {}).get('bgAlpha', 1.0)
 
         render_to_png(args.nifti, args.out, layout=layout, style=style,
-                      threshold=args.threshold, cmap=args.cmap,
-                      width=args.width, height=args.height, scale=args.scale,
+                      threshold=args.threshold, cmap=cmap,
+                      width=width, height=height, scale=args.scale,
                       include_subcortical=not args.no_subcortical,
+                      background_alpha=bg_alpha,
                       colorbar=args.colorbar, colorbar_font=args.colorbar_font,
                       colorbar_fontsize=args.colorbar_fontsize)
 

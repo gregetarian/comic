@@ -18,7 +18,8 @@ import { createEngine } from '../scene/renderer.js';
 import { createColorbar } from '../controls/colorbar.js';
 import { initKapow } from '../controls/kapow.js';
 import { bindGlobalControls, buildOverlayRows } from '../controls/bind.js';
-import { buildRenderText } from '../controls/cli-export.js';
+import { buildRenderText, isFreeFigure, buildSpec } from '../controls/cli-export.js';
+import { createFreeCanvasEditor } from '../controls/freecanvas.js';
 import { processNifti } from '../pyodide/bootstrap.js';
 
 const DATA = 'data/';
@@ -27,6 +28,7 @@ const DATA = 'data/';
 let renderer, colormaps, baseScene, config, engine, colorbar;
 let overlays = [];   // [{ meta, meshObjs: [{ mesh, meta, values, aabb }, ...] }]
 let zoomEls = [];
+let fcEditor = null;   // Free Canvas editor overlay (only in layout.mode === 'free')
 let container, canvas;
 let preset;            // current layout preset name (for the CLI-command export)
 let panelZoomUsed = false;  // the +/- buttons have no CLI equivalent; flag for the export note
@@ -176,11 +178,46 @@ function removeOverlay(i) {
     rebuild();
 }
 
-/** Switch layout preset without a reload: swap only config.layout, keep overlays + style. */
+/** Switch layout preset without a reload: swap only config.layout, keep overlays + style.
+ *  'freeCanvas' is special: it bakes the CURRENT panels' on-screen rects into free `place`
+ *  fractions (so the switch is visually seamless) and flips mode to 'free'. */
 function setPreset(name) {
     preset = name;
-    config.layout = resolveConfig(name).layout;
+    config.layout = (name === 'freeCanvas')
+        ? toFreeCanvas(config.layout, engine.getPanelRects(), canvas.clientWidth || 1, canvas.clientHeight || 1)
+        : resolveConfig(name).layout;
     rebuild();
+}
+
+/** Bake a grid layout into a Free Canvas document: each panel keeps its camera/content
+ *  but is positioned by `place` fractions of the canvas (from its current on-screen rect).
+ *  Per-panel auto-fit (not shared scale) so resizing a frame scales its brain. */
+function toFreeCanvas(curLayout, rects, W, H) {
+    const panels = curLayout.panels.map((p, i) => {
+        const r = rects[i];
+        const { cell, rowSpan, colSpan, ...rest } = p;     // drop grid-only fields
+        return {
+            ...rest,
+            framing: { ...(p.framing || {}), fit: 'auto' },
+            place: { x: r.cssLeft / W, y: r.cssTop / H, w: r.w / W, h: r.h / H, z: i },
+        };
+    });
+    return {
+        mode: 'free',
+        grid: curLayout.grid,
+        canvas: { w: W, h: H, bgAlpha: (curLayout.canvas && curLayout.canvas.bgAlpha) ?? 1 },
+        panels,
+    };
+}
+
+/** Set the canvas background opacity (Free Canvas transparent background). Live, no
+ *  rebuild: updates the renderer's clear alpha + a checkerboard body class so the user
+ *  sees the transparency, and records it in config.layout.canvas for the CLI/Save-PNG. */
+function setBgAlpha(a) {
+    (config.layout.canvas ||= { w: canvas.clientWidth || 1, h: canvas.clientHeight || 1, bgAlpha: 1 }).bgAlpha = a;
+    const bg = (config.render && config.render.background) || '#ffffff';
+    renderer.setClearColor(new THREE.Color(bg), a);
+    document.body.classList.toggle('fc-transparent', a < 1);
 }
 
 /** Dispose the old engine and recreate it for the current overlay set. */
@@ -208,7 +245,18 @@ function rebuild() {
     if (!isHeadless) {
         const tgl = document.getElementById('c-colorbar'); if (tgl) tgl.classList.toggle('active', colorbarsVisible);
         buildOverlayRows({ engine, config, colormaps, onRemove: removeOverlay });
-        rebuildPanelZoom();
+        if (config.layout.mode === 'free') {
+            // Free Canvas: the per-panel editor frames replace the hover +/- zoom.
+            zoomEls.forEach((el) => el.remove()); zoomEls = [];
+            if (!fcEditor) fcEditor = createFreeCanvasEditor({
+                container, canvas, config, getEngine: () => engine, onStructureChange: rebuild, onBgAlpha: setBgAlpha,
+            });
+            fcEditor.refresh();
+        } else {
+            if (fcEditor) { fcEditor.destroy(); fcEditor = null; }
+            document.body.classList.remove('fc-transparent');   // grid presets are opaque
+            rebuildPanelZoom();
+        }
     }
     fit();
 }
@@ -260,7 +308,12 @@ function syncStrip() {
 function fit() {
     syncStrip();
     const w = canvas.clientWidth, h = canvas.clientHeight;
-    if (w > 0 && h > 0 && engine) { engine.resize(w, h); placeZoom(); }
+    if (w > 0 && h > 0 && engine) {
+        // Keep the canvas reference size live so a Free Canvas figure reproduces at the
+        // aspect the user actually sees (place fractions resolve against this).
+        if (config.layout.mode === 'free' && config.layout.canvas) { config.layout.canvas.w = w; config.layout.canvas.h = h; }
+        engine.resize(w, h); placeZoom(); fcEditor?.reposition();
+    }
 }
 function startLoopAndResize() {
     new ResizeObserver(fit).observe(canvas);
@@ -275,7 +328,7 @@ function startLoopAndResize() {
     });
     container.addEventListener('mouseleave', () => zoomEls.forEach((el) => el.classList.remove('show')));
 
-    (function loop() { requestAnimationFrame(loop); engine.renderFrame(); colorbar?.update(); })();
+    (function loop() { requestAnimationFrame(loop); engine.renderFrame(); colorbar?.update(); fcEditor?.reposition(); })();
     window.__engine = () => engine;   // debug handle
 }
 
@@ -287,17 +340,25 @@ async function copyCliCommand() {
     const text = buildRenderText({ config, overlays, preset, colormaps, panelZoomUsed });
     const flash = (m) => { btn.textContent = m; setTimeout(() => { btn.textContent = label; }, 1600); };
     console.log(text);
+    // For a Free Canvas figure, also hand the user figure.json (the command needs it).
+    const free = overlays.length && isFreeFigure(config);
+    if (free) downloadText(JSON.stringify(buildSpec(config), null, 2), 'figure.json');
     try {
         await navigator.clipboard.writeText(text);
-        flash(overlays.length ? 'Copied!' : 'Load a map');
+        flash(!overlays.length ? 'Load a map' : free ? 'Copied + figure.json' : 'Copied!');
     } catch {
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
-        a.download = 'glassbrain-cli.txt';
-        a.click();
-        setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+        downloadText(text, 'glassbrain-cli.txt');
         flash('Saved .txt');
     }
+}
+
+/** Trigger a client-side download of a text blob. */
+function downloadText(text, name) {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([text], { type: name.endsWith('.json') ? 'application/json' : 'text/plain' }));
+    a.download = name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 }
 
 function downloadPng(cnv, name) {
@@ -359,8 +420,12 @@ function saveBrain() {
         const out = document.createElement('canvas');
         out.width = Math.round(cssW * savePr); out.height = Math.round(cssH * savePr);
         const g = out.getContext('2d');
-        g.fillStyle = (config.render && config.render.background) || '#ffffff';
-        g.fillRect(0, 0, out.width, out.height);
+        // Transparent background (Free Canvas bgAlpha<1): skip the white fill so the saved
+        // PNG keeps its alpha; the live canvas is already cleared with the same alpha.
+        if ((config.layout?.canvas?.bgAlpha ?? 1) >= 1) {
+            g.fillStyle = (config.render && config.render.background) || '#ffffff';
+            g.fillRect(0, 0, out.width, out.height);
+        }
         g.drawImage(canvas, 0, 0, out.width, out.height);
         downloadPng(out, 'glassbrain.png');
     } finally {

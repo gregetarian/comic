@@ -24,25 +24,49 @@ export const PLANES = {
 };
 
 /**
+ * Per-panel orbit: rotate the centre→camera offset `rel` (and screen-up) by a
+ * Free-Canvas rotation delta, about the panel's OWN camera basis — yaw about up,
+ * pitch about right, roll about forward. Applied AFTER the global tilt so the
+ * lighting rig stays consistent; rotations preserve handedness so the medial
+ * dark-flip guard still holds. Pure.
+ */
+function orbitRel(rel, up, rotate) {
+    const yaw = deg2rad(rotate.yaw || 0), pitch = deg2rad(rotate.pitch || 0), roll = deg2rad(rotate.roll || 0);
+    if (!yaw && !pitch && !roll) return { rel, up };
+    const f = normalize(scale(rel, -1));        // forward = camera → centre
+    let r = normalize(cross(up, f));
+    if (!isFinite(r[0]) || (r[0] === 0 && r[1] === 0 && r[2] === 0)) r = normalize(cross([0, 1, 0], f));
+    const u = cross(f, r);                       // right-handed view-up
+    let nrel = rel, nup = up;
+    if (yaw)   { nrel = rotateAxis(nrel, u, yaw); }
+    if (pitch) { nrel = rotateAxis(nrel, r, pitch); nup = rotateAxis(nup, r, pitch); }
+    if (roll)  { nup = rotateAxis(nup, f, roll); }
+    return { rel: nrel, up: normalize(nup) };
+}
+
+/**
  * Resolve a camera spec to a concrete pose.
  * @param {object} cameraSpec - { plane: 'left_lateral' } OR { pose: {position,up,lookAt} }
  * @param {number[]} center - point to look at (usually the content AABB centre)
  * @param {number} distance - mm from centre (orthographic, so size-independent)
+ * @param {object} [tilt] - global oblique tilt {azimuth,elevation} (degrees)
+ * @param {object} [rotate] - per-panel orbit delta {yaw,pitch,roll} (degrees), applied after tilt
  * @returns {{ position, up, lookAt, hemisphere }}
  */
-export function resolveCamera(cameraSpec, center = [0, 0, 0], distance = 400, tilt = null) {
+export function resolveCamera(cameraSpec, center = [0, 0, 0], distance = 400, tilt = null, rotate = null) {
     if (cameraSpec.pose) {
         const p = cameraSpec.pose;
-        return {
-            position: p.position,
-            up: p.up,
-            lookAt: p.lookAt ?? center,
-            hemisphere: cameraSpec.hemisphere ?? 'both',
-        };
+        const lookAt = p.lookAt ?? center;
+        let position = p.position, up = p.up;
+        if (rotate && (rotate.yaw || rotate.pitch || rotate.roll)) {
+            const o = orbitRel(sub(position, lookAt), up, rotate);
+            position = add(lookAt, o.rel); up = o.up;
+        }
+        return { position, up, lookAt, hemisphere: cameraSpec.hemisphere ?? 'both' };
     }
     const plane = PLANES[cameraSpec.plane];
     if (!plane) throw new Error(`Unknown camera plane: ${cameraSpec.plane}`);
-    const up = plane.up.slice();
+    let up = plane.up.slice();
 
     // centre→camera offset, optionally tilted a few degrees off-axis for a
     // slight oblique (depth cue). The tilt is a FIXED WORLD-space rotation
@@ -54,6 +78,11 @@ export function resolveCamera(cameraSpec, center = [0, 0, 0], distance = 400, ti
     if (tilt && (tilt.azimuth || tilt.elevation)) {
         rel = rotateAxis(rel, [0, 0, 1], deg2rad(tilt.azimuth || 0));
         rel = rotateAxis(rel, [1, 0, 0], deg2rad(tilt.elevation || 0));
+    }
+    // per-panel orbit (Free Canvas l/r/u/d/roll), after the global tilt
+    if (rotate && (rotate.yaw || rotate.pitch || rotate.roll)) {
+        const o = orbitRel(rel, up, rotate);
+        rel = o.rel; up = o.up;
     }
     return {
         position: add(center, rel),

@@ -7,9 +7,10 @@
  * the global voxel template). Cortex/anatomy/lighting/outline stay global.
  */
 import * as THREE from 'three';
-import { layoutGrid } from '../core/grid.js';
+import { layoutGrid, freeRect } from '../core/grid.js';
 import { frameContent, mergeAABB } from '../core/framing.js';
 import { normalize, sub } from '../core/units.js';
+import { cameraBasis } from '../core/cameras.js';
 import { visible } from '../core/visibility.js';
 import { resolveColormap, colorizeValues } from '../core/colormap.js';
 import { overlayStyle } from '../core/config-schema.js';
@@ -19,7 +20,9 @@ import { OutlinePass, makeThresholdDepthMaterial } from './passes.js';
 export function createEngine({ renderer, width, height, sceneModel, colormaps, config }) {
     const scene = new THREE.Scene();
     renderer.autoClear = false;
-    renderer.setClearColor(new THREE.Color(config.render.background ?? '#ffffff'), 1);
+    // Clear alpha = canvas.bgAlpha (Free Canvas transparent background; default 1 = opaque,
+    // so grid figures are unchanged). main.js can update this live via renderer.setClearColor.
+    renderer.setClearColor(new THREE.Color(config.render.background ?? '#ffffff'), config.layout?.canvas?.bgAlpha ?? 1);
 
     const overlays = sceneModel.manifest.overlays || [];
     const N = overlays.length;
@@ -204,6 +207,10 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
     }
     applySmoothing();   // honour any smoothing requested by the config (e.g. headless --smooth)
 
+    // Last frame's resolved panel framing (def→{rect,fr}), for the Free Canvas editor's
+    // screen↔world mapping (slice handles). Refreshed each renderFrame.
+    let lastFrames = [];
+
     // --- panels: one ortho camera each, seeing all overlay layers ---
     const panels = config.layout.panels.map((p) => {
         const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 800);
@@ -295,6 +302,37 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         return { near, far };
     }
 
+    // Pixel rectangle for a panel: a free-canvas `place` (fractions of the canvas)
+    // OR a grid cell. The two produce the SAME Rect shape, so the loop is uniform.
+    function panelRect(def) {
+        return def.place
+            ? freeRect(def.place, width, height)
+            : grid.rect(def.cell.row, def.cell.col, def.rowSpan, def.colSpan);
+    }
+
+    // Write one panel's slice spec into a material's slice uniforms (or reset to OFF).
+    function writeSlice(u, slice) {
+        if (!u || !u.uSliceType) return;
+        if (!slice || !slice.shape) { u.uSliceType.value = 0; return; }
+        u.uSliceType.value = slice.shape === 'plane' ? 1 : slice.shape === 'sphere' ? 2 : 3;
+        u.uSliceMode.value = slice.mode === 'bite' ? 1 : 0;
+        if (slice.normal) u.uSliceNormal.value.set(slice.normal[0], slice.normal[1], slice.normal[2]);
+        if (slice.offset != null) u.uSliceOffset.value = slice.offset;
+        if (slice.center) u.uSliceCenter.value.set(slice.center[0], slice.center[1], slice.center[2]);
+        if (slice.radius != null) u.uSliceRadius.value = slice.radius;
+        if (slice.min) u.uSliceMin.value.set(slice.min[0], slice.min[1], slice.min[2]);
+        if (slice.max) u.uSliceMax.value.set(slice.max[0], slice.max[1], slice.max[2]);
+    }
+    // Apply (or clear) a panel's slice across EVERY material so the whole brain cuts
+    // together and the edge/outline passes follow. RESET (slice=null) on unsliced
+    // panels is essential — materials are shared, so a stale slice would bleed across.
+    function applyPanelSlice(slice) {
+        writeSlice(glassMat.uniforms, slice);
+        writeSlice(anatomyMat.uniforms, slice);
+        for (let i = 0; i < N; i++) writeSlice(uniforms[i], slice);   // voxel + its edge depth material
+        writeSlice(cortexOutline.depthMaterial.uniforms, slice);      // cortex silhouette
+    }
+
     function renderFrame() {
         // Full-buffer clear (a prior frame's outline pass leaves the scissor test on,
         // which would restrict clear() to one panel and ghost old frames otherwise).
@@ -303,13 +341,16 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         refreshResolved();
 
         // Pass 1 — framing per panel.
-        const frames = panels.map((panel) => {
+        const frames = panels.map((panel, idx) => {
             const { def, camera } = panel;
-            const rect = grid.rect(def.cell.row, def.cell.col, def.rowSpan, def.colSpan);
+            const rect = panelRect(def);
             const aabb = panelAABB(def.content);
             const fr = frameContent(aabb, def.camera, rect.aspect,
-                { ...def.framing, margin: config.style.margin ?? def.framing.margin, tilt: config.style.tilt });
-            return { panel, def, camera, rect, fr };
+                { ...def.framing, margin: config.style.margin ?? def.framing.margin, tilt: config.style.tilt, rotate: def.rotate });
+            // Paint order: explicit place.z, else the array index (so grid panels keep
+            // their natural order and free panels overdraw lower-z neighbours).
+            const z = (def.place && def.place.z != null) ? def.place.z : idx;
+            return { panel, def, camera, rect, fr, z };
         });
 
         // Shared world scale: fit:'shared' panels adopt a common mm-per-pixel.
@@ -337,6 +378,13 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
             fr.top = ext; fr.bottom = -ext;
         }
 
+        lastFrames = frames;   // expose this frame's framing for the editor (slice handles)
+
+        // Paint back-to-front by z so higher-z (free-canvas) panels overdraw lower
+        // ones where they overlap. Stable sort keeps equal-z panels in array order;
+        // grid panels (z = index) are therefore unaffected.
+        frames.sort((a, b) => a.z - b.z);
+
         // Pass 2 — render each panel.
         for (const { def, camera, rect, fr } of frames) {
             camera.position.set(...fr.position);
@@ -348,6 +396,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
             camera.updateMatrixWorld(true);
 
             applyVisibility(def.content);
+            applyPanelSlice(def.slice);     // per-panel cut (resets to OFF when absent)
             if (def.anatomyOpacity != null) { anatomyMat.opacity = def.anatomyOpacity; anatomyMat.transparent = def.anatomyOpacity < 1; }
             else { anatomyMat.opacity = config.style.anatomy.opacity; anatomyMat.transparent = anatomyMat.opacity < 1; }
 
@@ -446,9 +495,23 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
 
     function getPanelRects() {
         return panels.map(({ def }) => {
-            const r = grid.rect(def.cell.row, def.cell.col, def.rowSpan, def.colSpan);
+            const r = panelRect(def);
             return { id: def.id, title: def.title, cssLeft: r.cssLeft, cssTop: r.cssTop, w: r.w, h: r.h };
         });
+    }
+
+    // Screen↔world mapping for one panel (its last rendered framing), for the Free
+    // Canvas slice handles: orthonormal image basis {r,u,f}, the framed centre, the
+    // panel's CSS rect, and mm-per-pixel (uniform — square pixels). null if not drawn yet.
+    function getPanelView(def) {
+        const fo = lastFrames.find((x) => x.def === def);
+        if (!fo) return null;
+        const { rect, fr } = fo;
+        const { r, u, f } = cameraBasis({ position: fr.position, up: fr.up, lookAt: fr.lookAt });
+        return {
+            rect: { cssLeft: rect.cssLeft, cssTop: rect.cssTop, w: rect.w, h: rect.h },
+            center: fr.lookAt.slice(), r, u, f, mmPerPx: fr.ext / (rect.h / 2),
+        };
     }
 
     // Multiply panel `i`'s zoom (the hover +/- controls), clamped to a sane range.
@@ -479,7 +542,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
     }
 
     return {
-        scene, renderFrame, resize, setPixelRatio, getPanelRects, zoomPanel, scaleOutlines, recolor, applyStyle, applySmoothing, setColormap, dispose,
+        scene, renderFrame, resize, setPixelRatio, getPanelRects, getPanelView, zoomPanel, scaleOutlines, recolor, applyStyle, applySmoothing, setColormap, dispose,
         overlays, config, renderer, THREE, sceneModel,
         _internals: { uniforms, glassMat, anatomyMat, voxelMats, dir, amb },
     };

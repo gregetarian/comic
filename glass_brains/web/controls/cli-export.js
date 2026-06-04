@@ -32,6 +32,29 @@ const D = {
 const fmt = (n) => { const v = +n; return Number.isInteger(v) ? String(v) : String(Math.round(v * 1e4) / 1e4); };
 const q = (s) => (/[^\w.\-/]/.test(s) ? `'${String(s).replace(/'/g, "'\\''")}'` : String(s));
 
+/** A figure is "free" (needs --spec, not --grid/--views) if it's in Free Canvas mode or
+ *  any panel carries free placement / per-panel rotation / a slice. */
+export function isFreeFigure(config) {
+    const L = config.layout || {};
+    return L.mode === 'free' || (L.panels || []).some((p) => p.place || p.rotate || p.slice);
+}
+
+/** The self-contained canvas document the CLI reproduces with `--spec figure.json`.
+ *  It bundles the layout (place/rotate/slice/canvas), the full style, and the render
+ *  size/aspect — so `glass-brains render <nifti> --spec figure.json` round-trips exactly. */
+export function buildSpec(config) {
+    const cv = config.layout && config.layout.canvas;
+    return {
+        layout: config.layout,
+        style: config.style,
+        render: {
+            width: Math.round((cv && cv.w) || (config.render && config.render.width) || 1600),
+            height: Math.round((cv && cv.h) || (config.render && config.render.height) || 1000),
+            background: (config.render && config.render.background) || '#ffffff',
+        },
+    };
+}
+
 /** Build the CLI command for a single overlay's resolved style. */
 function commandFor(config, i, meta, colormaps, preset) {
     const s = config.style;
@@ -75,6 +98,21 @@ function commandFor(config, i, meta, colormaps, preset) {
  */
 export function buildRenderText({ config, overlays, preset, colormaps, panelZoomUsed }) {
     if (!overlays.length) return '# Load a NIfTI first — there is no overlay to reproduce.';
+
+    // Free Canvas / per-panel rotation / slices can't be expressed by --grid/--views — emit
+    // a self-contained figure.json and a `--spec` command that reproduces it exactly.
+    if (isFreeFigure(config)) {
+        const spec = buildSpec(config);
+        const name = overlays[0].meta.name || 'stat.nii.gz';
+        const notes = [
+            '# glass-brains render — Free Canvas figure (reproduces the exact on-screen layout).',
+            '# 1) save the JSON below as figure.json   2) run the command (point it at your NIfTI on disk).',
+        ];
+        if (overlays.length > 1)
+            notes.push('# note: the CLI renders ONE map per figure — figure.json carries the layout/style; pass your first map.');
+        const cmd = `glass-brains render ${q(name)} -o glassbrain.png --spec figure.json`;
+        return notes.join('\n') + '\n\n' + cmd + '\n\n# ---- figure.json ----\n' + JSON.stringify(spec, null, 2) + '\n';
+    }
 
     const notes = [
         '# glass-brains render — reproduces the on-screen view from the CLI tool',
