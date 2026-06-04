@@ -91,8 +91,10 @@ async function main() {
     startLoopAndResize();
     setLoading(null);
 
-    // Bundled default overlays (the boot figure) from baked buffers — no Pyodide download.
-    loadDefaults().catch((e) => console.warn('default overlays unavailable:', e));
+    // Boot figure: the bundled default maps, meshed in-browser (Pyodide). ?demo=1 loads the
+    // single pre-baked demo instead — instant + offline, used by the headless tests.
+    (params.get('demo') === '1' ? loadDemo() : loadDefaults())
+        .catch((e) => console.warn('default overlays unavailable:', e));
 }
 
 /** Headless render (glass-brains render): fixed-size figure, overlays from the manifest's
@@ -134,20 +136,25 @@ async function loadDemo() {
 }
 
 /** Load the bundled default overlays (data/defaults/manifest.json) — the boot figure.
- *  Each overlay is a pre-baked array set with its own colormap/style. Falls back to the
- *  single demo overlay if the manifest is missing. */
+ *  These are the raw NIfTIs (tiny), meshed in-browser via the SAME Pyodide path as a
+ *  user upload (so the result is identical to dragging them in). The first one boots
+ *  Pyodide (~30 MB, once). Falls back to the demo overlay if the manifest is missing. */
 async function loadDefaults() {
     const man = await fetchJSON(DATA + 'defaults/manifest.json', null);
     if (!man || !Array.isArray(man.overlays) || !man.overlays.length) return loadDemo();
+    const note = 'First load fetches the ~30 MB scientific stack once, then meshes the maps.';
     for (const ov of man.overlays) {
-        const base = DATA + 'defaults/' + ov.dir + '/';
-        const meta = await fetch(base + 'meta.json').then((r) => r.json());
-        if (ov.name) meta.name = ov.name;
-        const buffers = await loadOverlayArrays(base, meta);
-        overlays.push({ meta, meshObjs: buildOverlayMeshes(meta, buffers, overlays.length) });
-        (config.style.overlays ||= []).push(ov.style || {});
+        try {
+            const blob = await fetch(DATA + 'defaults/' + ov.file).then((r) => r.blob());
+            const { meta, buffers } = await processNifti(new File([blob], ov.file), ov.threshold ?? 2.3,
+                (m) => setLoading(m + ' — ' + (ov.name || ov.file), note));
+            if (ov.name) meta.name = ov.name;
+            overlays.push({ meta, meshObjs: buildOverlayMeshes(meta, buffers, overlays.length) });
+            (config.style.overlays ||= []).push(ov.style || {});
+        } catch (e) { console.warn('default overlay failed:', ov.file, e); }
     }
-    rebuild();   // one rebuild for all default overlays + their per-overlay styles
+    if (overlays.length) rebuild();
+    setLoading(null);
 }
 
 /** Build + register one overlay from a (meta, flat-buffers) pair, then rebuild. */

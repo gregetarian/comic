@@ -1,8 +1,9 @@
 {
   "overlays": [
     {
-      "dir": "faces",
+      "file": "faces.nii.gz",
       "name": "Faces (Neurosynth)",
+      "threshold": 2.3,
       "style": {
         "colormap": "Reds",
         "voxel": {
@@ -11,8 +12,9 @@
       }
     },
     {
-      "dir": "addiction",
+      "file": "addiction.nii.gz",
       "name": "Addiction (Neurosynth)",
+      "threshold": 2.3,
       "style": {
         "colormap": "Greens",
         "voxel": {
@@ -21,8 +23,9 @@
       }
     },
     {
-      "dir": "default_network",
+      "file": "default_network.nii.gz",
       "name": "Default network (Neurosynth)",
+      "threshold": 2.3,
       "style": {
         "colormap": "Blues",
         "voxel": {
@@ -31,8 +34,9 @@
       }
     },
     {
-      "dir": "language",
+      "file": "language.nii.gz",
       "name": "Language (Neurosynth)",
+      "threshold": 2.3,
       "style": {
         "colormap": "Purples",
         "voxel": {
