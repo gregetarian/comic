@@ -5,14 +5,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { det3, normalize, cross } from './units.js';
+import { det3, normalize, cross, sub } from './units.js';
 import { resolveCamera, cameraBasis, PLANES } from './cameras.js';
 import { aabbOfPositions, mergeAABB, frameContent } from './framing.js';
-import { layoutGrid } from './grid.js';
+import { layoutGrid, freeRect } from './grid.js';
 import { visible } from './visibility.js';
 import { valueToT, resolveColormap, loadColormaps, sampleLUT } from './colormap.js';
 import { normalizeConfig, validateConfig } from './config-schema.js';
 import { resolveConfig } from './presets.js';
+import { isFreeFigure, buildSpec, buildRenderText } from '../controls/cli-export.js';
 
 // --- cameras: every plane yields a right-handed (positive-determinant) basis ---
 test('camera bases are right-handed (no mirror → medials light correctly)', () => {
@@ -36,6 +37,27 @@ test('lateral vs medial of the same hemisphere are opposite-side cameras', () =>
     const lat = resolveCamera({ plane: 'left_lateral' }, [0, 0, 0], 400);
     const med = resolveCamera({ plane: 'left_medial' }, [0, 0, 0], 400);
     assert.ok(lat.position[0] < 0 && med.position[0] > 0, 'L lateral camera at -x, L medial at +x');
+});
+
+// --- per-panel rotation (Free Canvas l/r/u/d/roll): orbit preserves distance + handedness ---
+test('resolveCamera rotate is a no-op at zero and absent', () => {
+    const base = resolveCamera({ plane: 'left_lateral' }, [0, 0, 0], 400, { azimuth: 8, elevation: 6 });
+    const zero = resolveCamera({ plane: 'left_lateral' }, [0, 0, 0], 400, { azimuth: 8, elevation: 6 }, { yaw: 0, pitch: 0, roll: 0 });
+    assert.deepEqual(zero.position.map((x) => Math.round(x * 1e6)), base.position.map((x) => Math.round(x * 1e6)));
+});
+
+test('resolveCamera orbit keeps distance-from-centre and a right-handed basis', () => {
+    const center = [0, -10, 5];
+    const r0 = resolveCamera({ plane: 'left_lateral' }, center, 400);
+    for (const rot of [{ yaw: 40 }, { pitch: 35 }, { yaw: -25, pitch: 20, roll: 15 }, { pitch: 88 }]) {
+        const r = resolveCamera({ plane: 'left_lateral' }, center, 400, null, rot);
+        const d0 = Math.hypot(...sub(r0.position, center));
+        const d = Math.hypot(...sub(r.position, center));
+        assert.ok(Math.abs(d - d0) < 1e-6, `orbit must preserve radius (rot ${JSON.stringify(rot)})`);
+        const { r: rr, u, f } = cameraBasis(r);
+        assert.ok(det3(rr, u, f) > 0.9, `basis must stay right-handed (rot ${JSON.stringify(rot)})`);
+        assert.ok(r.position.every(Number.isFinite) && r.up.every(Number.isFinite), 'no NaN at extreme pitch');
+    }
 });
 
 // --- framing: extent fits a known AABB; brain is centred ---
@@ -131,4 +153,75 @@ function normalizeDefaultsOnly() {
 test('ninePanel and fourPanel both normalize', () => {
     assert.equal(resolveConfig('ninePanel').layout.panels.length, 8); // posterior dropped
     assert.equal(resolveConfig('fourPanel').layout.panels.length, 4);
+});
+
+// --- Free Canvas: free-rect placement + cell-XOR-place schema ---
+test('freeRect maps place fractions to a GL bottom-left rect', () => {
+    const r = freeRect({ x: 0.25, y: 0.1, w: 0.5, h: 0.5 }, 1000, 600);
+    assert.equal(r.w, 500);
+    assert.equal(r.h, 300);
+    assert.equal(r.cssLeft, 250);
+    assert.equal(r.cssTop, 60);
+    assert.equal(r.y, 600 - 60 - 300); // GL origin bottom-left (matches layoutGrid)
+    assert.ok(Math.abs(r.aspect - 500 / 300) < 1e-9);
+});
+
+test('defaults add grid mode + opaque canvas (so existing configs are unchanged)', () => {
+    const cfg = resolveConfig('fourPanel');
+    assert.equal(cfg.layout.mode, 'grid');
+    assert.equal(cfg.layout.canvas.bgAlpha, 1);
+});
+
+test('normalizeConfig accepts a place-based panel (free mode) and preserves rotate/slice', () => {
+    const cfg = normalizeConfig({
+        layout: { mode: 'free', panels: [{
+            id: 'a', camera: { plane: 'dorsal' }, place: { x: 0, y: 0, w: 0.5, h: 0.5 },
+            rotate: { yaw: 30, pitch: 10 }, slice: { shape: 'sphere', mode: 'bite', center: [0, -18, 22], radius: 45 },
+        }] },
+    });
+    assert.equal(cfg.layout.mode, 'free');
+    assert.equal(cfg.layout.panels[0].place.w, 0.5);
+    assert.equal(cfg.layout.panels[0].rotate.yaw, 30);
+    assert.equal(cfg.layout.panels[0].slice.shape, 'sphere');
+    assert.equal(cfg.layout.panels[0].slice.mode, 'bite');
+});
+
+// --- CLI export: free figures emit --spec figure.json; grids keep --grid/--views ---
+test('isFreeFigure detects free mode / place / rotate / slice', () => {
+    assert.equal(isFreeFigure({ layout: { mode: 'free', panels: [] } }), true);
+    assert.equal(isFreeFigure({ layout: { mode: 'grid', panels: [{ cell: { row: 0, col: 0 } }] } }), false);
+    assert.equal(isFreeFigure({ layout: { panels: [{ place: { x: 0, y: 0, w: 1, h: 1 } }] } }), true);
+    assert.equal(isFreeFigure({ layout: { panels: [{ cell: { row: 0, col: 0 }, rotate: { yaw: 10 } }] } }), true);
+});
+
+test('buildRenderText emits --spec + an embedded figure.json for a free figure', () => {
+    const config = {
+        layout: {
+            mode: 'free', canvas: { w: 800, h: 500, bgAlpha: 0 },
+            panels: [{ id: 'a', place: { x: 0, y: 0, w: 1, h: 1, z: 0 }, camera: { plane: 'dorsal' },
+                       content: { roles: ['cortex', 'voxel'], hemisphere: 'both' }, rotate: { yaw: 25 } }],
+        },
+        style: { colormap: 'YlGnBu' },
+        render: { width: 800, height: 500, background: '#ffffff' },
+    };
+    const text = buildRenderText({ config, overlays: [{ meta: { name: 'zstat.nii.gz' } }], preset: 'freeCanvas', colormaps: new Map() });
+    assert.match(text, /--spec figure\.json/);
+    assert.match(text, /glass-brains render/);
+    // the embedded JSON carries the free layout (mode, place, rotate, transparent bg)
+    const json = JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1));
+    assert.equal(json.layout.mode, 'free');
+    assert.equal(json.layout.canvas.bgAlpha, 0);
+    assert.equal(json.layout.panels[0].rotate.yaw, 25);
+    assert.equal(json.render.width, 800);
+});
+
+test('validateConfig requires exactly one of cell / place', () => {
+    const camera = { plane: 'dorsal' };
+    // neither cell nor place → invalid
+    assert.throws(() => normalizeConfig({ layout: { panels: [{ id: 'a', camera }] } }), /exactly one of cell/);
+    // both cell and place → invalid
+    assert.throws(() => normalizeConfig({ layout: { panels: [{ id: 'a', camera, cell: { row: 0, col: 0 }, place: { x: 0, y: 0, w: 1, h: 1 } }] } }), /exactly one of cell/);
+    // cell only → valid;  place only → valid
+    assert.doesNotThrow(() => normalizeConfig({ layout: { panels: [{ id: 'a', camera, cell: { row: 0, col: 0 } }] } }));
+    assert.doesNotThrow(() => normalizeConfig({ layout: { panels: [{ id: 'a', camera, place: { x: 0, y: 0, w: 1, h: 1 } }] } }));
 });

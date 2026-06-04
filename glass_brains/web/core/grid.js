@@ -43,3 +43,19 @@ export function layoutGrid(g) {
 
     return { rect, width, height };
 }
+
+/**
+ * Free-canvas panel rectangle. `place` {x,y,w,h} are FRACTIONS (0..1) of the
+ * canvas, resolved against the current pixel size — so a layout authored at one
+ * size places proportionally at any other (mirrors how grid weights are
+ * resolution-agnostic). Returns the SAME Rect shape as layoutGrid().rect (GL
+ * bottom-left origin), so the render loop is identical for grid and free panels.
+ * @param {object} place - { x, y, w, h }  (fractions; x,y = top-left corner)
+ * @returns Rect = { x, y, w, h, cssLeft, cssTop, aspect }
+ */
+export function freeRect(place, width, height) {
+    const w = place.w * width, h = place.h * height;
+    const cssLeft = place.x * width, cssTop = place.y * height;
+    const y = height - cssTop - h; // GL origin is bottom-left (matches layoutGrid)
+    return { x: cssLeft, y, w, h, cssLeft, cssTop, aspect: w / h };
+}

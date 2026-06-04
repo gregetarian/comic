@@ -70,11 +70,13 @@ export function viewDepthRange(aabb, position, lookAt) {
  * @returns pose + orthographic frustum: {position,up,lookAt, left,right,top,bottom, near,far, ext}
  */
 export function frameContent(aabb, cameraSpec, aspect, opts = {}) {
-    const { margin = 1.06, distance = 400, pad = 10, tilt = null } = opts;
+    const { margin = 1.06, distance = 400, pad = 10, tilt = null, rotate = null } = opts;
     const center = aabbValid(aabb) ? aabbCenter(aabb) : [0, 0, 0];
     const he = aabbValid(aabb) ? aabbHalf(aabb) : [80, 80, 80];
 
-    const pose = resolveCamera(cameraSpec, center, distance, tilt);
+    // resolve the (tilted + per-panel-rotated) pose, THEN fit the AABB to it, so a
+    // rotated panel re-frames its content (no clipping) and re-derives near/far.
+    const pose = resolveCamera(cameraSpec, center, distance, tilt, rotate);
     const { r, u, f } = cameraBasis(pose);
 
     const halfW = projHalf(he, r);

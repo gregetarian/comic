@@ -82,6 +82,20 @@ def build_layout(grid, views):
             "panels": panels}
 
 
+def load_spec(path):
+    """Load a Free-Canvas figure spec (the canvas document) → its layout dict.
+
+    The spec is the same JSON the browser's Copy-CLI emits: either a bare layout
+    ({grid?, canvas?, panels:[...]}) or a full config ({layout, style?, render?}).
+    Returns (layout, style, render) where style/render are {} if absent, so the
+    caller can deep-merge them under the explicit --flags."""
+    spec = json.loads(Path(path).read_text())
+    layout = spec.get("layout", spec)            # accept a full config OR a bare layout
+    if "panels" not in layout:
+        raise ValueError(f"spec '{path}' has no layout.panels")
+    return layout, spec.get("style", {}), spec.get("render", {})
+
+
 # --- background static server --------------------------------------------
 def _serve_dir(directory, port=8500):
     directory = str(Path(directory).resolve())
@@ -145,9 +159,16 @@ def prepare_render_dir(nifti, threshold=2.3, include_subcortical=True):
 
 def render_to_png(nifti, out_png, *, layout, style=None, threshold=2.3, cmap="auto",
                   width=1600, height=1000, scale=2, include_subcortical=True,
-                  background="#ffffff", colorbar=True, colorbar_font=None,
+                  background="#ffffff", background_alpha=1.0, colorbar=True, colorbar_font=None,
                   colorbar_fontsize=None, timeout_ms=90000):
     out_dir = prepare_render_dir(nifti, threshold, include_subcortical)
+
+    # Transparent background (Free Canvas): record bgAlpha in the layout so the WebGL
+    # clear is transparent; the screenshot below then captures real alpha. Default 1 =
+    # opaque, so every existing figure is byte-identical.
+    transparent = background_alpha < 1
+    if transparent:
+        layout = {**layout, "canvas": {**layout.get("canvas", {}), "bgAlpha": background_alpha}}
 
     # CLI figures (print) want a few things the interactive viewer doesn't:
     # thicker surface lines, a touch more breathing room between brains, and no
@@ -190,7 +211,11 @@ def render_to_png(nifti, out_png, *, layout, style=None, threshold=2.3, cmap="au
             # Brain figure: hide the colorbar so the brains fill the full frame (never
             # squashed), then screenshot.
             page.evaluate("() => { const c = document.querySelector('.colorbar'); if (c) c.style.display = 'none'; }")
-            page.locator("#viewer").screenshot(path=str(out_png))
+            # Transparent background: clear the page/#viewer fills so omit_background can
+            # capture the WebGL canvas's alpha (the canvas was already cleared transparent).
+            if transparent:
+                page.evaluate("() => { for (const s of ['html','body','#viewer']) { const e = document.querySelector(s); if (e) e.style.background = 'transparent'; } }")
+            page.locator("#viewer").screenshot(path=str(out_png), omit_background=transparent)
             outputs = [out_png]
             # Colorbar legend as a SEPARATE sidecar image (place it in your figure yourself).
             if colorbar:
