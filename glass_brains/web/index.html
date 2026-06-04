@@ -76,8 +76,15 @@
     .fc-tip { position: fixed; display: none; z-index: 9999; max-width: 240px; background: #2b2b2b; color: #fff;
       font-size: 11px; line-height: 1.35; padding: 5px 8px; border-radius: 4px; box-shadow: 0 3px 10px rgba(0,0,0,0.32);
       pointer-events: none; white-space: nowrap; }
-    .fc-frame { position: absolute; border: 1.5px solid rgba(74,144,217,0.85); border-radius: 4px; z-index: 14;
-      pointer-events: none; box-shadow: 0 0 0 1px rgba(255,255,255,0.5); }
+    /* The blue box + its chrome are hidden until the panel is hovered (or being edited),
+       so the figure reads clean; the body stays grabbable so panels move without hovering first. */
+    .fc-frame { position: absolute; border: 1.5px solid transparent; border-radius: 4px; z-index: 14;
+      pointer-events: none; transition: border-color 0.12s; }
+    .fc-frame.hover, .fc-frame.fc-editing { border-color: rgba(74,144,217,0.85); box-shadow: 0 0 0 1px rgba(255,255,255,0.5); }
+    .fc-frame .fc-head, .fc-frame .fc-resize, .fc-frame .fc-slice-handle { opacity: 0; transition: opacity 0.12s; }
+    .fc-frame.hover .fc-head, .fc-frame.fc-editing .fc-head,
+    .fc-frame.hover .fc-resize, .fc-frame.fc-editing .fc-resize,
+    .fc-frame.hover .fc-slice-handle, .fc-frame.fc-editing .fc-slice-handle { opacity: 1; }
     .fc-frame .fc-body { position: absolute; inset: 0; pointer-events: auto; cursor: move; } /* drag=move; shift+drag=orbit */
     .fc-frame .fc-head { position: absolute; left: -1px; top: -1px; display: flex; gap: 2px; align-items: center; padding: 2px 4px;
       background: rgba(255,255,255,0.94); border: 1px solid #cdddee; border-radius: 4px 0 4px 0; pointer-events: auto; cursor: grab;
@@ -144,6 +151,7 @@
         <label class="btn file" title="Load one or more NIfTIs — processed in your browser (no upload to any server)">+ NIfTI<input type="file" id="c-upload" accept=".nii,.nii.gz,.gz" multiple></label>
         <div class="sw" title="Bake threshold: voxels with |value| below this are dropped when meshing the upload."><span>threshold</span><input type="number" class="thrbox" id="c-threshold" value="2.3" min="0" step="0.1"></div>
         <select id="c-layout" title="Layout">
+          <option value="freeDefault">Default</option>
           <option value="fourPanel">4-panel</option>
           <option value="ninePanel">9-panel</option>
           <option value="overview">overview</option>

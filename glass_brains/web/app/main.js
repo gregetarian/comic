@@ -59,8 +59,8 @@ async function main() {
 
     // Config: ?config=… (render dir, headless) else data/render-config.json (static site).
     const cfgUrl = params.get('config') || (DATA + 'render-config.json');
-    const rc = await fetchJSON(cfgUrl, { preset: 'ninePanel', style: {} });
-    preset = params.get('preset') || rc.preset || 'ninePanel';
+    const rc = await fetchJSON(cfgUrl, { preset: 'freeDefault', style: {} });
+    preset = params.get('preset') || rc.preset || 'freeDefault';
     config = (rc.layout && !params.get('preset')) ? resolveConfig(rc) : resolveConfig(preset, { style: rc.style || {} });
 
     colormaps = loadColormaps(await fetchJSON(DATA + 'colormaps.json', { n: 2, maps: {} }));
