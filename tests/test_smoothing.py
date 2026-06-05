@@ -33,7 +33,7 @@ def main():
         pg = b.new_page(viewport={"width": 1400, "height": 900})
         pg.on("console", lambda m: errs.append(m.text) if m.type == "error" else None)
         pg.on("pageerror", lambda e: errs.append("PAGEERR " + str(e)))
-        pg.goto(f"http://127.0.0.1:{port}/index.html?demo=1")   # offline/instant boot (skip Pyodide default maps)
+        pg.goto(f"http://127.0.0.1:{port}/index.html?baked=1")   # offline/instant boot: pre-baked fixture (no Pyodide)
         pg.wait_for_function("window.__engine && window.__engine() && window.__engine().overlays.length>=1", timeout=60000)
         pg.wait_for_timeout(400)
         d0 = _disp(pg, 0); dlo = _disp(pg, 5); dhi = _disp(pg, 20)

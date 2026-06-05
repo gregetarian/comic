@@ -24,7 +24,7 @@ def serve():
 
 def main():
     httpd, port = serve()
-    url = f"http://127.0.0.1:{port}/index.html?demo=1"   # boot the pre-baked demo (offline); upload still exercises Pyodide
+    url = f"http://127.0.0.1:{port}/index.html?baked=1"   # boot the pre-baked fixture (offline); upload still exercises Pyodide
     errors = []
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -38,15 +38,15 @@ def main():
         def n_voxel_meshes():
             return page.evaluate("window.__engine().sceneModel.meshes.filter(m=>m.meta.role==='voxel').length")
 
-        # 1) bundled default overlays load with NO Pyodide (base GLBs + baked buffers only).
-        # Assertions are RELATIVE to the boot default (now the 4 Neurosynth maps), so this
-        # survives any change to the default figure.
+        # 1) the pre-baked fixture overlay loads with NO Pyodide (base GLBs + baked buffers only).
+        # Assertions are RELATIVE to whatever boots (here the single ?baked=1 overlay), so this
+        # survives any change to the boot figure.
         page.wait_for_function("window.__engine && window.__engine() && window.__engine().overlays.length >= 1", timeout=60_000)
-        page.wait_for_timeout(1500)   # let all bundled default overlays finish loading
+        page.wait_for_timeout(1500)   # let the pre-baked fixture overlay finish loading
         n0 = n_overlays(); m0 = n_voxel_meshes()
-        assert n0 >= 1 and m0 > 0, f"expected default overlays at boot, got {n0} overlays / {m0} meshes"
+        assert n0 >= 1 and m0 > 0, f"expected the baked fixture overlay at boot, got {n0} overlays / {m0} meshes"
         page.screenshot(path=str(SHOTS / "1_demo.png"))
-        print(f"[1] default overlays rendered: {n0} overlays, {m0} voxel meshes  ✓")
+        print(f"[1] fixture overlay rendered: {n0} overlays, {m0} voxel meshes  ✓")
 
         # 2) upload test_sphere -> triggers Pyodide pipeline -> one more overlay
         print("[2] uploading test_sphere.nii.gz (boots Pyodide; first run downloads wheels)…")
