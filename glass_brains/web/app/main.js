@@ -13,6 +13,7 @@
 import * as THREE from 'three';
 import { resolveConfig } from '../core/presets.js';
 import { loadColormaps } from '../core/colormap.js';
+import { setOverlayStyle } from '../core/config-schema.js';
 import { loadBaseScene, buildOverlayMeshes, loadOverlayArrays } from '../scene/asset-loader.js';
 import { createEngine } from '../scene/renderer.js';
 import { createColorbar } from '../controls/colorbar.js';
@@ -100,6 +101,8 @@ async function main() {
     });
     // Minimise/restore the bottom control panel (frees the collapsed height for the brains).
     document.getElementById('c-min').addEventListener('click', () => { document.body.classList.toggle('ctrl-min'); fit(); });
+    // Randomise: give every loaded volume a different random colormap (no-op with none loaded).
+    document.getElementById('c-random').addEventListener('click', randomizeColormaps);
 
     rebuild();                 // base glass brain renders immediately (no Pyodide)
     startLoopAndResize();
@@ -318,6 +321,19 @@ function setColorbarVisible(v) {
     }
     document.body.classList.toggle('nobar', !colorbar);
     fit();   // syncStrip + engine.resize → canvas height tracks the (now absent/present) strip
+}
+
+/** Give every loaded overlay a *distinct* random colormap, recolor, and rebuild the
+ *  control rows so each picker reflects its new map. Colorbars track on the next frame
+ *  (the RAF loop calls colorbar.update(), which re-reads the resolved style). */
+function randomizeColormaps() {
+    const names = [...colormaps.keys()];
+    if (!names.length || !overlays.length) return;
+    // Fisher–Yates: distinct maps per overlay until the pool runs out (~156, so always).
+    for (let i = names.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [names[i], names[j]] = [names[j], names[i]]; }
+    overlays.forEach((o, i) => setOverlayStyle(config, i, { colormap: names[i % names.length] }));
+    engine.recolor();
+    buildOverlayRows({ engine, config, colormaps, onRemove: removeOverlay });
 }
 
 // --- per-panel zoom controls (recreated each rebuild; layout/panel count can change) ---

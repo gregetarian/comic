@@ -9,41 +9,56 @@ import json
 import numpy as np
 import cmap as cmaplib
 
-# Curated neuroimaging-relevant default set (small JSON). Use --all for everything.
-CURATED = [
-    # sequential
-    "viridis", "plasma", "inferno", "magma", "cividis", "turbo",
-    "hot", "afmhot", "gist_heat", "YlOrRd", "YlOrBr", "OrRd", "Reds",
-    "YlGnBu", "Blues", "Greens", "Purples", "Greys", "cool", "Wistia", "bone",
-    # diverging
-    "coolwarm", "bwr", "seismic", "RdBu", "RdBu_r", "RdYlBu", "Spectral",
-    "PiYG", "BrBG", "PuOr", "RdGy",
-    # misc
-    "jet", "rainbow", "gist_rainbow",
+# Every *continuous* matplotlib colormap (sequential / diverging / cyclic /
+# miscellaneous). The 12 qualitative maps (tab10, Set1, Pastel*, Accent, …) are
+# left out on purpose: they're categorical, so they make meaningless continuous
+# overlays + colorbars and would pollute the Randomise pool. The _r reverses are
+# added automatically below, giving ~156 maps. Every name resolves in the `cmap`
+# package, which also supplies each base map's category.
+MPL_CONTINUOUS = [
+    # ColorBrewer + matplotlib sequential/diverging (incl. RdPu / PuRd)
+    "Blues", "BrBG", "BuGn", "BuPu", "CMRmap", "GnBu", "Grays", "Greens", "Greys",
+    "OrRd", "Oranges", "PRGn", "PiYG", "PuBu", "PuBuGn", "PuOr", "PuRd", "Purples",
+    "RdBu", "RdGy", "RdPu", "RdYlBu", "RdYlGn", "Reds", "Spectral", "Wistia",
+    "YlGn", "YlGnBu", "YlOrBr", "YlOrRd",
+    # perceptually-uniform, cyclic, and the classic/miscellaneous maps
+    "afmhot", "autumn", "berlin", "binary", "bone", "brg", "bwr", "cividis", "cool",
+    "coolwarm", "copper", "cubehelix", "flag", "gist_earth", "gist_gray", "gist_grey",
+    "gist_heat", "gist_ncar", "gist_rainbow", "gist_stern", "gist_yarg", "gist_yerg",
+    "gnuplot", "gnuplot2", "gray", "grey", "hot", "hsv", "inferno", "jet", "magma",
+    "managua", "nipy_spectral", "ocean", "pink", "plasma", "prism", "rainbow",
+    "seismic", "spring", "summer", "terrain", "turbo", "twilight", "twilight_shifted",
+    "vanimo", "viridis", "winter",
 ]
 
 
 def export_colormaps(out_path, names=None, n=256):
-    """Write {n, maps:{name:{lut:[[r,g,b],...] sRGB 0..1, category}}} to out_path."""
+    """Write {n, maps:{name:{lut:[[r,g,b],...] sRGB 0..1, category}}} to out_path.
+
+    Default = every matplotlib continuous colormap plus its _r reverse (~156).
+    Pass names="all" for the entire `cmap` catalog, or an explicit list of names.
+    """
     cat = cmaplib.Catalog()
-    available = set(cat)
     if names is None:
-        names = [nm for nm in CURATED if nm in available]
+        names = MPL_CONTINUOUS + [nm + "_r" for nm in MPL_CONTINUOUS]
     elif names == "all":
-        names = sorted(available)
+        names = sorted(set(cat))
+
+    def category(name):
+        # _r reverses are not separate catalog entries — inherit the base map's
+        # category (else e.g. RdBu_r would be mis-labelled sequential, breaking the
+        # diverging picker group + the positive-data washout guard).
+        base = name[:-2] if name.endswith("_r") else name
+        try:
+            return cat[base].category
+        except Exception:
+            return "sequential"
 
     x = np.linspace(0.0, 1.0, n)
     maps = {}
     for name in names:
-        if name not in available:
-            print(f"  colormap '{name}' not in cmap catalog — skipping")
-            continue
         lut = np.asarray(cmaplib.Colormap(name)(x))[:, :3]  # (n,3) sRGB 0..1
-        try:
-            category = cat[name].category
-        except Exception:
-            category = "sequential"
-        maps[name] = {"lut": np.round(lut, 4).tolist(), "category": category}
+        maps[name] = {"lut": np.round(lut, 4).tolist(), "category": category(name)}
 
     with open(out_path, "w") as f:
         json.dump({"n": n, "maps": maps}, f)

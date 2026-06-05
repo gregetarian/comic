@@ -44,11 +44,13 @@ view pixel-for-pixel.
   figure headlessly, pixel-faithful.
 - **Statistical controls** — voxelwise threshold, **cluster-extent threshold**
   (drop clusters below *k* voxels), positive-only.
-- **Faithful colour** — the full `cmap` colormap catalogue, auto
-  sequential-vs-diverging selection, and a positive-data washout guard; an
-  on-screen colorbar (one per overlay) runs the *same* shader pipeline so it
-  matches the voxels. Colorbars are **off by default**; toggle them on with the
-  **Colorbar** button (or hide with the `✕`) so a stack of bars never squashes the brains.
+- **Faithful colour** — all ~150 matplotlib colormaps (every continuous map +
+  its `_r` reverse, RdPu/PuRd and the rest), auto sequential-vs-diverging
+  selection, and a positive-data washout guard; an on-screen colorbar (one per
+  overlay) runs the *same* shader pipeline so it matches the voxels. Step through
+  maps per overlay with **‹ ›**, or **Randomise** every loaded volume at once.
+  Colorbars are **off by default**; toggle them on with the **Colorbar** button
+  (or hide with the `✕`) so a stack of bars never squashes the brains.
 - **Blocky or smooth** voxels, pial or inflated cortex; an optional **`smooth+`** pass
   (size-preserving Laplacian) that rounds rough cluster surfaces — most visible on
   large/irregular blobs.
@@ -128,6 +130,7 @@ toggle) for a one-line explanation.**
   full canvas — never squashed by a stack of bars).
 - **Save bars** — the colorbars on their own as a separate legend image.
 - **Colorbar** — show/hide the on-screen colorbars (off by default; also the `✕` on the bars).
+- **Randomise** — give every loaded volume a different random colormap (one click).
 - **Inflate / Outline** — inflated vs pial cortex; black silhouette on/off.
 - **cortex α / edge thr / line w** — cortex glass opacity, sulcal-line density, line width.
 - **Light: direct / ambient** — scene lighting (off by default; voxel colour
@@ -137,7 +140,7 @@ toggle) for a one-line explanation.**
 
 **Per-overlay row (one per NIfTI):**
 
-- name + **✕** to remove · **colormap** (own colorbar) · **Smooth** (blocky↔smooth) ·
+- name + **✕** to remove · **colormap** (own colorbar; **‹ ›** to step through them) · **Smooth** (blocky↔smooth) ·
   **thr** (threshold) · **cluster k** (cluster-extent) · **smooth+** (size-preserving
   surface smoothing of the smooth mesh; 0 = off) · **+only** ·
   **Edges** + **edge w** · **veil / veil log** (depth fade) ·
