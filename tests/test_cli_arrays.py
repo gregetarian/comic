@@ -32,5 +32,29 @@ def test_cli_render_uses_arrays():
         shutil.rmtree(d, ignore_errors=True)
 
 
+def test_cli_render_multi_overlay():
+    """Several NIfTIs -> one overlay each (overlay_<i>.bin), distinct per-map meta, and a
+    per-overlay threshold list. Guards the buffer-handoff: get_all_buffers() must be grabbed
+    for each map BEFORE the next process_nifti clears _BUFFERS (else overlays cross-contaminate)."""
+    a = ROOT / "glass_brains" / "web" / "data" / "defaults" / "faces.nii.gz"
+    b = ROOT / "glass_brains" / "web" / "data" / "defaults" / "language.nii.gz"
+    d = prepare_render_dir([str(a), str(b)], threshold=[2.3, 3.5])
+    try:
+        data = d / "data"
+        scene = json.loads((data / "scene.json").read_text())
+        assert len(scene["overlays"]) == 2, f"expected 2 overlays, got {len(scene['overlays'])}"
+        assert (data / "overlay_0.bin").exists() and (data / "overlay_1.bin").exists()
+        assert scene["overlays"][0]["buffersFile"] == "overlay_0.bin"
+        assert scene["overlays"][1]["buffersFile"] == "overlay_1.bin"
+        # distinct maps -> distinct names AND distinct buffer bytes (no cross-contamination)
+        assert scene["overlays"][0]["name"] != scene["overlays"][1]["name"]
+        b0 = (data / "overlay_0.bin").read_bytes(); b1 = (data / "overlay_1.bin").read_bytes()
+        assert b0 != b1, "the two overlays' buffers are identical — buffer handoff is broken"
+        print("PASS — multi-overlay CLI render stages overlay_0.bin + overlay_1.bin with distinct per-map geometry")
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
 if __name__ == "__main__":
     test_cli_render_uses_arrays()
+    test_cli_render_multi_overlay()
