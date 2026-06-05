@@ -2,7 +2,9 @@
   1. the viewer boots EMPTY (no auto-loaded maps) when given no ?demo / ?baked param;
   2. colorbars are OFF by default even with an overlay present, and the Colorbar button toggles them on;
   3. the Demo button exists;
-  4. the Minimise chevron collapses the control rows (body.ctrl-min) and restores them.
+  4. the Minimise chevron collapses the control rows (body.ctrl-min) and restores them;
+  5. the colormap picker ships the full set (~150) incl RdPu/PuRd + reversed (_r) variants;
+  6. the per-overlay ‹ › stepper cycles the colormap, and the Randomise button reassigns it.
 Uses ?baked=1 (the pre-baked fixture overlay) so an overlay is present without booting Pyodide.
 """
 import functools, http.server, socketserver, threading
@@ -47,6 +49,33 @@ def main():
         check("Colorbar toggle ON creates the bar", pg.evaluate("!!document.querySelector('.colorbar')"))
         check("Colorbar button now active", pg.evaluate("document.getElementById('c-colorbar').classList.contains('active')"))
 
+        # --- colormaps.json ships the full set (~150) incl RdPu/PuRd + reversed ---
+        sel = ".overlay-row select"
+        opts = pg.evaluate(f"[...document.querySelectorAll('{sel} option')].map(o=>o.value)")
+        check("colormap picker has the full set (>=150)", len(opts) >= 150)
+        check("RdPu + PuRd present (were missing before)", 'RdPu' in opts and 'PuRd' in opts)
+        check("reversed (_r) variants present", any(v.endswith('_r') for v in opts))
+
+        # --- ‹ › stepper cycles the colormap (› forward, ‹ back) ---
+        v0 = pg.evaluate(f"document.querySelector('{sel}').value")
+        pg.locator(".overlay-row .cmap-nav").nth(1).click(); pg.wait_for_timeout(120)   # ›
+        v1 = pg.evaluate(f"document.querySelector('{sel}').value")
+        check("› steps to a different colormap", v1 != v0)
+        pg.locator(".overlay-row .cmap-nav").nth(0).click(); pg.wait_for_timeout(120)   # ‹ back
+        check("‹ steps back to the original", pg.evaluate(f"document.querySelector('{sel}').value") == v0)
+
+        # --- Randomise reassigns the colormap (try a few; repeating all 6 is ~(1/156)^6) ---
+        check("Randomise button present", pg.evaluate("!!document.getElementById('c-random')"))
+        before = pg.evaluate(f"document.querySelector('{sel}').value")
+        changed = False; valid = True
+        for _ in range(6):
+            pg.click("#c-random"); pg.wait_for_timeout(80)
+            now = pg.evaluate(f"document.querySelector('{sel}').value")
+            changed = changed or (now != before)
+            valid = valid and (now in opts)
+        check("Randomise always picks a valid loaded colormap", valid)
+        check("Randomise changes the colormap (≥1 of 6 clicks differs)", changed)
+
         # --- minimise: collapse the control rows, restore them ---
         row_shown = pg.evaluate("getComputedStyle(document.querySelector('#controls .row')).display !== 'none'")
         check("control rows visible before minimise", row_shown)
@@ -62,7 +91,8 @@ def main():
     bad = [e for e in errs if "favicon" not in e.lower()]
     if bad: print("ERRORS:", *bad[:6], sep="\n  - ")
     ok = ok and not bad
-    print("\n" + ("PASS — empty boot, colorbars off by default (toggle works), Demo button, minimisable controls"
+    print("\n" + ("PASS — empty boot, colorbars off by default (toggle works), Demo button, minimisable controls, "
+                  "full colormap set (RdPu/PuRd/_r), ‹ › stepper + Randomise"
                   if ok else "FAIL"))
     raise SystemExit(0 if ok else 1)
 
