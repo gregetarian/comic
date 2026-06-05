@@ -133,26 +133,38 @@ def _deep_merge(base, over):
 
 # --- main render ----------------------------------------------------------
 def prepare_render_dir(nifti, threshold=2.3, include_subcortical=True):
-    """Stage a self-contained render dir: a copy of the single viewer with the overlay
+    """Stage a self-contained render dir: a copy of the single viewer with the overlay(s)
     processed in-process (same pipeline.py the browser runs) and written as ARRAYS
-    (overlay_0.bin + meta in scene.json) — no GLB, no per-render template re-bake.
+    (overlay_<i>.bin + meta in scene.json) — no GLB, no per-render template re-bake.
+
+    `nifti` is a single path (str/Path) OR a list of paths for a multi-overlay figure;
+    `threshold` is a scalar (applied to every map) OR a per-overlay list. Each map becomes
+    its own overlay, so the engine renders N overlays with per-overlay style from
+    `style.overlays[i]` — the exact same path the browser uses for N dragged-in NIfTIs.
     Returns the dir path."""
     from . import pipeline as P
     from .arrays import write_overlay_arrays
 
+    niftis = [nifti] if isinstance(nifti, (str, Path)) else list(nifti)
+    thresholds = ([float(threshold)] * len(niftis) if isinstance(threshold, (int, float))
+                  else [float(t) for t in threshold])
+
     out_dir = Path(tempfile.mkdtemp(prefix="gb_render_"))
     shutil.copytree(WEB_DIR, out_dir, dirs_exist_ok=True)
     data = out_dir / "data"
-
     P.init_aseg((data / "aseg_uint8.bin.gz").read_bytes(), (data / "aseg.json").read_text())
-    name = Path(nifti).name.replace(".nii.gz", "").replace(".nii", "")
-    meta = json.loads(P.process_nifti(str(nifti), name, threshold))
-    meta = write_overlay_arrays(data, meta, P.get_all_buffers(), index=0)
+
+    metas = []
+    for i, src in enumerate(niftis):
+        name = Path(src).name.replace(".nii.gz", "").replace(".nii", "")
+        meta = json.loads(P.process_nifti(str(src), name, thresholds[i]))
+        # grab THIS overlay's buffers before the next process_nifti clears _BUFFERS
+        metas.append(write_overlay_arrays(data, meta, P.get_all_buffers(), index=i))
 
     scene = json.loads((data / "scene.json").read_text())
     if not include_subcortical:
         scene.pop("subcortical", None)
-    scene["overlays"] = [meta]
+    scene["overlays"] = metas
     (data / "scene.json").write_text(json.dumps(scene))
     return out_dir
 
@@ -161,6 +173,9 @@ def render_to_png(nifti, out_png, *, layout, style=None, threshold=2.3, cmap="au
                   width=1600, height=1000, scale=2, include_subcortical=True,
                   background="#ffffff", background_alpha=1.0, colorbar=True, colorbar_font=None,
                   colorbar_fontsize=None, timeout_ms=90000):
+    """`nifti` is one path or a list of paths (one overlay each); `threshold` is a scalar
+    or per-overlay list. Per-overlay colour/threshold come from `style['overlays'][i]`."""
+    n_overlays = 1 if isinstance(nifti, (str, Path)) else len(nifti)
     out_dir = prepare_render_dir(nifti, threshold, include_subcortical)
 
     # Transparent background (Free Canvas): record bgAlpha in the layout so the WebGL
@@ -219,7 +234,12 @@ def render_to_png(nifti, out_png, *, layout, style=None, threshold=2.3, cmap="au
             outputs = [out_png]
             # Colorbar legend as a SEPARATE sidecar image (place it in your figure yourself).
             if colorbar:
-                page.evaluate("() => { const c = document.querySelector('.colorbar'); if (c) c.style.display = ''; }")
+                # Reveal the bars and paint the strip opaque white so a multi-bar legend
+                # (taller strip, overlaps the brain) screenshots clean — no brain bleed-through
+                # in the gaps between rows. This is after the brain capture, so the figure is
+                # untouched; it only affects the separate legend sidecar.
+                page.evaluate("() => { const c = document.querySelector('.colorbar');"
+                              " if (c) { c.style.display = ''; c.style.background = '#ffffff'; c.style.padding = '6px 10px'; } }")
                 page.wait_for_timeout(60)
                 bar = page.locator('.colorbar')
                 if bar.count() and bar.bounding_box():
@@ -230,5 +250,6 @@ def render_to_png(nifti, out_png, *, layout, style=None, threshold=2.3, cmap="au
             browser.close()
     finally:
         httpd.shutdown()
-    print("Rendered " + ", ".join(str(o) for o in outputs) + f"  ({width}x{height} @{scale}x)")
+    print("Rendered " + ", ".join(str(o) for o in outputs) +
+          f"  ({width}x{height} @{scale}x, {n_overlays} overlay{'s' if n_overlays != 1 else ''})")
     return out_png
