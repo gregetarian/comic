@@ -31,7 +31,7 @@ def serve():
 
 def main():
     httpd, port = serve()
-    url = f"http://127.0.0.1:{port}/index.html?demo=1"   # ?demo=1: skip the Pyodide default maps (instant, offline)
+    url = f"http://127.0.0.1:{port}/index.html?baked=1"   # ?baked=1: pre-baked fixture overlay (instant, offline; no Pyodide)
     errors = []
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)

@@ -105,6 +105,15 @@
 
     #controls { flex: none; display: flex; flex-direction: column; background: #fafafa;
       border-top: 1px solid #e3e3e3; max-height: 46vh; overflow-y: auto; }
+    /* minimise: a thin always-visible header with a chevron; collapsing hides every row
+       (only the 17px bar remains) so the brains reclaim the freed height. */
+    .ctrl-bar { flex: none; display: flex; justify-content: flex-end; align-items: center; height: 17px;
+      background: #f2f2f2; border-bottom: 1px solid #ececec; position: sticky; top: 0; z-index: 2; }
+    .ctrl-min { border: none; background: none; cursor: pointer; font-size: 10px; color: #999;
+      line-height: 1; padding: 1px 8px; transition: transform 0.15s; }
+    .ctrl-min:hover { color: #444; }
+    body.ctrl-min .ctrl-min { transform: rotate(180deg); }
+    body.ctrl-min #controls > .row, body.ctrl-min #controls > #overlay-rows { display: none; }
     .row { display: flex; align-items: center; gap: 16px; padding: 6px 14px; white-space: nowrap;
       overflow-x: auto; overflow-y: hidden; min-height: 56px; scrollbar-width: thin; }
     .row + .row { border-top: 1px solid #ececec; }
@@ -145,11 +154,14 @@
     <label class="kapow-toggle" title="Comic SFX: a 50% chance a 'BOOM!' pops where you click."><input type="checkbox" id="c-kapow" checked> Kapow</label>
   </div>
   <div id="controls">
+    <!-- thin header: minimise / restore the whole control panel -->
+    <div class="ctrl-bar"><button id="c-min" class="ctrl-min" title="Minimise / restore the control panel">▾</button></div>
     <!-- Global surface row -->
     <div class="row">
       <div class="grp">
         <label class="btn file" title="Load one or more NIfTIs — processed in your browser (no upload to any server)">+ NIfTI<input type="file" id="c-upload" accept=".nii,.nii.gz,.gz" multiple></label>
         <div class="sw" title="Bake threshold: voxels with |value| below this are dropped when meshing the upload."><span>threshold</span><input type="number" class="thrbox" id="c-threshold" value="2.3" min="0" step="0.1"></div>
+        <button class="btn" id="c-demo" title="Demo: load example Neurosynth maps (faces · addiction · default-network · language), meshed in your browser">Demo</button>
         <select id="c-layout" title="Layout">
           <option value="freeDefault">Default</option>
           <option value="fourPanel">4-panel</option>
@@ -159,7 +171,7 @@
         </select>
         <button class="btn" id="c-save-brain" title="Save the brains at full resolution (no colorbars, never squashed)">Save brain</button>
         <button class="btn" id="c-save-bars" title="Save the colorbars on their own as a separate image">Save bars</button>
-        <button class="btn active" id="c-colorbar" title="Show/hide the colorbars in the live view (hiding reclaims the full canvas so the brains aren't squashed)">Colorbar</button>
+        <button class="btn" id="c-colorbar" title="Show/hide the colorbars in the live view (off by default; showing reclaims/squashes the canvas accordingly)">Colorbar</button>
         <button class="btn" id="c-cli" title="Copy a glass-brains render CLI command that reproduces this view to the clipboard (falls back to a .txt download)">Copy CLI</button>
       </div>
       <div class="grp">

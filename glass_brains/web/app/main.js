@@ -32,7 +32,8 @@ let fcEditor = null;   // Free Canvas editor overlay (only in layout.mode === 'f
 let container, canvas;
 let preset;            // current layout preset name (for the CLI-command export)
 let panelZoomUsed = false;  // the +/- buttons have no CLI equivalent; flag for the export note
-let colorbarsVisible = true;  // live colorbar visibility (✕ to hide → brains reclaim full canvas)
+let colorbarsVisible = false;  // live colorbars OFF by default; the Colorbar button (or ✕) toggles them on
+let demoLoaded = false;        // the Neurosynth Demo has loaded once (guards ?demo=1 + the Demo button against stacking duplicates)
 let isHeadless = false;       // ?headless=1: render-to-PNG mode (no controls, no ✕, sets __GB_DONE__)
 
 async function fetchJSON(url, fb) {
@@ -56,6 +57,10 @@ async function main() {
 
     const params = new URLSearchParams(location.search);
     isHeadless = params.get('headless') === '1';
+    // Colorbars are off by default in the interactive viewer, but the headless/CLI render
+    // path governs them via config.render.colorbar (render.py screenshots the .colorbar
+    // element), so keep them present headlessly.
+    if (isHeadless) colorbarsVisible = true;
 
     // Config: ?config=… (render dir, headless) else data/render-config.json (static site).
     const cfgUrl = params.get('config') || (DATA + 'render-config.json');
@@ -86,15 +91,27 @@ async function main() {
     document.getElementById('c-save-bars').addEventListener('click', saveBars);
     document.getElementById('c-colorbar').addEventListener('click', () => setColorbarVisible(!colorbarsVisible));
     document.getElementById('c-cli').addEventListener('click', copyCliCommand);
+    // Demo: load the example Neurosynth maps on demand. Disable on click; loadNeurosynthDemo is
+    // idempotent (demoLoaded guard), so a second click — or ?demo=1 then a click — can't stack dupes.
+    const demoBtn = document.getElementById('c-demo');
+    demoBtn.addEventListener('click', () => {
+        demoBtn.disabled = true;
+        loadNeurosynthDemo().catch((e) => { console.warn('demo load failed:', e); demoLoaded = false; demoBtn.disabled = false; });
+    });
+    // Minimise/restore the bottom control panel (frees the collapsed height for the brains).
+    document.getElementById('c-min').addEventListener('click', () => { document.body.classList.toggle('ctrl-min'); fit(); });
 
     rebuild();                 // base glass brain renders immediately (no Pyodide)
     startLoopAndResize();
     setLoading(null);
 
-    // Boot figure: the bundled default maps, meshed in-browser (Pyodide). ?demo=1 loads the
-    // single pre-baked demo instead — instant + offline, used by the headless tests.
-    (params.get('demo') === '1' ? loadDemo() : loadDefaults())
-        .catch((e) => console.warn('default overlays unavailable:', e));
+    // Boot EMPTY — just the glass brain; the user uploads their own maps or clicks "Demo".
+    // ?demo=1 auto-loads the example Neurosynth maps (meshed in-browser via Pyodide), the same
+    // as the Demo button. ?baked=1 loads the single pre-baked overlay (instant + offline) — the
+    // fast fixture used by the headless tests.
+    const demoParam = params.get('demo');
+    (demoParam === '1' ? loadNeurosynthDemo() : params.get('baked') === '1' ? loadBakedFixture() : Promise.resolve())
+        .catch((e) => console.warn('demo overlays unavailable:', e));
 }
 
 /** Headless render (glass-brains render): fixed-size figure, overlays from the manifest's
@@ -128,20 +145,23 @@ async function runHeadless() {
     window.__engine = () => engine;
 }
 
-/** Load the pre-baked demo overlay (static files) — identical path to a live upload. */
-async function loadDemo() {
+/** Load the single pre-baked overlay (static files) — identical path to a live upload.
+ *  Instant + offline (no Pyodide); the headless tests boot this via ?baked=1. */
+async function loadBakedFixture() {
     const meta = await fetch(DATA + 'demo/meta.json').then((r) => r.json());
     const buffers = await loadOverlayArrays(DATA + 'demo/', meta);
     addOverlay(meta, buffers);
 }
 
-/** Load the bundled default overlays (data/defaults/manifest.json) — the boot figure.
+/** Load the example Neurosynth maps (data/defaults/manifest.json) — the "Demo" figure.
  *  These are the raw NIfTIs (tiny), meshed in-browser via the SAME Pyodide path as a
  *  user upload (so the result is identical to dragging them in). The first one boots
- *  Pyodide (~30 MB, once). Falls back to the demo overlay if the manifest is missing. */
-async function loadDefaults() {
+ *  Pyodide (~30 MB, once). Falls back to the pre-baked overlay if the manifest is missing. */
+async function loadNeurosynthDemo() {
+    if (demoLoaded) return;     // idempotent: ?demo=1 + the Demo button must never stack duplicate overlays
+    demoLoaded = true;
     const man = await fetchJSON(DATA + 'defaults/manifest.json', null);
-    if (!man || !Array.isArray(man.overlays) || !man.overlays.length) return loadDemo();
+    if (!man || !Array.isArray(man.overlays) || !man.overlays.length) return loadBakedFixture();
     const note = 'First load fetches the ~30 MB scientific stack once, then meshes the maps.';
     for (const ov of man.overlays) {
         try {
