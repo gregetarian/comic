@@ -141,6 +141,7 @@
     select, .btn { font-size: 11px; padding: 3px 6px; border: 1px solid #ccc; border-radius: 3px; background: #fff; cursor: pointer; }
     .btn { color: #777; }
     .btn.active { background: #444; color: #fff; border-color: #444; }
+    .cmap-nav { padding: 3px 5px; font-weight: 700; color: #555; }   /* ‹ › per-overlay colormap stepper */
     .file { position: relative; overflow: hidden; }
     .file input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
     .thrbox { width: 50px; font-size: 11px; padding: 3px 4px; border: 1px solid #ccc; border-radius: 3px; text-align: center; }
@@ -172,6 +173,7 @@
         <button class="btn" id="c-save-brain" title="Save the brains at full resolution (no colorbars, never squashed)">Save brain</button>
         <button class="btn" id="c-save-bars" title="Save the colorbars on their own as a separate image">Save bars</button>
         <button class="btn" id="c-colorbar" title="Show/hide the colorbars in the live view (off by default; showing reclaims/squashes the canvas accordingly)">Colorbar</button>
+        <button class="btn" id="c-random" title="Randomise: give every loaded volume a different random colormap">Randomise</button>
         <button class="btn" id="c-cli" title="Copy a glass-brains render CLI command that reproduces this view to the clipboard (falls back to a .txt download)">Copy CLI</button>
       </div>
       <div class="grp">

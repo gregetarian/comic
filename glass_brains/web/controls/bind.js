@@ -100,7 +100,7 @@ function sw(labelText) {
     wrap.append(span, range);
     return { wrap, range };
 }
-const btn = (text) => { const b = document.createElement('button'); b.className = 'btn'; b.textContent = text; return b; };
+const btn = (text) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn'; b.textContent = text; return b; };
 
 function populateCmap(sel, colormaps) {
     if (!colormaps || !colormaps.size) return;
@@ -149,9 +149,15 @@ export function buildOverlayRows({ engine, config, colormaps, onRemove }) {
         populateCmap(cmap, colormaps);
         cmap.value = resolveColormap(os, !!ov.diverging, colormaps).name;
         cmap.title = 'Colormap for this overlay.';
-        cmap.addEventListener('change', () => { set({ colormap: cmap.value }); engine.recolor(); });
-        g.append(cmap);
-        infoIcon(cmap, 'Colormap for this overlay (each overlay can use a different one; sequential vs diverging auto-picked from the data).');
+        const applyCmap = () => { set({ colormap: cmap.value }); engine.recolor(); };
+        cmap.addEventListener('change', applyCmap);
+        // ‹ / › step through the (grouped) colormap list, wrapping around — a quick way to
+        // scan all ~150 maps without hunting in the dropdown. options[] is flat across optgroups.
+        const stepCmap = (d) => { const k = cmap.options.length; if (!k) return; cmap.selectedIndex = (cmap.selectedIndex + d + k) % k; applyCmap(); };
+        const cprev = btn('‹'); cprev.classList.add('cmap-nav'); cprev.title = 'Previous colormap'; cprev.addEventListener('click', () => stepCmap(-1));
+        const cnext = btn('›'); cnext.classList.add('cmap-nav'); cnext.title = 'Next colormap'; cnext.addEventListener('click', () => stepCmap(1));
+        g.append(cprev, cmap, cnext);
+        infoIcon(cnext, 'Colormap for this overlay — pick from the list or step with ‹ ›. Each overlay can use a different one; sequential vs diverging is auto-picked from the data.');
 
         const smooth = btn('Smooth');
         bindToggle(smooth, os.representation === 'smooth', (on) => set({ voxel: { representation: on ? 'smooth' : 'blocky' } }), 'Smooth (marching-cubes) vs blocky voxels.');
