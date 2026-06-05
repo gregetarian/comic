@@ -103,6 +103,17 @@ glass-brains render zstat.nii.gz -o figure.png \
     --grid 2x2 --views left_lateral,right_lateral,axial,frontal \
     --cmap YlGnBu -k 100 --smooth 6 --width 1600 --height 1000
 
+# Multiple volumes in ONE figure — each map is its own overlay with its own colormap +
+# colorbar (seed-based connectivity / multi-network). Pass several NIfTIs; each gets a
+# distinct default colormap, in argument order.
+glass-brains render seed.nii.gz networkA.nii.gz networkB.nii.gz -o multi.png \
+    --grid 1x3 --views left_lateral,dorsal,right_lateral -k 100
+
+# Reproduce a Free-Canvas figure exactly: the browser's figure.json (its Copy-CLI output)
+# + one NIfTI per overlay slot (the i-th map fills style.overlays[i]).
+glass-brains render faces.nii.gz language.nii.gz addiction.nii.gz dmn.nii.gz \
+    -o figure.png --spec figure.json
+
 # Re-bake the fsaverage template assets into web/data/ (one-time; needs the [bake] extra)
 glass-brains bake
 ```
@@ -179,11 +190,14 @@ switch is seamless) to turn the figure into a free 2D canvas of brain panels:
 
 ## CLI reference
 
-`glass-brains render` is fully parameterised — `--grid RxC`, `--views ...`
+`glass-brains render` takes **one or more** NIfTIs — each map becomes its own overlay
+(its own colormap + colorbar; argument order = overlay/draw order), so a single command
+renders a multi-volume figure. It is fully parameterised — `--grid RxC`, `--views ...`
 (row-major; `_` = blank cell; aliases like `axial=dorsal`, `frontal=anterior`), or
 **`--spec figure.json`** for a Free Canvas figure (a self-contained canvas document —
 layout + style + size — as emitted by the browser's *Copy CLI*; it overrides
-`--grid/--views`), plus `--bg-alpha 0` for a transparent PNG, plus style flags:
+`--grid/--views`; with multiple maps the i-th map fills `style.overlays[i]`),
+plus `--bg-alpha 0` for a transparent PNG, plus style flags:
 `--surface`, `--voxels`, `--smooth` (extra surface smoothing),
 `--cmap`, `-k/--cluster-size`, `--threshold`, `--veil`, `--veil-k`, `--emissive`, `--specular`, `--shininess`,
 `--directional`, `--ambient`, `--cortex-alpha`, `--edge-thr`, `--line-w`,

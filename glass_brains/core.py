@@ -85,7 +85,10 @@ def cli():
     sub.add_parser('bake', help='Re-bake the fsaverage template assets into web/data/ (needs the [bake] extra)')
 
     r = sub.add_parser('render', help='Render a custom multi-panel figure to PNG (headless)')
-    r.add_argument('nifti', help='NIfTI stat map')
+    r.add_argument('nifti', nargs='+',
+                   help='NIfTI stat map(s). Pass several for a multi-overlay figure (each map '
+                        'is one overlay, with its own colormap/colorbar). With --spec, the i-th '
+                        'map fills the i-th overlay slot (style.overlays[i]).')
     r.add_argument('-o', '--out', required=True, help='output PNG path')
     r.add_argument('--grid', default='2x4', help='grid as RxC, e.g. 2x2')
     r.add_argument('--views',
@@ -160,6 +163,15 @@ def cli():
             cmap = style.get('colormap', args.cmap)
             width = args.width if args.width is not None else spec_render.get('width', 1600)
             height = args.height if args.height is not None else spec_render.get('height', 1000)
+            # Per-overlay BAKE threshold = that overlay's live threshold, so baked == shown
+            # (style.overlays[i].threshold -> global style.threshold -> --threshold).
+            ov = style.get('overlays') or []
+            thresholds = [
+                (ov[i]['threshold'] if i < len(ov) and ov[i].get('threshold') is not None
+                 else style['threshold'] if style.get('threshold') is not None
+                 else args.threshold)
+                for i in range(len(args.nifti))
+            ]
         else:
             layout = build_layout(args.grid, [v for v in args.views.split(',')])
             style = {}
@@ -200,6 +212,12 @@ def cli():
             cmap = args.cmap
             width = args.width if args.width is not None else 1600
             height = args.height if args.height is not None else 1000
+            thresholds = [args.threshold] * len(args.nifti)
+            # Several maps without a spec: give each a distinct default colormap so they don't
+            # collapse onto one colour (a single map keeps --cmap as the global colormap).
+            if len(args.nifti) > 1:
+                palette = ['YlGnBu', 'Reds', 'Greens', 'Purples', 'Oranges', 'Blues', 'YlOrRd', 'BuPu']
+                style['overlays'] = [{'colormap': palette[i % len(palette)]} for i in range(len(args.nifti))]
 
         # Transparent background: explicit --bg-alpha wins; else the spec's canvas.bgAlpha; else opaque.
         bg_alpha = args.bg_alpha
@@ -207,7 +225,7 @@ def cli():
             bg_alpha = (layout.get('canvas') or {}).get('bgAlpha', 1.0)
 
         render_to_png(args.nifti, args.out, layout=layout, style=style,
-                      threshold=args.threshold, cmap=cmap,
+                      threshold=thresholds, cmap=cmap,
                       width=width, height=height, scale=args.scale,
                       include_subcortical=not args.no_subcortical,
                       background_alpha=bg_alpha,
