@@ -47,8 +47,8 @@ view pixel-for-pixel.
 - **Faithful colour** — the full `cmap` colormap catalogue, auto
   sequential-vs-diverging selection, and a positive-data washout guard; an
   on-screen colorbar (one per overlay) runs the *same* shader pipeline so it
-  matches the voxels. **Show/hide** the colorbars (the `✕` on them, or the
-  **Colorbar** toggle) so a stack of bars never squashes the brains.
+  matches the voxels. Colorbars are **off by default**; toggle them on with the
+  **Colorbar** button (or hide with the `✕`) so a stack of bars never squashes the brains.
 - **Blocky or smooth** voxels, pial or inflated cortex; an optional **`smooth+`** pass
   (size-preserving Laplacian) that rounds rough cluster surfaces — most visible on
   large/irregular blobs.
@@ -120,16 +120,20 @@ toggle) for a one-line explanation.**
 
 - **`+ NIfTI`** — load one or more stat maps (meshed in-browser via Pyodide; the first
   upload fetches the ~30 MB scientific stack once). Each appends a new overlay row.
+- **Demo** — load the example Neurosynth maps (faces · addiction · default-network ·
+  language), meshed in-browser — a one-click showcase on the otherwise empty canvas.
 - **Copy CLI** — copy a `glass-brains render` command that reproduces the current view.
 - **layout** — switch 4-panel / 9-panel / overview / **Free Canvas** (see below).
 - **Save brain** — high-res, print-tuned capture of the brains only (no colorbars,
   full canvas — never squashed by a stack of bars).
 - **Save bars** — the colorbars on their own as a separate legend image.
-- **Colorbar** — show/hide the on-screen colorbars (also the `✕` on the bars).
+- **Colorbar** — show/hide the on-screen colorbars (off by default; also the `✕` on the bars).
 - **Inflate / Outline** — inflated vs pial cortex; black silhouette on/off.
 - **cortex α / edge thr / line w** — cortex glass opacity, sulcal-line density, line width.
 - **Light: direct / ambient** — scene lighting (off by default; voxel colour
   comes from emissive + a light-independent glint).
+- **Minimise** — the chevron at the top-right of the control strip collapses the whole
+  panel to a thin bar, handing the freed height back to the brains; click again to restore.
 
 **Per-overlay row (one per NIfTI):**
 
@@ -200,7 +204,8 @@ layout + style + size — as emitted by the browser's *Copy CLI*; it overrides
 - **Template is fixed (fsaverage).** No per-subject anatomy; the glass shell + subcortical
   structures are the group template, baked once.
 - **First browser upload downloads ~30 MB** (the Pyodide scientific stack) before the
-  first map renders; cached afterwards. The bundled demo renders instantly with no download.
+  first map renders; cached afterwards. The viewer **boots empty** — upload your own NIfTIs,
+  or click **Demo** (or open `?demo=1`) to mesh the example Neurosynth maps in-browser.
 
 ---
 
