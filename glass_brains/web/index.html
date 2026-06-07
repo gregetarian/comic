@@ -142,6 +142,20 @@
     .btn { color: #777; }
     .btn.active { background: #444; color: #fff; border-color: #444; }
     .cmap-nav { padding: 3px 5px; font-weight: 700; color: #555; }   /* ‹ › per-overlay colormap stepper */
+    /* colormap picker (swatch previews) */
+    .cmap-picker { display: inline-flex; align-items: center; gap: 2px; }
+    .cmap-trigger { display: inline-flex; align-items: center; gap: 5px; max-width: 150px; }
+    .cmap-swatch { width: 64px; height: 12px; border: 1px solid #ccc; border-radius: 2px; display: block; flex: none; }
+    .cmap-name { font-size: 11px; color: #555; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cmap-mirror { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+    .cmap-popup { position: fixed; z-index: 50; width: 210px; max-height: 340px; overflow-y: auto;
+      background: #fff; border: 1px solid #bbb; border-radius: 5px; box-shadow: 0 6px 20px rgba(0,0,0,0.2);
+      padding: 4px; scrollbar-width: thin; }
+    .cmap-popup .cmap-cat { font-size: 10px; color: #999; text-transform: uppercase; letter-spacing: 0.04em; padding: 5px 6px 2px; }
+    .cmap-item { display: flex; align-items: center; gap: 7px; width: 100%; border: none; background: none;
+      padding: 3px 6px; cursor: pointer; border-radius: 3px; text-align: left; }
+    .cmap-item:hover { background: #f0f0f0; }
+    .cmap-item.sel { background: #e8eefc; }
     .file { position: relative; overflow: hidden; }
     .file input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
     .thrbox { width: 50px; font-size: 11px; padding: 3px 4px; border: 1px solid #ccc; border-radius: 3px; text-align: center; }
