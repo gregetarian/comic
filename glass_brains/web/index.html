@@ -156,6 +156,19 @@
       padding: 3px 6px; cursor: pointer; border-radius: 3px; text-align: left; }
     .cmap-item:hover { background: #f0f0f0; }
     .cmap-item.sel { background: #e8eefc; }
+    /* style presets popup */
+    .preset-pop { position: fixed; z-index: 50; width: 220px; background: #fff; border: 1px solid #bbb;
+      border-radius: 5px; box-shadow: 0 6px 20px rgba(0,0,0,0.2); padding: 8px; display: flex; flex-direction: column; gap: 8px; }
+    .preset-saverow, .preset-filerow { display: flex; gap: 6px; }
+    .preset-name { flex: 1 1 auto; font-size: 11px; padding: 3px 6px; border: 1px solid #ccc; border-radius: 3px; min-width: 0; }
+    .preset-filerow .btn { flex: 1; text-align: center; }
+    .preset-list { display: flex; flex-direction: column; gap: 3px; max-height: 200px; overflow-y: auto; scrollbar-width: thin; }
+    .preset-empty { font-size: 11px; color: #999; padding: 4px 2px; }
+    .preset-row { display: flex; gap: 4px; align-items: center; }
+    .preset-apply { flex: 1; text-align: left; font-size: 11px; padding: 4px 7px; border: 1px solid #ddd;
+      border-radius: 3px; background: #fafafa; color: #444; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .preset-apply:hover { background: #eef2fb; border-color: #c9d6f5; }
+    .preset-del { border: none; background: none; color: #c0392b; cursor: pointer; font-size: 12px; padding: 2px 5px; }
     .file { position: relative; overflow: hidden; }
     .file input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
     .thrbox { width: 50px; font-size: 11px; padding: 3px 4px; border: 1px solid #ccc; border-radius: 3px; text-align: center; }
@@ -188,6 +201,7 @@
         <button class="btn" id="c-save-bars" title="Save the colorbars on their own as a separate image">Save bars</button>
         <button class="btn" id="c-colorbar" title="Show/hide the colorbars in the live view (off by default; showing reclaims/squashes the canvas accordingly)">Colorbar</button>
         <button class="btn" id="c-random" title="Randomise: give every loaded volume a different random colormap">Randomise</button>
+        <button class="btn" id="c-presets" title="Style presets: save the current colormaps + parameters to your browser or a JSON file, and load them back onto the visible brains">Presets</button>
         <button class="btn" id="c-cli" title="Copy a glass-brains render CLI command that reproduces this view to the clipboard (falls back to a .txt download)">Copy CLI</button>
       </div>
       <div class="grp">

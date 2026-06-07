@@ -14,6 +14,7 @@ import * as THREE from 'three';
 import { resolveConfig } from '../core/presets.js';
 import { loadColormaps } from '../core/colormap.js';
 import { setOverlayStyle } from '../core/config-schema.js';
+import { createPresetsUI, randomColormapName } from '../controls/style-presets.js';
 import { loadBaseScene, buildOverlayMeshes, loadOverlayArrays } from '../scene/asset-loader.js';
 import { createEngine } from '../scene/renderer.js';
 import { createColorbar } from '../controls/colorbar.js';
@@ -103,6 +104,17 @@ async function main() {
     document.getElementById('c-min').addEventListener('click', () => { document.body.classList.toggle('ctrl-min'); fit(); });
     // Randomise: give every loaded volume a different random colormap (no-op with none loaded).
     document.getElementById('c-random').addEventListener('click', randomizeColormaps);
+    // Style presets: save/load the per-overlay + global style to the browser or a JSON file.
+    createPresetsUI({
+        button: document.getElementById('c-presets'),
+        getConfig: () => config, getColormaps: () => colormaps, getNOverlays: () => overlays.length,
+        download: downloadText,
+        onApplied: () => {
+            engine.applyStyle(); engine.recolor(); engine.applySmoothing();
+            buildOverlayRows({ engine, config, colormaps, onRemove: removeOverlay });
+            syncGlobalControls();
+        },
+    });
 
     rebuild();                 // base glass brain renders immediately (no Pyodide)
     startLoopAndResize();
@@ -327,13 +339,31 @@ function setColorbarVisible(v) {
  *  control rows so each picker reflects its new map. Colorbars track on the next frame
  *  (the RAF loop calls colorbar.update(), which re-reads the resolved style). */
 function randomizeColormaps() {
-    const names = [...colormaps.keys()];
-    if (!names.length || !overlays.length) return;
-    // Fisher–Yates: distinct maps per overlay until the pool runs out (~156, so always).
-    for (let i = names.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [names[i], names[j]] = [names[j], names[i]]; }
-    overlays.forEach((o, i) => setOverlayStyle(config, i, { colormap: names[i % names.length] }));
+    if (!colormaps.size || !overlays.length) return;
+    const used = new Set();
+    overlays.forEach((o, i) => { const name = randomColormapName(colormaps, used); used.add(name); setOverlayStyle(config, i, { colormap: name }); });
     engine.recolor();
     buildOverlayRows({ engine, config, colormaps, onRemove: removeOverlay });
+}
+
+/** Push config.style's global fields back onto the surface-row controls (after a preset
+ *  load) so the sliders/toggles reflect the new values (the render already used them). */
+function syncGlobalControls() {
+    const s = config.style;
+    const setRange = (id, val) => {
+        const el = document.getElementById(id); if (!el) return;
+        el.value = val;
+        const box = el.nextElementSibling;
+        if (box && box.classList.contains('numbox')) box.value = Number.isInteger(val) ? String(val) : String(Math.round(val * 1e4) / 1e4);
+    };
+    const setToggle = (id, on) => { const el = document.getElementById(id); if (el) el.classList.toggle('active', !!on); };
+    setToggle('c-inflate', s.cortexSurface === 'inflated');
+    setToggle('c-outline', s.outline.enabled);
+    setRange('c-cortex', s.glass.maxOpacity);
+    setRange('c-outline-thresh', s.outline.threshold);
+    setRange('c-outline-width', s.outline.width);
+    setRange('c-directional', s.lighting.directional);
+    setRange('c-ambient', s.lighting.ambient);
 }
 
 // --- per-panel zoom controls (recreated each rebuild; layout/panel count can change) ---
