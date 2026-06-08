@@ -15,6 +15,7 @@ import { resolveConfig } from '../core/presets.js';
 import { loadColormaps } from '../core/colormap.js';
 import { setOverlayStyle } from '../core/config-schema.js';
 import { createPresetsUI, randomColormapName } from '../controls/style-presets.js';
+import { contentBBoxPx } from '../core/bbox.js';
 import { loadBaseScene, buildOverlayMeshes, loadOverlayArrays } from '../scene/asset-loader.js';
 import { createEngine } from '../scene/renderer.js';
 import { createColorbar } from '../controls/colorbar.js';
@@ -36,6 +37,7 @@ let preset;            // current layout preset name (for the CLI-command export
 let panelZoomUsed = false;  // the +/- buttons have no CLI equivalent; flag for the export note
 let colorbarsVisible = false;  // live colorbars OFF by default; the Colorbar button (or ✕) toggles them on
 let demoLoaded = false;        // the Neurosynth Demo has loaded once (guards ?demo=1 + the Demo button against stacking duplicates)
+let viewInitialized = false;   // the whole-canvas view has been fit-to-viewport once (then it's user-controlled)
 let isHeadless = false;       // ?headless=1: render-to-PNG mode (no controls, no ✕, sets __GB_DONE__)
 
 async function fetchJSON(url, fb) {
@@ -102,6 +104,11 @@ async function main() {
     });
     // Minimise/restore the bottom control panel (frees the collapsed height for the brains).
     document.getElementById('c-min').addEventListener('click', () => { document.body.classList.toggle('ctrl-min'); fit(); });
+    // Whole-canvas zoom controls (the brains are a fixed size; these reframe the canvas).
+    const zc = (id, fn) => document.getElementById(id)?.addEventListener('click', fn);
+    zc('c-zoom-in', () => engine.zoomViewAt(1.2, canvas.clientWidth / 2, canvas.clientHeight / 2));
+    zc('c-zoom-out', () => engine.zoomViewAt(1 / 1.2, canvas.clientWidth / 2, canvas.clientHeight / 2));
+    zc('c-zoom-fit', () => engine.fitView());
     // Randomise: give every loaded volume a different random colormap (no-op with none loaded).
     document.getElementById('c-random').addEventListener('click', randomizeColormaps);
     // Style presets: save/load the per-overlay + global style to the browser or a JSON file.
@@ -137,6 +144,9 @@ async function runHeadless() {
     }
     container.style.width = config.render.width + 'px';
     container.style.height = config.render.height + 'px';
+    // Pin the DESIGN size to the render size so the view transform is the identity
+    // (s=1, centred, viewport == design) → the headless figure is byte-identical to before.
+    config.layout.canvas = { ...(config.layout.canvas || {}), w: config.render.width, h: config.render.height };
 
     const metas = baseScene.manifest.overlays || [];
     overlays = [];
@@ -158,6 +168,7 @@ async function runHeadless() {
         requestAnimationFrame(() => { window.__GB_DONE__ = true; });
     });
     window.__engine = () => engine;
+    window.__contentBBox = () => contentBBoxPx(engine);   // for `--crop content` (tight brain crop)
 }
 
 /** Load the single pre-baked overlay (static files) — identical path to a live upload.
@@ -242,8 +253,11 @@ function removeOverlay(i) {
  *  fractions (so the switch is visually seamless) and flips mode to 'free'. */
 function setPreset(name) {
     preset = name;
+    // Bake from DESIGN rects + the design size (view-transform-independent), so switching
+    // to Free Canvas preserves the fixed layout regardless of the current zoom/pan.
+    const v = engine.getView ? engine.getView() : { W0: canvas.clientWidth || 1, H0: canvas.clientHeight || 1 };
     config.layout = (name === 'freeCanvas')
-        ? toFreeCanvas(config.layout, engine.getPanelRects(), canvas.clientWidth || 1, canvas.clientHeight || 1)
+        ? toFreeCanvas(config.layout, engine.getPanelDesignRects(), v.W0, v.H0)
         : resolveConfig(name).layout;
     rebuild();
 }
@@ -281,6 +295,9 @@ function setBgAlpha(a) {
 
 /** Dispose the old engine and recreate it for the current overlay set. */
 function rebuild() {
+    // Preserve the user's whole-canvas zoom/pan across rebuilds (overlay add/remove,
+    // preset switch); fit-to-viewport once on the very first build.
+    const prevView = (engine && engine.getView) ? engine.getView() : null;
     if (engine) engine.dispose();
     // Re-tag each overlay mesh with its CURRENT index (so removals renumber layers/styles).
     overlays.forEach((o, i) => o.meshObjs.forEach((mo) => { mo.meta.overlay = i; }));
@@ -290,6 +307,18 @@ function rebuild() {
         manifest: { ...baseScene.manifest, overlays: overlays.map((o) => o.meta) },
     };
     engine = createEngine({ renderer, width: canvas.clientWidth || 1, height: canvas.clientHeight || 1, sceneModel, colormaps, config });
+    // Preserve the user's pan/zoom across rebuilds that KEEP the design size (overlay
+    // add/remove). When the design size CHANGES (a preset switch), re-fit instead — a
+    // carried-over view is centred/scaled for the old size and would overflow. The very
+    // first fit happens in fit() once the canvas has its real (post-layout) size. Headless
+    // keeps the default s=1/centred (design size = render size) so renders are byte-identical.
+    if (!isHeadless && viewInitialized) {
+        const nv = engine.getView();
+        if (prevView && prevView.W0 === nv.W0 && prevView.H0 === nv.H0)
+            engine.setView({ s: prevView.s, cx: prevView.cx, cy: prevView.cy });
+        else
+            engine.fitView();
+    }
 
     // Colorbar: remove the previous one, recreate for the new overlay set (unless the
     // user has hidden it via ✕). The ✕ calls setColorbarVisible(false).
@@ -399,10 +428,15 @@ function fit() {
     syncStrip();
     const w = canvas.clientWidth, h = canvas.clientHeight;
     if (w > 0 && h > 0 && engine) {
-        // Keep the canvas reference size live so a Free Canvas figure reproduces at the
-        // aspect the user actually sees (place fractions resolve against this).
-        if (config.layout.mode === 'free' && config.layout.canvas) { config.layout.canvas.w = w; config.layout.canvas.h = h; }
-        engine.resize(w, h); placeZoom(); fcEditor?.reposition();
+        // Resize the VIEWPORT only — the design size (config.layout.canvas) is fixed, so the
+        // brains keep their on-screen size; the view transform stays put (recentred on the
+        // same design point). The user zooms/pans to reframe; Fit re-fits on demand.
+        engine.resize(w, h);
+        // Fit-to-viewport ONCE, now that the canvas has its real (post-layout) size. NEVER
+        // in headless (rebuild() calls fit() there too) — the CLI render keeps s=1 (identity)
+        // so it stays byte-identical to the pre-view-transform output.
+        if (!isHeadless && !viewInitialized) { engine.fitView(); viewInitialized = true; }
+        placeZoom(); fcEditor?.reposition();
     }
 }
 function startLoopAndResize() {
@@ -418,8 +452,36 @@ function startLoopAndResize() {
     });
     container.addEventListener('mouseleave', () => zoomEls.forEach((el) => el.classList.remove('show')));
 
+    // --- whole-canvas 2D pan + zoom (listen on the container in CAPTURE so it works even
+    // over Free-Canvas frames). Wheel zooms toward the cursor anywhere. Pan on MIDDLE-drag
+    // anywhere, or LEFT-drag over empty canvas (so left-drag on a frame still moves it). ---
+    container.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const r = canvas.getBoundingClientRect();
+        engine.zoomViewAt(e.deltaY < 0 ? 1.12 : 1 / 1.12, e.clientX - r.left, e.clientY - r.top);
+    }, { passive: false, capture: true });
+    let panning = false, lastX = 0, lastY = 0;
+    container.addEventListener('pointerdown', (e) => {
+        const wantPan = e.button === 1 || (e.button === 0 && e.target === canvas);
+        if (!wantPan) return;
+        if (e.button === 1) e.stopPropagation();   // middle-drag pans even over a frame
+        e.preventDefault();
+        panning = true; lastX = e.clientX; lastY = e.clientY;
+        container.setPointerCapture?.(e.pointerId); canvas.style.cursor = 'grabbing';
+    }, true);
+    container.addEventListener('pointermove', (e) => {
+        if (!panning) return;
+        engine.panView(e.clientX - lastX, e.clientY - lastY); lastX = e.clientX; lastY = e.clientY;
+    });
+    const endPan = (e) => { if (panning) { panning = false; canvas.style.cursor = ''; container.releasePointerCapture?.(e.pointerId); } };
+    container.addEventListener('pointerup', endPan);
+    container.addEventListener('pointercancel', endPan);
+
     (function loop() { requestAnimationFrame(loop); engine.renderFrame(); colorbar?.update(); fcEditor?.reposition(); })();
     window.__engine = () => engine;   // debug handle
+    // The tight content bbox in CSS px (used by `glass-brains render --crop content` to
+    // screenshot just the brains; computed at the default view, so it's reproducible).
+    window.__contentBBox = () => contentBBoxPx(engine);
 }
 
 /** Build a `glass-brains render` command reproducing the current view; copy it to the
@@ -521,7 +583,17 @@ function saveBrain() {
             g.fillRect(0, 0, out.width, out.height);
         }
         g.drawImage(canvas, 0, 0, out.width, out.height);
-        downloadPng(out, 'glassbrain.png');
+        // Crop to the tight bounding box of the visible brains (no clipping, small AA pad)
+        // — the saved PNG is just the brains, not the whole (possibly zoomed/panned) canvas.
+        const box = contentBBoxPx(engine);
+        let final = out;
+        if (box && box.w >= 4 && box.h >= 4) {
+            const cr = document.createElement('canvas');
+            cr.width = Math.round(box.w * savePr); cr.height = Math.round(box.h * savePr);
+            cr.getContext('2d').drawImage(out, Math.round(box.x * savePr), Math.round(box.y * savePr), cr.width, cr.height, 0, 0, cr.width, cr.height);
+            final = cr;
+        }
+        downloadPng(final, 'glassbrain.png');
     } finally {
         config.style.outline.width = saved.ow;
         config.style.margin = saved.margin;

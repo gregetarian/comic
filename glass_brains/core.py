@@ -140,6 +140,9 @@ def cli():
     r.add_argument('--bg-alpha', type=float, default=None,
                    help='canvas background opacity 0..1; <1 writes a TRANSPARENT PNG (Free Canvas). '
                         'Defaults to the spec canvas.bgAlpha, or 1 (opaque).')
+    r.add_argument('--crop', choices=['none', 'content'], default='none',
+                   help="'content' crops the PNG to the tight bounding box of the visible brains "
+                        "(matches the browser's Save PNG / Copy CLI). Default 'none' = full figure.")
 
     args = parser.parse_args()
 
@@ -228,7 +231,7 @@ def cli():
                       threshold=thresholds, cmap=cmap,
                       width=width, height=height, scale=args.scale,
                       include_subcortical=not args.no_subcortical,
-                      background_alpha=bg_alpha,
+                      background_alpha=bg_alpha, crop=args.crop,
                       colorbar=args.colorbar, colorbar_font=args.colorbar_font,
                       colorbar_fontsize=args.colorbar_fontsize)
 

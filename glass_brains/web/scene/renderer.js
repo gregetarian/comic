@@ -226,9 +226,21 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         return { def: p, camera: cam, zoom: p.zoom || 1 };   // zoom: live per-panel rescale
     });
 
+    // --- fixed DESIGN space + whole-canvas view transform --------------------
+    // Panels are laid out in a fixed design space (W0×H0 = config.layout.canvas), then
+    // mapped to the live viewport (VW×VH) by a 2D view transform {zoom s, design-point
+    // (cx,cy) shown at the viewport centre}. So the brain's on-screen SIZE depends on s,
+    // NOT the viewport — resizing the window/minimising the controls never rescales it;
+    // the user zooms/pans instead. At s=1, centred, on a viewport == design size, the
+    // screen rect == the design rect == the old layout, so headless/grid stay byte-identical.
+    const _cv = config.layout?.canvas || {};
+    const W0 = _cv.w || width, H0 = _cv.h || height;   // design size (CSS px)
+    let VW = width, VH = height;                        // live viewport (CSS px)
+    const view = { s: 1, cx: W0 / 2, cy: H0 / 2 };
+
     // --- grid + outline passes ---
-    let grid = layoutGrid({ width, height, ...config.layout.grid });
-    const maxCellW = width, maxCellH = height;
+    let grid = layoutGrid({ width: W0, height: H0, ...config.layout.grid });   // design-space grid
+    const maxCellW = width, maxCellH = height;          // outline-pass targets track the VIEWPORT
     const cortexOutline = new OutlinePass(renderer, scene, maxCellW, maxCellH, {
         layer: 0, color: config.style.outline.color, width: config.style.outline.width, threshold: config.style.outline.threshold,
     });
@@ -310,13 +322,23 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         return { near, far };
     }
 
-    // Pixel rectangle for a panel: a free-canvas `place` (fractions of the canvas)
-    // OR a grid cell. The two produce the SAME Rect shape, so the loop is uniform.
-    function panelRect(def) {
+    // A panel's rect in DESIGN space (free-canvas `place` fractions OR a grid cell) — the
+    // fixed layout, independent of the viewport. Both produce the same Rect shape.
+    function panelDesignRect(def) {
         return def.place
-            ? freeRect(def.place, width, height)
+            ? freeRect(def.place, W0, H0)
             : grid.rect(def.cell.row, def.cell.col, def.rowSpan, def.colSpan);
     }
+    // Map a design rect to the live viewport via the view transform → the SCREEN rect the
+    // panel actually renders into (CSS px). aspect is scale-invariant (unchanged by s).
+    function viewRect(d) {
+        const s = view.s;
+        const cssLeft = VW / 2 + (d.cssLeft - view.cx) * s;
+        const cssTop = VH / 2 + (d.cssTop - view.cy) * s;
+        const w = d.w * s, h = d.h * s;
+        return { x: cssLeft, y: VH - cssTop - h, w, h, cssLeft, cssTop, aspect: d.aspect };
+    }
+    function panelRect(def) { return viewRect(panelDesignRect(def)); }
 
     // Write one panel's slice spec into a material's slice uniforms (or reset to OFF).
     function writeSlice(u, slice) {
@@ -469,9 +491,10 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
     }
 
     function resize(w, h) {
-        width = w; height = h;
+        width = w; height = h; VW = w; VH = h;
         renderer.setSize(w, h, false);   // updateStyle=false: let CSS control display size
-        grid = layoutGrid({ width, height, ...config.layout.grid });
+        // grid is DESIGN-space (built once against W0×H0) — NOT rebuilt on viewport resize,
+        // so the brains keep a fixed size; only the view transform's screen mapping changes.
         cortexOutline.setSize(w, h);
         for (const ep of edgePasses) ep.setSize(w, h);
         clipTarget.setSize(Math.round(w * renderer.getPixelRatio()), Math.round(h * renderer.getPixelRatio()));
@@ -516,9 +539,37 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
 
     function getPanelRects() {
         return panels.map(({ def }) => {
-            const r = panelRect(def);
+            const r = panelRect(def);   // SCREEN rect (post view-transform) — DOM overlays align with what's drawn
             return { id: def.id, title: def.title, cssLeft: r.cssLeft, cssTop: r.cssTop, w: r.w, h: r.h };
         });
+    }
+    // World-space AABB of a panel's visible meshes (for the tight-crop bbox).
+    function getPanelContentAABB(def) { return panelAABB(def.content); }
+    // Design-space rects (pre view-transform), for baking grid→free `place` fractions.
+    function getPanelDesignRects() {
+        return panels.map(({ def }) => {
+            const r = panelDesignRect(def);
+            return { id: def.id, title: def.title, cssLeft: r.cssLeft, cssTop: r.cssTop, w: r.w, h: r.h };
+        });
+    }
+
+    // --- whole-canvas view transform (2D pan + zoom; brain size = design size × s) ---
+    function setView(v) {
+        if (v.s != null) view.s = Math.max(0.1, Math.min(8, v.s));
+        if (v.cx != null) view.cx = v.cx;
+        if (v.cy != null) view.cy = v.cy;
+    }
+    function getView() { return { s: view.s, cx: view.cx, cy: view.cy, W0, H0, VW, VH }; }
+    function panView(dxScreen, dyScreen) { view.cx -= dxScreen / view.s; view.cy -= dyScreen / view.s; }
+    function zoomViewAt(factor, sx, sy) {   // zoom toward the cursor (keep its design point fixed)
+        const s0 = view.s, s1 = Math.max(0.1, Math.min(8, s0 * factor));
+        const dX = view.cx + (sx - VW / 2) / s0, dY = view.cy + (sy - VH / 2) / s0;
+        view.s = s1; view.cx = dX - (sx - VW / 2) / s1; view.cy = dY - (sy - VH / 2) / s1;
+    }
+    function resetView() { view.s = 1; view.cx = W0 / 2; view.cy = H0 / 2; }
+    function fitView() {   // scale the design composition to fit the viewport, centred
+        const s = Math.min(VW / W0, VH / H0);
+        view.s = (s > 0 && isFinite(s)) ? s : 1; view.cx = W0 / 2; view.cy = H0 / 2;
     }
 
     // Screen↔world mapping for one panel (its last rendered framing), for the Free
@@ -563,7 +614,8 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
     }
 
     return {
-        scene, renderFrame, resize, setPixelRatio, getPanelRects, getPanelView, zoomPanel, scaleOutlines, recolor, applyStyle, applySmoothing, setColormap, dispose,
+        scene, renderFrame, resize, setPixelRatio, getPanelRects, getPanelDesignRects, getPanelContentAABB, getPanelView, zoomPanel, scaleOutlines, recolor, applyStyle, applySmoothing, setColormap, dispose,
+        setView, getView, panView, zoomViewAt, resetView, fitView,
         overlays, config, renderer, THREE, sceneModel,
         _internals: { uniforms, glassMat, anatomyMat, voxelMats, dir, amb },
     };
