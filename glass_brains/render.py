@@ -148,15 +148,16 @@ def _deep_merge(base, over):
 
 
 # --- main render ----------------------------------------------------------
-def prepare_render_dir(nifti, threshold=2.3, include_subcortical=True):
+def prepare_render_dir(nifti, threshold=2.3, include_subcortical=True, names=None):
     """Stage a self-contained render dir: a copy of the single viewer with the overlay(s)
     processed in-process (same pipeline.py the browser runs) and written as ARRAYS
     (overlay_<i>.bin + meta in scene.json) — no GLB, no per-render template re-bake.
 
     `nifti` is a single path (str/Path) OR a list of paths for a multi-overlay figure;
-    `threshold` is a scalar (applied to every map) OR a per-overlay list. Each map becomes
-    its own overlay, so the engine renders N overlays with per-overlay style from
-    `style.overlays[i]` — the exact same path the browser uses for N dragged-in NIfTIs.
+    `threshold` is a scalar (applied to every map) OR a per-overlay list. `names` (optional)
+    is a per-overlay display name (used as the colorbar label; defaults to the filename).
+    Each map becomes its own overlay, so the engine renders N overlays with per-overlay style
+    from `style.overlays[i]` — the same path the browser uses for N dragged-in NIfTIs.
     Returns the dir path."""
     from . import pipeline as P
     from .arrays import write_overlay_arrays
@@ -164,6 +165,7 @@ def prepare_render_dir(nifti, threshold=2.3, include_subcortical=True):
     niftis = [nifti] if isinstance(nifti, (str, Path)) else list(nifti)
     thresholds = ([float(threshold)] * len(niftis) if isinstance(threshold, (int, float))
                   else [float(t) for t in threshold])
+    names = names or [None] * len(niftis)
 
     out_dir = Path(tempfile.mkdtemp(prefix="gb_render_"))
     shutil.copytree(WEB_DIR, out_dir, dirs_exist_ok=True)
@@ -172,7 +174,7 @@ def prepare_render_dir(nifti, threshold=2.3, include_subcortical=True):
 
     metas = []
     for i, src in enumerate(niftis):
-        name = Path(src).name.replace(".nii.gz", "").replace(".nii", "")
+        name = names[i] or Path(src).name.replace(".nii.gz", "").replace(".nii", "")
         meta = json.loads(P.process_nifti(str(src), name, thresholds[i]))
         # grab THIS overlay's buffers before the next process_nifti clears _BUFFERS
         metas.append(write_overlay_arrays(data, meta, P.get_all_buffers(), index=i))
@@ -188,11 +190,15 @@ def prepare_render_dir(nifti, threshold=2.3, include_subcortical=True):
 def render_to_png(nifti, out_png, *, layout, style=None, threshold=2.3, cmap="auto",
                   width=1600, height=1000, scale=2, include_subcortical=True,
                   background="#ffffff", background_alpha=1.0, colorbar=True, colorbar_font=None,
-                  colorbar_fontsize=None, crop="none", timeout_ms=90000):
+                  colorbar_fontsize=None, crop="none", names=None, timeout_ms=90000):
     """`nifti` is one path or a list of paths (one overlay each); `threshold` is a scalar
-    or per-overlay list. Per-overlay colour/threshold come from `style['overlays'][i]`."""
+    or per-overlay list. Per-overlay colour/threshold come from `style['overlays'][i]`.
+    `names` (optional) sets each overlay's colorbar label; if omitted it falls back to
+    `style['overlays'][i]['name']`, else the filename."""
     n_overlays = 1 if isinstance(nifti, (str, Path)) else len(nifti)
-    out_dir = prepare_render_dir(nifti, threshold, include_subcortical)
+    if names is None and style and isinstance(style.get("overlays"), list):
+        names = [(o or {}).get("name") for o in style["overlays"]] or None
+    out_dir = prepare_render_dir(nifti, threshold, include_subcortical, names=names)
 
     # Transparent background (Free Canvas): record bgAlpha in the layout so the WebGL
     # clear is transparent; the screenshot below then captures real alpha. Default 1 =

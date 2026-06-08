@@ -55,6 +55,21 @@ def test_cli_render_multi_overlay():
         shutil.rmtree(d, ignore_errors=True)
 
 
+def test_overlay_names():
+    """names= sets each overlay's display name (the colorbar label), overriding the filename."""
+    a = ROOT / "glass_brains" / "web" / "data" / "defaults" / "faces.nii.gz"
+    b = ROOT / "glass_brains" / "web" / "data" / "defaults" / "language.nii.gz"
+    d = prepare_render_dir([str(a), str(b)], threshold=[2.3, 3.5], names=["Clade 1 — DMN", "Clade 2 — language"])
+    try:
+        scene = json.loads((d / "data" / "scene.json").read_text())
+        assert scene["overlays"][0]["name"] == "Clade 1 — DMN", scene["overlays"][0]["name"]
+        assert scene["overlays"][1]["name"] == "Clade 2 — language", scene["overlays"][1]["name"]
+        print("PASS — names= sets per-overlay colorbar labels")
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
 if __name__ == "__main__":
     test_cli_render_uses_arrays()
     test_cli_render_multi_overlay()
+    test_overlay_names()
