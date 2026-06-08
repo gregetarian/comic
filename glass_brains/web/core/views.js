@@ -13,6 +13,9 @@ const subcort = (hemi, cats) => ({ roles: ['anatomy', 'voxel'], hemisphere: hemi
 // cortex lines + other overlays behind it; its own voxels still show). categories
 // stays null so cortex AND all subcortical of that hemisphere show.
 const cortexSubcortOpaque = (hemi) => ({ roles: ['cortex', 'anatomy', 'voxel'], hemisphere: hemi, categories: null, anatomyStyle: 'opaque' });
+// Medial view: show one hemisphere's cortex (medial wall) + the CONTRALATERAL subcortex,
+// which sits between the camera and the wall → in front of the volume, occluding it.
+const cortexSubcortMedial = (cortexHemi, subHemi) => ({ roles: ['cortex', 'anatomy', 'voxel'], hemisphere: cortexHemi, anatomyHemisphere: subHemi, categories: null, anatomyStyle: 'opaque' });
 
 export const VIEWS = {
     left_lateral:  { plane: 'left_lateral',  title: 'L Lateral', content: cortex('lh') },
@@ -25,16 +28,19 @@ export const VIEWS = {
     ventral:       { plane: 'ventral',       title: 'Ventral',   content: cortex('both') },
     subcortical_l: { plane: 'left_lateral',  title: 'Subcort L', content: subcort('lh', ['subcort_l', 'cereb_l', 'brainstem']), anatomyOpacity: 0.55 },
     subcortical_r: { plane: 'right_lateral', title: 'Subcort R', content: subcort('rh', ['subcort_r', 'cereb_r', 'brainstem']), anatomyOpacity: 0.55 },
-    cortex_subcort_l: { plane: 'left_lateral',  title: 'L + Subcort (opaque)', content: cortexSubcortOpaque('lh') },
-    cortex_subcort_r: { plane: 'right_lateral', title: 'R + Subcort (opaque)', content: cortexSubcortOpaque('rh') },
-    cortex_subcort:   { plane: 'dorsal',        title: 'Cortex + Subcort (opaque)', content: cortexSubcortOpaque('both') },
+    cortex_subcort_l:  { plane: 'left_lateral',  title: 'L + Subcort (opaque)', content: cortexSubcortOpaque('lh') },
+    cortex_subcort_r:  { plane: 'right_lateral', title: 'R + Subcort (opaque)', content: cortexSubcortOpaque('rh') },
+    cortex_subcort:    { plane: 'dorsal',        title: 'Cortex + Subcort (opaque)', content: cortexSubcortOpaque('both') },
+    // Medial + the CONTRALATERAL subcortex (in front of the medial wall, occluding it).
+    cortex_subcort_lm: { plane: 'left_medial',   title: 'L Medial + Subcort', content: cortexSubcortMedial('lh', 'rh') },
+    cortex_subcort_rm: { plane: 'right_medial',  title: 'R Medial + Subcort', content: cortexSubcortMedial('rh', 'lh') },
 };
 
 /** Order shown in the view picker. */
 export const VIEW_ORDER = [
     'left_lateral', 'right_lateral', 'left_medial', 'right_medial',
     'anterior', 'posterior', 'dorsal', 'ventral', 'subcortical_l', 'subcortical_r',
-    'cortex_subcort_l', 'cortex_subcort_r', 'cortex_subcort',
+    'cortex_subcort_l', 'cortex_subcort_r', 'cortex_subcort', 'cortex_subcort_lm', 'cortex_subcort_rm',
 ];
 
 /** Apply a named view onto a panel object (mutates camera/content/title/anatomyOpacity). */
