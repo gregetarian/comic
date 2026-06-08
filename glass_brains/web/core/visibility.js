@@ -23,8 +23,10 @@ export function visible(panelContent, meshMeta, style = {}) {
         return false;
     }
 
-    // hemisphere gate — midline structures (brainstem) are exempt
-    const hemi = c.hemisphere || 'both';
+    // hemisphere gate — midline structures (brainstem) are exempt. Anatomy may take a
+    // SEPARATE hemisphere (anatomyHemisphere) so a medial view can show the CONTRALATERAL
+    // subcortex (which sits in front of the cortex wall) while the cortex stays its own side.
+    const hemi = (meshMeta.role === 'anatomy' && c.anatomyHemisphere) ? c.anatomyHemisphere : (c.hemisphere || 'both');
     if (hemi !== 'both' && meshMeta.hemisphere && meshMeta.hemisphere !== 'mid'
         && meshMeta.hemisphere !== hemi) {
         return false;
