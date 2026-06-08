@@ -304,7 +304,13 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         return mergeAABB(boxes);
     }
     function applyVisibility(content) {
-        for (const tm of sceneModel.meshes) tm.mesh.visible = meshVisible(content, tm.meta);
+        const ov = config.style.overlays || [];
+        for (const tm of sceneModel.meshes) {
+            let vis = meshVisible(content, tm.meta);
+            // per-overlay show/hide: a hidden overlay's voxels never draw (any panel).
+            if (vis && tm.meta.role === 'voxel' && ov[tm.meta.overlay ?? 0] && ov[tm.meta.overlay ?? 0].hidden) vis = false;
+            tm.mesh.visible = vis;
+        }
     }
     // View-space depth range of one overlay's visible voxels (nearest/farthest vertex).
     function voxelDepthRange(content, oi, camPos, fwd) {

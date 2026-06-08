@@ -64,7 +64,7 @@ const TIPS = {
     'c-ambient': 'Ambient light intensity — global.',
 };
 
-function bindRange(el, value, oninput, { min, max, step } = {}, tip) {
+function bindRange(el, value, oninput, { min, max, step } = {}, tip, propagate) {
     if (!el) return;
     if (min != null) el.min = min;
     if (max != null) el.max = max;
@@ -82,6 +82,13 @@ function bindRange(el, value, oninput, { min, max, step } = {}, tip) {
     el.addEventListener('input', () => { box.value = trimNum(el.value); oninput(parseFloat(el.value)); });
     box.addEventListener('input', () => { const v = parseFloat(box.value); if (!isFinite(v)) return; el.value = v; oninput(parseFloat(el.value)); });
     infoLabel(el, tip);                              // clickable ⓘ on the label above the slider
+    if (propagate) {                                 // "⇶": copy THIS value to every loaded volume
+        const all = document.createElement('button');
+        all.type = 'button'; all.className = 'btn propagate'; all.textContent = '⇶';
+        all.title = 'Apply this value to every loaded volume';
+        all.addEventListener('click', () => propagate(parseFloat(el.value)));
+        box.insertAdjacentElement('afterend', all);
+    }
 }
 function bindToggle(el, active, onchange, tip) {
     if (!el) return;
@@ -108,6 +115,16 @@ export function buildOverlayRows({ engine, config, colormaps, onRemove }) {
     const host = $('overlay-rows'); if (!host) return;
     host.innerHTML = '';
     const overlays = engine.overlays || [];
+    const multi = overlays.length > 1;
+    // Copy ONE parameter's value onto every loaded volume, then refresh all rows (no confirm).
+    const propagateAll = (patch) => {
+        for (let k = 0; k < overlays.length; k++) setOverlayStyle(config, k, patch);
+        engine.applyStyle(); engine.recolor(); engine.applySmoothing();
+        buildOverlayRows({ engine, config, colormaps, onRemove });
+    };
+    // A per-overlay slider that (with >1 volume) shows a "⇶" to propagate its value to all.
+    const ovRange = (el, val, oninput, opts, tip, patch) =>
+        bindRange(el, val, oninput, opts, tip, multi && patch ? (v) => propagateAll(patch(v)) : null);
     overlays.forEach((ov, i) => {
         const os = overlayStyle(config, i);
         const maxAbs = ov.maxAbsValue ?? 1.0;
@@ -128,10 +145,19 @@ export function buildOverlayRows({ engine, config, colormaps, onRemove }) {
         const nm = document.createElement('span'); nm.className = 'lab ov-name';
         nm.textContent = ov.name || ('NIfTI ' + (i + 1));
         nm.title = ov.name || '';
+        // Show/hide this volume (toggles config.style.overlays[i].hidden; the renderer's
+        // visibility gate skips a hidden overlay's voxels live — no rebuild needed).
+        const eye = btn('👁'); eye.classList.add('eye');
+        const hidden0 = !!(config.style.overlays && config.style.overlays[i] && config.style.overlays[i].hidden);
+        eye.classList.toggle('off', hidden0); eye.title = hidden0 ? 'Show this volume' : 'Hide this volume';
+        eye.addEventListener('click', () => {
+            const h = !eye.classList.contains('off');
+            set({ hidden: h }); eye.classList.toggle('off', h); eye.title = h ? 'Show this volume' : 'Hide this volume';
+        });
         const rm = document.createElement('button'); rm.className = 'btn rm'; rm.textContent = '✕';
         rm.title = 'Remove this overlay';
         rm.addEventListener('click', () => onRemove(i));
-        gName.append(nm, rm); row.append(gName);
+        gName.append(nm, eye, rm); row.append(gName);
 
         const g = document.createElement('div'); g.className = 'grp';
 
@@ -150,21 +176,21 @@ export function buildOverlayRows({ engine, config, colormaps, onRemove }) {
         g.append(smooth);
 
         const thr = sw('thr');
-        bindRange(thr.range, os.threshold ?? ov.threshold ?? 0, (v) => { set({ threshold: v }); engine.applyStyle(); }, { min: 0, max: maxAbs, step: maxAbs / 200 }, 'Statistical threshold — hide |value| below this.');
+        ovRange(thr.range, os.threshold ?? ov.threshold ?? 0, (v) => { set({ threshold: v }); engine.applyStyle(); }, { min: 0, max: maxAbs, step: maxAbs / 200 }, 'Statistical threshold — hide |value| below this.', (v) => ({ threshold: v }));
         g.append(thr.wrap);
 
         const clu = sw('cluster k');
-        bindRange(clu.range, os.clusterMin ?? 0, (v) => { set({ voxel: { clusterMin: v } }); engine.applyStyle(); }, { min: 0, max: maxClu, step: 1 }, 'Cluster-extent threshold — hide clusters < N voxels.');
+        ovRange(clu.range, os.clusterMin ?? 0, (v) => { set({ voxel: { clusterMin: v } }); engine.applyStyle(); }, { min: 0, max: maxClu, step: 1 }, 'Cluster-extent threshold — hide clusters < N voxels.', (v) => ({ voxel: { clusterMin: v } }));
         g.append(clu.wrap);
 
         const sm = sw('smooth+');
-        bindRange(sm.range, os.smoothing ?? 0, (v) => {
+        ovRange(sm.range, os.smoothing ?? 0, (v) => {
             set({ voxel: { smoothing: v } });
             // smooth+ only affects the SMOOTH mesh — if the overlay is showing blocky voxels
             // the smoothing would be invisible, so switch it to smooth when the user dials it up.
             if (v > 0) { set({ voxel: { representation: 'smooth' } }); smooth.classList.add('active'); }
             engine.applySmoothing(i);
-        }, { min: 0, max: 20, step: 1 }, 'Extra surface smoothing of the smooth (marching-cubes) mesh — rounds rough cluster surfaces (size-preserving). Auto-switches the overlay to Smooth. 0 = off; most visible on large/irregular blobs.');
+        }, { min: 0, max: 20, step: 1 }, 'Extra surface smoothing of the smooth (marching-cubes) mesh — rounds rough cluster surfaces (size-preserving). Auto-switches the overlay to Smooth. 0 = off; most visible on large/irregular blobs.', (v) => ({ voxel: { smoothing: v } }));
         g.append(sm.wrap);
 
         const pos = btn('+only');
@@ -176,27 +202,27 @@ export function buildOverlayRows({ engine, config, colormaps, onRemove }) {
         g.append(edges);
 
         const ew = sw('edge w');
-        bindRange(ew.range, os.edges.width, (v) => { set({ voxel: { edges: { width: v } } }); engine.applyStyle(); }, { min: 0.3, max: 3, step: 0.1 }, 'Voxel edge thickness.');
+        ovRange(ew.range, os.edges.width, (v) => { set({ voxel: { edges: { width: v } } }); engine.applyStyle(); }, { min: 0.3, max: 3, step: 0.1 }, 'Voxel edge thickness.', (v) => ({ voxel: { edges: { width: v } } }));
         g.append(ew.wrap);
 
         const veil = sw('veil');
-        bindRange(veil.range, os.veil.strength, (v) => { set({ voxel: { veil: { strength: v } } }); engine.applyStyle(); }, { min: 0, max: 1, step: 0.02 }, 'Depth veil strength — fades deeper voxels toward white.');
+        ovRange(veil.range, os.veil.strength, (v) => { set({ voxel: { veil: { strength: v } } }); engine.applyStyle(); }, { min: 0, max: 1, step: 0.02 }, 'Depth veil strength — fades deeper voxels toward white.', (v) => ({ voxel: { veil: { strength: v } } }));
         g.append(veil.wrap);
 
         const veilk = sw('veil log');
-        bindRange(veilk.range, os.veil.k, (v) => { set({ voxel: { veil: { k: v } } }); engine.applyStyle(); }, { min: 0.1, max: 20, step: 0.1 }, 'Veil steepness.');
+        ovRange(veilk.range, os.veil.k, (v) => { set({ voxel: { veil: { k: v } } }); engine.applyStyle(); }, { min: 0.1, max: 20, step: 0.1 }, 'Veil steepness.', (v) => ({ voxel: { veil: { k: v } } }));
         g.append(veilk.wrap);
 
         const em = sw('emissive');
-        bindRange(em.range, os.emissive, (v) => { set({ voxel: { emissive: v } }); engine.applyStyle(); }, { min: 0, max: 1, step: 0.02 }, 'Flat colormap-colour brightness.');
+        ovRange(em.range, os.emissive, (v) => { set({ voxel: { emissive: v } }); engine.applyStyle(); }, { min: 0, max: 1, step: 0.02 }, 'Flat colormap-colour brightness.', (v) => ({ voxel: { emissive: v } }));
         g.append(em.wrap);
 
         const sp = sw('specular');
-        bindRange(sp.range, os.specular, (v) => { set({ voxel: { specular: v } }); engine.applyStyle(); }, { min: 0, max: 0.6, step: 0.01 }, 'Glossiness — specular glint amount.');
+        ovRange(sp.range, os.specular, (v) => { set({ voxel: { specular: v } }); engine.applyStyle(); }, { min: 0, max: 0.6, step: 0.01 }, 'Glossiness — specular glint amount.', (v) => ({ voxel: { specular: v } }));
         g.append(sp.wrap);
 
         const sh = sw('shine');
-        bindRange(sh.range, os.shininess, (v) => { set({ voxel: { shininess: v } }); engine.applyStyle(); }, { min: 1, max: 200, step: 1 }, 'Highlight tightness.');
+        ovRange(sh.range, os.shininess, (v) => { set({ voxel: { shininess: v } }); engine.applyStyle(); }, { min: 1, max: 200, step: 1 }, 'Highlight tightness.', (v) => ({ voxel: { shininess: v } }));
         g.append(sh.wrap);
 
         row.append(g); host.append(row);
