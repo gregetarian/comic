@@ -69,6 +69,8 @@ function commandFor(config, i, meta, colormaps, preset) {
     if (os.colormapMode && os.colormapMode !== D.colormapMode) parts.push(`--colormap-mode ${os.colormapMode}`);
     // always override the CLI's print-look defaults so output matches the screen
     parts.push(`--margin ${fmt(s.margin ?? 0.95)} --line-w ${fmt(s.outline.width)}`);
+    // crop the PNG to the tight bounding box of the visible brains (matches Save PNG)
+    parts.push('--crop content');
 
     const extra = [];
     if (s.cortexSurface !== D.cortexSurface) extra.push(`--surface ${s.cortexSurface}`);
@@ -110,7 +112,7 @@ export function buildRenderText({ config, overlays, preset, colormaps, panelZoom
         ];
         if (overlays.length > 1)
             notes.push('# note: the CLI renders ONE map per figure — figure.json carries the layout/style; pass your first map.');
-        const cmd = `glass-brains render ${q(name)} -o glassbrain.png --spec figure.json`;
+        const cmd = `glass-brains render ${q(name)} -o glassbrain.png --spec figure.json --crop content`;
         return notes.join('\n') + '\n\n' + cmd + '\n\n# ---- figure.json ----\n' + JSON.stringify(spec, null, 2) + '\n';
     }
 

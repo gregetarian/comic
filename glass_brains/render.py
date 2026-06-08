@@ -180,7 +180,7 @@ def prepare_render_dir(nifti, threshold=2.3, include_subcortical=True):
 def render_to_png(nifti, out_png, *, layout, style=None, threshold=2.3, cmap="auto",
                   width=1600, height=1000, scale=2, include_subcortical=True,
                   background="#ffffff", background_alpha=1.0, colorbar=True, colorbar_font=None,
-                  colorbar_fontsize=None, timeout_ms=90000):
+                  colorbar_fontsize=None, crop="none", timeout_ms=90000):
     """`nifti` is one path or a list of paths (one overlay each); `threshold` is a scalar
     or per-overlay list. Per-overlay colour/threshold come from `style['overlays'][i]`."""
     n_overlays = 1 if isinstance(nifti, (str, Path)) else len(nifti)
@@ -238,7 +238,14 @@ def render_to_png(nifti, out_png, *, layout, style=None, threshold=2.3, cmap="au
             # capture the WebGL canvas's alpha (the canvas was already cleared transparent).
             if transparent:
                 page.evaluate("() => { for (const s of ['html','body','#viewer']) { const e = document.querySelector(s); if (e) e.style.background = 'transparent'; } }")
-            page.locator("#viewer").screenshot(path=str(out_png), omit_background=transparent)
+            # --crop content: clip to the tight bounding box of the visible brains (CSS px;
+            # #viewer is at the page origin in headless, so the bbox doubles as a page clip).
+            bbox = page.evaluate("window.__contentBBox && window.__contentBBox()") if crop == "content" else None
+            if bbox:
+                page.screenshot(path=str(out_png), omit_background=transparent,
+                                clip={"x": bbox["x"], "y": bbox["y"], "width": bbox["w"], "height": bbox["h"]})
+            else:
+                page.locator("#viewer").screenshot(path=str(out_png), omit_background=transparent)
             outputs = [out_png]
             # Colorbar legend as a SEPARATE sidecar image (place it in your figure yourself).
             if colorbar:
