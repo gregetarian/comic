@@ -20,6 +20,8 @@
       background-size: 22px 22px; background-position: 0 0, 11px 11px; }
 
     #viewer { position: relative; flex: 1; min-height: 0; }
+    /* brains are scissor-clipped to the canvas by WebGL; keep the controls above any
+       Free-Canvas frame that overflows when zoomed in, so they never cover the buttons. */
     canvas { position: absolute; left: 0; top: 0; width: 100%; height: calc(100% - var(--cbstrip, 52px)); }
     body.nobar canvas { height: 100%; }
 
@@ -142,6 +144,7 @@
     .btn { color: #777; }
     .btn.active { background: #444; color: #fff; border-color: #444; }
     .cmap-nav { padding: 3px 5px; font-weight: 700; color: #555; }   /* ‹ › per-overlay colormap stepper */
+    .zoomcluster { display: inline-flex; gap: 2px; align-items: center; }
     /* colormap picker (swatch previews) */
     .cmap-picker { display: inline-flex; align-items: center; gap: 2px; }
     .cmap-trigger { display: inline-flex; align-items: center; gap: 5px; max-width: 150px; }
@@ -203,6 +206,11 @@
         <button class="btn" id="c-random" title="Randomise: give every loaded volume a different random colormap">Randomise</button>
         <button class="btn" id="c-presets" title="Style presets: save the current colormaps + parameters to your browser or a JSON file, and load them back onto the visible brains">Presets</button>
         <button class="btn" id="c-cli" title="Copy a glass-brains render CLI command that reproduces this view to the clipboard (falls back to a .txt download)">Copy CLI</button>
+        <span class="zoomcluster" title="Zoom / pan the whole canvas — the brain size is fixed; scroll to zoom, drag empty space to pan">
+          <button class="btn" id="c-zoom-out">–</button>
+          <button class="btn" id="c-zoom-fit" title="Fit the whole figure to the window">Fit</button>
+          <button class="btn" id="c-zoom-in">+</button>
+        </span>
       </div>
       <div class="grp">
         <span class="lab">Surface</span>

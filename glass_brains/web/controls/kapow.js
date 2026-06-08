@@ -8,8 +8,13 @@ const IMGS = ['kapow/1.png', 'kapow/2.png', 'kapow/3.png', 'kapow/4.png', 'kapow
 IMGS.forEach((s) => { const im = new Image(); im.src = s; });   // preload
 
 export function initKapow(checkbox) {
-    document.addEventListener('pointerdown', (e) => {
-        if (!checkbox || !checkbox.checked) return;
+    // Fire on a CLICK (pointer-up that didn't drag) so panning the canvas / dragging a
+    // Free-Canvas frame doesn't spray SFX. ~half the time, like before.
+    let sx = 0, sy = 0, moved = false;
+    document.addEventListener('pointerdown', (e) => { sx = e.clientX; sy = e.clientY; moved = false; }, true);
+    document.addEventListener('pointermove', (e) => { if (Math.abs(e.clientX - sx) > 5 || Math.abs(e.clientY - sy) > 5) moved = true; }, true);
+    document.addEventListener('pointerup', (e) => {
+        if (!checkbox || !checkbox.checked || moved) return;
         if (Math.random() < 0.5) return;                        // ~half the time
         pop(e.clientX, e.clientY);
     }, true);                                                   // capture: fires on any control

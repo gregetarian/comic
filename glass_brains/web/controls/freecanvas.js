@@ -314,9 +314,11 @@ export function createFreeCanvasEditor({ container, canvas, config, getEngine, o
         });
     }
     function moveBy(panel, start, dx, dy) {
-        const W = canvas.clientWidth, H = canvas.clientHeight, pl = panel.place;
-        pl.x = snapF(clamp(start.x + dx / W, -pl.w + 0.02, 1 - 0.02), W);
-        pl.y = snapF(clamp(start.y + dy / H, -pl.h + 0.02, 1 - 0.02), H);
+        // place fractions are of the DESIGN size; a screen drag dx = design dx × zoom, so
+        // divide by the view zoom to keep the frame 1:1 under the cursor at any zoom.
+        const v = getEngine().getView(), W = v.W0, H = v.H0, s = v.s || 1, pl = panel.place;
+        pl.x = snapF(clamp(start.x + (dx / s) / W, -pl.w + 0.02, 1 - 0.02), W);
+        pl.y = snapF(clamp(start.y + (dy / s) / H, -pl.h + 0.02, 1 - 0.02), H);
     }
     function dragMove(handle, panel) {
         startDrag(handle, () => ({ x: panel.place.x, y: panel.place.y }),
@@ -324,9 +326,9 @@ export function createFreeCanvasEditor({ container, canvas, config, getEngine, o
     }
     function dragResize(handle, panel) {
         startDrag(handle, () => ({ w: panel.place.w, h: panel.place.h }), (c, dx, dy) => {
-            const W = canvas.clientWidth, H = canvas.clientHeight, pl = panel.place;
-            pl.w = snapF(clamp(c.w + dx / W, MIN_FRAC, 1), W);
-            pl.h = snapF(clamp(c.h + dy / H, MIN_FRAC, 1), H);
+            const v = getEngine().getView(), W = v.W0, H = v.H0, s = v.s || 1, pl = panel.place;
+            pl.w = snapF(clamp(c.w + (dx / s) / W, MIN_FRAC, 1), W);
+            pl.h = snapF(clamp(c.h + (dy / s) / H, MIN_FRAC, 1), H);
         });
     }
     function dragBody(handle, panel) {
