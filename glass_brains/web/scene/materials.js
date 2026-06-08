@@ -129,7 +129,9 @@ void main() {
     vec3 n = gl_FrontFacing ? normalize(vNormal) : -normalize(vNormal);
     float intensity = 0.5 * dot(n, normalize(uLightDir)) + 0.5;
     intensity = floor(intensity * uCelBands + 0.001) / uCelBands;
-    gl_FragColor = vec4(uColor * mix(0.82, 1.0, intensity), 1.0);   // opaque WHITE, gentle shading
+    // Flat WHITE fill (like the line-art cortex) — only a whisker of shading for form; the
+    // black outline pass gives the structures their edges. uColor is white.
+    gl_FragColor = vec4(uColor * mix(0.97, 1.0, intensity), 1.0);
 }`;
 
 export function makeOpaqueAnatomyMaterial(anatomy = {}) {

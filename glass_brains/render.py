@@ -29,6 +29,12 @@ def _cortex_subcort_opaque(hemi):
     return {"roles": ["cortex", "anatomy", "voxel"], "hemisphere": hemi, "anatomyStyle": "opaque"}
 
 
+def _cortex_subcort_medial(cortex_hemi, sub_hemi):
+    # medial cortex wall + the CONTRALATERAL subcortex (sits in front of the wall, occluding it).
+    return {"roles": ["cortex", "anatomy", "voxel"], "hemisphere": cortex_hemi,
+            "anatomyHemisphere": sub_hemi, "anatomyStyle": "opaque"}
+
+
 VIEWS = {
     "left_lateral":  ("left_lateral",  _cortex("lh"),   "L Lateral"),
     "right_lateral": ("right_lateral", _cortex("rh"),   "R Lateral"),
@@ -43,6 +49,8 @@ VIEWS = {
     "cortex_subcort_l": ("left_lateral",  _cortex_subcort_opaque("lh"),   "L + Subcort (opaque)"),
     "cortex_subcort_r": ("right_lateral", _cortex_subcort_opaque("rh"),   "R + Subcort (opaque)"),
     "cortex_subcort":   ("dorsal",        _cortex_subcort_opaque("both"), "Cortex + Subcort (opaque)"),
+    "cortex_subcort_lm": ("left_medial",  _cortex_subcort_medial("lh", "rh"), "L Medial + Subcort"),
+    "cortex_subcort_rm": ("right_medial", _cortex_subcort_medial("rh", "lh"), "R Medial + Subcort"),
 }
 
 ALIASES = {
