@@ -19,6 +19,17 @@ const depthFrag = `varying float vDepth;
 ${SLICE_FRAG_PARS}
 void main(){ if (gbSliceDiscard(vWorldPos)) discard; gl_FragColor = vec4(vDepth/500.,0.,0.,1.); }`;
 
+/** Plain depth material — writes view-Z/500, slice-aware, NO threshold. Used for the
+ *  cortex silhouette, and reusable to fold an opaque surface (e.g. the opaque subcortex)
+ *  into the edge/outline clip depth so strokes behind it are occluded. `side` should match
+ *  the surface's render side (BackSide for the back-wall opaque shell). */
+export function makePlainDepthMaterial(side = THREE.DoubleSide) {
+    return new THREE.ShaderMaterial({
+        vertexShader: depthVert, fragmentShader: depthFrag, side,
+        uniforms: sliceUniforms(),
+    });
+}
+
 const outlineFrag = `
 uniform sampler2D tDepth; uniform vec2 uResolution; uniform float uLineWidth, uThreshold, uOpacity; uniform vec3 uColor;
 uniform float uVeilApply, uNearZ, uFarZ, uVeilStrength, uVeilK; uniform vec3 uVeilColor;

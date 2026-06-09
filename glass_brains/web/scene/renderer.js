@@ -15,7 +15,7 @@ import { visible } from '../core/visibility.js';
 import { resolveColormap, colorizeValues } from '../core/colormap.js';
 import { overlayStyle } from '../core/config-schema.js';
 import { makeGlassMaterial, makeAnatomyMaterial, makeOpaqueAnatomyMaterial, makeVoxelMaterial, makeSharedVoxelUniforms } from './materials.js';
-import { OutlinePass, makeThresholdDepthMaterial } from './passes.js';
+import { OutlinePass, makeThresholdDepthMaterial, makePlainDepthMaterial } from './passes.js';
 
 export function createEngine({ renderer, width, height, sceneModel, colormaps, config }) {
     const scene = new THREE.Scene();
@@ -54,7 +54,11 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
     const anatomyMat = makeAnatomyMaterial(config.style.anatomy);
     // Opaque subcortical shell, selected per-panel when content.anatomyStyle === 'opaque'.
     const anatomyOpaqueMat = makeOpaqueAnatomyMaterial(config.style.anatomy);
+    // Depth-only version of that shell (same BackSide), folded into the edge/outline clip so
+    // cortical voxel edges + cortex lines BEHIND the opaque subcortex are occluded, not drawn through.
+    const anatomyClipDepthMat = makePlainDepthMaterial(THREE.BackSide);
     const anatomyMeshes = sceneModel.meshes.filter((tm) => tm.meta.role === 'anatomy').map((tm) => tm.mesh);
+    const cortexMeshes = sceneModel.meshes.filter((tm) => tm.meta.role === 'cortex').map((tm) => tm.mesh);
 
     // --- per-overlay voxel materials + uniforms (overlay i → layer 1+i) ---
     const uniforms = [], voxelMats = [];
@@ -270,7 +274,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
     // occluded where a closer overlay's volume covers them (no longer see-through).
     for (const ep of edgePasses) ep.outlineMaterial.uniforms.uClipDepth.value = clipTarget.texture;
 
-    function renderClipDepth(camera) {
+    function renderClipDepth(camera, opaqueAnat) {
         const prev = scene.overrideMaterial;
         renderer.setRenderTarget(clipTarget);
         renderer.setScissorTest(false);
@@ -279,6 +283,16 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
             clipCam.copy(camera); clipCam.layers.set(1 + i);
             scene.overrideMaterial = edgePasses[i].depthMaterial;
             renderer.render(scene, clipCam);                // depth-tested: nearest accumulates
+        }
+        // Fold the opaque subcortex's depth in (cortex hidden so only the shell contributes,
+        // not the see-through cortex) → edges/outline behind it get occluded like the fills.
+        if (opaqueAnat) {
+            const vis = cortexMeshes.map((m) => m.visible);
+            for (const m of cortexMeshes) m.visible = false;
+            clipCam.copy(camera); clipCam.layers.set(0);
+            scene.overrideMaterial = anatomyClipDepthMat;
+            renderer.render(scene, clipCam);
+            cortexMeshes.forEach((m, k) => { m.visible = vis[k]; });
         }
         scene.overrideMaterial = prev;
         renderer.setRenderTarget(null);
@@ -366,6 +380,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         writeSlice(glassMat.uniforms, slice);
         writeSlice(anatomyMat.uniforms, slice);
         writeSlice(anatomyOpaqueMat.uniforms, slice);
+        writeSlice(anatomyClipDepthMat.uniforms, slice);
         for (let i = 0; i < N; i++) writeSlice(uniforms[i], slice);   // voxel + its edge depth material
         writeSlice(cortexOutline.depthMaterial.uniforms, slice);      // cortex silhouette
     }
@@ -480,8 +495,10 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
             // where a closer overlay volume sits in front (edges no longer draw through).
             let anyEdges = false;
             for (let i = 0; i < N; i++) if (osR[i].edges.enabled) anyEdges = true;
-            const clip = anyEdges && N > 0;
-            if (clip) renderClipDepth(camera);
+            // Clip when there are voxel edges OR an opaque subcortex (so edges + cortex lines
+            // behind the shell are occluded). Opaque-anatomy folds its depth into the target.
+            const clip = anyEdges || opaqueAnat;
+            if (clip) renderClipDepth(camera, opaqueAnat);
             // Per-overlay voxel edges first (underneath), depth-clipped against the others.
             for (let i = 0; i < N; i++) {
                 if (!osR[i].edges.enabled) continue;
@@ -611,7 +628,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
     // Mesh geometries are NOT disposed — they're owned by the app and reused across
     // rebuilds; only this engine's materials, outline passes, and targets are freed.
     function dispose() {
-        glassMat.dispose(); anatomyMat.dispose(); anatomyOpaqueMat.dispose();
+        glassMat.dispose(); anatomyMat.dispose(); anatomyOpaqueMat.dispose(); anatomyClipDepthMat.dispose();
         for (const m of voxelMats) m.dispose();
         cortexOutline.dispose();
         for (const ep of edgePasses) ep.dispose();
