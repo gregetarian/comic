@@ -109,11 +109,17 @@ export function createFreeCanvasEditor({ container, canvas, config, getEngine, o
         for (const fr of frames) fr.el.classList.toggle('fc-active', fr.panel.id === id);
         reposition();
     }
-    // Click bare canvas (between/outside the panel frames) to DESELECT the active panel — frames
-    // are divs over the canvas, so an empty-space press lands on `canvas` itself. Without this the
-    // last-pressed panel stays active forever (you couldn't click "off" a box).
-    const onCanvasDown = (e) => { if (e.target === canvas && activeId !== null) setActive(null); };
-    canvas.addEventListener('pointerdown', onCanvasDown);
+    // DESELECT the active panel by pressing anywhere that isn't a panel frame or the toolbar —
+    // empty canvas, the snap grid, panel margins, whatever overlays the canvas (capture phase, so
+    // stacking/pointer-events can't hide it) — or by pressing Escape (works even when panels tile
+    // the whole canvas and there's no empty space to click). Without this the last-pressed panel
+    // stays active forever; you could never click "off" a box.
+    const onDeselectDown = (e) => {
+        if (activeId === null) return;
+        if (e.target && e.target.closest && e.target.closest('.fc-frame, .fc-toolbar')) return;
+        setActive(null);
+    };
+    container.addEventListener('pointerdown', onDeselectDown, true);
 
     let snap = true;                                 // snap move/resize to a fine px grid
     let snapPx = SNAP_DEFAULT_PX;                     // snap step (CSS px); user-adjustable
@@ -132,7 +138,8 @@ export function createFreeCanvasEditor({ container, canvas, config, getEngine, o
         const t = e.target;
         if (t && /^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName)) return;
         const k = (e.key || '').toLowerCase();
-        if ((e.metaKey || e.ctrlKey) && k === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); }
+        if (k === 'escape') { if (activeId !== null) { e.preventDefault(); setActive(null); } }
+        else if ((e.metaKey || e.ctrlKey) && k === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); }
         else if ((e.metaKey || e.ctrlKey) && k === 'y') { e.preventDefault(); redo(); }
     };
     window.addEventListener('keydown', onKey);
@@ -426,7 +433,7 @@ export function createFreeCanvasEditor({ container, canvas, config, getEngine, o
         });
     }
     function destroy() {
-        canvas.removeEventListener('pointerdown', onCanvasDown);
+        container.removeEventListener('pointerdown', onDeselectDown, true);
         window.removeEventListener('keydown', onKey);
         frames.forEach((fr) => fr.el.remove());
         frames = [];
