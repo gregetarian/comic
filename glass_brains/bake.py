@@ -96,5 +96,43 @@ def bake(demo_nifti=None):
     print(f"Baked template + demo -> {DATA}")
 
 
+def bake_surface_sidecar(out_dir=None):
+    """Bake the cortical-surface sidecar for surface-projection mode (M8): per hemisphere, the
+    pial vertices (MNI152) + faces + curvature + the inward offset to the white surface (so the
+    pipeline can K-depth line-sample a volume across the cortical ribbon). Standalone — does NOT
+    regenerate the cortex/subcortical GLBs, so it leaves existing baked assets byte-identical.
+    """
+    import mne
+    import nibabel as nib
+    from .surfaces import load_hemisphere, mni305_to_mni152
+    out = Path(out_dir) if out_dir else DATA
+    fs = Path(mne.datasets.fetch_fsaverage(verbose=False))
+    surf = fs / "surf"
+    if not surf.exists():
+        surf = fs / "fsaverage" / "surf"
+
+    blob = bytearray()
+    layout = {}
+    for hemi in ("lh", "rh"):
+        pial, faces, curv = load_hemisphere(surf, hemi)
+        white, _ = nib.freesurfer.read_geometry(str(surf / f"{hemi}.white"))
+        pial152 = mni305_to_mni152(pial).astype(np.float32)
+        inward = (mni305_to_mni152(white).astype(np.float32) - pial152).astype(np.float32)
+        h = {"nverts": int(len(pial152)), "ntris": int(len(faces))}
+        for name, arr, dt in [("pial", pial152, np.float32), ("inward", inward, np.float32),
+                              ("faces", np.asarray(faces), np.uint32), ("curv", np.asarray(curv), np.float32)]:
+            b = np.ascontiguousarray(arr, dtype=dt).tobytes()
+            h[name] = [len(blob), len(b)]
+            blob.extend(b)
+        layout[hemi] = h
+    (out / "cortex_surface.bin.gz").write_bytes(gzip.compress(bytes(blob), 9))
+    (out / "cortex_surface.json").write_text(json.dumps(layout))
+    sp = out / "scene.json"      # advertise availability so the viewer/CLI can offer surface mode
+    sc = json.loads(sp.read_text()); sc["hasWhiteSurface"] = True; sp.write_text(json.dumps(sc))
+    print(f"Baked surface sidecar -> {out/'cortex_surface.bin.gz'} "
+          f"(lh {layout['lh']['nverts']} + rh {layout['rh']['nverts']} verts)")
+    return out / "cortex_surface.bin.gz"
+
+
 if __name__ == "__main__":
     bake()
