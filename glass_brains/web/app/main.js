@@ -44,6 +44,13 @@ async function fetchJSON(url, fb) {
     try { const r = await fetch(url); if (!r.ok) throw 0; return await r.json(); }
     catch { return fb; }
 }
+// Headless/CLI render must FAIL LOUDLY: a missing/broken config or colormaps file should
+// surface as window.__GB_ERR__ (which render.py waits on), not silently boot a degraded scene.
+async function fetchJSONStrict(url) {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(`failed to load ${url} (HTTP ${r.status})`);
+    return await r.json();
+}
 const setLoading = (msg, sub) => {
     const el = document.getElementById('loading');
     if (!el) return;
@@ -68,11 +75,14 @@ async function main() {
 
     // Config: ?config=… (render dir, headless) else data/render-config.json (static site).
     const cfgUrl = params.get('config') || (DATA + 'render-config.json');
-    const rc = await fetchJSON(cfgUrl, { preset: 'freeDefault', style: {} });
+    const rc = isHeadless ? await fetchJSONStrict(cfgUrl)
+                          : await fetchJSON(cfgUrl, { preset: 'freeDefault', style: {} });
     preset = params.get('preset') || rc.preset || 'freeDefault';
     config = (rc.layout && !params.get('preset')) ? resolveConfig(rc) : resolveConfig(preset, { style: rc.style || {} });
 
-    colormaps = loadColormaps(await fetchJSON(DATA + 'colormaps.json', { n: 2, maps: {} }));
+    colormaps = loadColormaps(isHeadless ? await fetchJSONStrict(DATA + 'colormaps.json')
+                                         : await fetchJSON(DATA + 'colormaps.json', { n: 2, maps: {} }));
+    if (isHeadless && colormaps.size === 0) throw new Error('colormaps.json contained no colormaps');
     baseScene = await loadBaseScene(DATA);
 
     // preserveDrawingBuffer for the headless screenshot path; CSS-driven pixelRatio interactively.
@@ -636,5 +646,8 @@ function saveBars() {
 
 main().catch((err) => {
     console.error(err);
+    // Signal the headless render harness (render.py waits on __GB_ERR__) so a boot failure
+    // fails the render loudly instead of hanging until the timeout.
+    window.__GB_ERR__ = (err && err.message) || 'viewer failed to start';
     setLoading('Error: ' + (err && err.message));
 });

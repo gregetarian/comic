@@ -83,6 +83,10 @@ def load_stat_map(src, filename=None, threshold=2.3):
         raise ValueError(
             f"Expected a 3D statistical map, got shape {np.asarray(img.dataobj).shape}. "
             "Upload a 3D stat map in MNI152 space (not a 4D timeseries).")
+    # NaN/inf in a masked map mean "no data here" — zero them so they neither mesh nor
+    # poison the colour limit. np.abs(nan) < threshold is False, so without this they would
+    # survive thresholding and make np.percentile(maxAbsValue) NaN, breaking the whole overlay.
+    data[~np.isfinite(data)] = 0.0
     data[np.abs(data) < threshold] = 0.0
     return data, img.affine
 
@@ -241,6 +245,7 @@ def process_nifti(src, name, threshold=2.3):
     # global clim + diverging from all categorised voxels
     all_vals = np.concatenate([data[m] for m in cats.values()]) if cats else np.array([0.0])
     diverging = bool(all_vals.min() < 0 and all_vals.max() > 0)
+    negative_only = bool((all_vals < 0).any() and not (all_vals > 0).any())
     abs_vals = np.abs(all_vals[all_vals != 0])
     max_abs = max(float(np.percentile(abs_vals, 99)), 1e-10) if len(abs_vals) else 1.0
 
@@ -269,6 +274,7 @@ def process_nifti(src, name, threshold=2.3):
         'maxAbsValue': max_abs,
         'maxClusterSize': int(cluster_data.max()) if cluster_data.size else 0,
         'diverging': diverging,
+        'negativeOnly': negative_only,
         'structures': structures,
     }
     return json.dumps(meta)

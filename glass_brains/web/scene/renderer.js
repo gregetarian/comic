@@ -117,13 +117,14 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         for (let i = 0; i < N; i++) {
             const os = overlayStyle(config, i);
             const div = !!overlays[i].diverging;
-            const { name, mode, divergingMapOnPositive } = resolveColormap(os, div, colormaps);
+            const neg = !!overlays[i].negativeOnly;
+            const { name, mode, divergingMapOnPositive, divergingMapOnNegative } = resolveColormap(os, div, colormaps, neg);
             const cmap = colormaps.get(name) || colormaps.values().next().value;
             if (!cmap) continue;
             const mAbs = overlays[i].maxAbsValue ?? 1.0;
             for (const tm of sceneModel.meshes) {
                 if (tm.meta.role !== 'voxel' || (tm.meta.overlay ?? 0) !== i || !tm.values) continue;
-                const lin = colorizeValues(tm.values, cmap, mAbs, mode, os.gamma, divergingMapOnPositive);
+                const lin = colorizeValues(tm.values, cmap, mAbs, mode, os.gamma, divergingMapOnPositive, divergingMapOnNegative);
                 tm.mesh.geometry.attributes.color.copyArray(lin);
                 tm.mesh.geometry.attributes.color.needsUpdate = true;
             }

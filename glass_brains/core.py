@@ -38,15 +38,12 @@ def open_viewer(port=8421):
 
 
 class GlassBrain:
-    def __init__(self, template='fsaverage', space='MNI152',
-                 include_subcortical=True, layout='ninePanel',
-                 display_cmap='YlGnBu', colormap_names=None, cluster_min=105):
+    """Loads the fsaverage template (cortex + subcortical + aseg) for the one-time asset bake.
+    Display config (colormap, layout, cluster threshold) lives in the viewer
+    (config-schema.js / render-config.json), not here."""
+    def __init__(self, template='fsaverage', space='MNI152', include_subcortical=True):
         self.template = template
         self.space = space
-        self.layout = layout              # viewer preset: 'fourPanel' | 'ninePanel'
-        self._display_cmap = display_cmap  # 'auto' lets the viewer pick seq/div
-        self._colormap_names = colormap_names  # None = curated set; 'all' = full catalog
-        self._cluster_min = cluster_min   # initial cluster-extent threshold (voxels)
         self.surfaces = load_template_surfaces(template, space)
         self.subcortical = {}
         self.subcortical_colors = LABEL_COLORS
