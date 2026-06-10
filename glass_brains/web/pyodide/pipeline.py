@@ -46,6 +46,11 @@ STRUCTURE_CATEGORIES = ['lh_cortex', 'rh_cortex', 'subcort_l', 'subcort_r',
 # above are the bundled fsaverage defaults; init_aseg overrides them from the sidecar when a
 # custom template's segmentation ships its own (M9), so classification is DATA, not hardcoded.
 _ASEG = {'data': None, 'affine': None, 'categories': None, 'structureCategories': None}
+# Cortical surface (pial verts + faces + curvature + inward offset to the white surface),
+# loaded once via init_cortex() for surface-projection mode (M8). None until loaded.
+_CORTEX = {'lh': None, 'rh': None}
+SURFACE_DEPTH = 6   # samples along the pial->white ribbon (nilearn vol_to_surf 'line' kind)
+
 # Staging for the most recent process_nifti() result (flat buffer list).
 _BUFFERS = []
 
@@ -65,6 +70,49 @@ def init_aseg(gz_bytes, meta_json):
     _ASEG['categories'] = ({int(k): v for k, v in meta['categories'].items()}
                            if meta.get('categories') else ASEG_CATEGORIES)
     _ASEG['structureCategories'] = meta.get('structureCategories') or STRUCTURE_CATEGORIES
+
+
+def init_cortex(gz_bytes, meta_json):
+    """Load the cortical-surface sidecar (pial verts/faces/curv + inward offset to white) for
+    surface-projection mode (M8). meta_json is cortex_surface.json (per-hemi byte layout)."""
+    layout = json.loads(meta_json)
+    raw = gzip.decompress(bytes(gz_bytes))
+    for hemi in ('lh', 'rh'):
+        h = layout.get(hemi)
+        if not h:
+            _CORTEX[hemi] = None
+            continue
+        def arr(name, dtype, cols):
+            off, ln = h[name]
+            a = np.frombuffer(raw[off:off + ln], dtype=dtype)
+            return a.reshape(-1, cols) if cols > 1 else a
+        _CORTEX[hemi] = {'verts': arr('pial', np.float32, 3), 'inward': arr('inward', np.float32, 3),
+                         'faces': arr('faces', np.uint32, 3), 'curv': arr('curv', np.float32, 1)}
+
+
+def build_surface_projection(data, overlay_affine, depth=SURFACE_DEPTH):
+    """Project the thresholded volume onto each cortical hemisphere's vertices: average K
+    trilinear samples taken along the inward normal from pial to white (nilearn vol_to_surf
+    'line' kind). Emits the full cortex sheet per hemi (grey where sub-threshold via the
+    surface material's curvature fallback); staged into _BUFFERS after the voxel structures."""
+    inv = np.linalg.inv(overlay_affine)
+    fracs = np.linspace(0.0, 1.0, max(1, depth))
+    out = {}
+    for hemi, C in _CORTEX.items():
+        if C is None:
+            continue
+        verts, inward = C['verts'], C['inward']
+        acc = np.zeros(len(verts), np.float32)
+        for f in fracs:
+            world = verts + f * inward
+            ijk = (inv @ np.column_stack([world, np.ones(len(world))]).T).T[:, :3]
+            acc += ndimage.map_coordinates(data, ijk.T, order=1, mode='constant', cval=0.0).astype(np.float32)
+        vals = (acc / len(fracs)).astype(np.float32)
+        clu = np.zeros(len(vals), np.float32)
+        desc = _stage_mesh(verts.astype(np.float32), C['faces'], vals, clu)
+        desc['crv'] = _stage(np.ascontiguousarray(C['curv'], np.float32), np.float32)[0]
+        out[hemi] = desc
+    return out
 
 
 def load_stat_map(src, filename=None, threshold=2.3):
@@ -244,7 +292,7 @@ def _stage_mesh(verts, faces, values, clusters):
             'nverts': int(verts.shape[0]), 'ntris': nidx // 3}
 
 
-def process_nifti(src, name, threshold=2.3, classify=True):
+def process_nifti(src, name, threshold=2.3, classify=True, surface=False):
     """Run the full pipeline on a NIfTI (path or bytes). Returns a JSON meta string;
     geometry arrays are staged in _BUFFERS for retrieval via get_all_buffers().
 
@@ -298,6 +346,9 @@ def process_nifti(src, name, threshold=2.3, classify=True):
         'negativeOnly': negative_only,
         'structures': structures,
     }
+    # Surface-projection meshes (M8): the cortex sheet per hemi, sampled from this volume.
+    if surface and (_CORTEX['lh'] is not None or _CORTEX['rh'] is not None):
+        meta['surface'] = build_surface_projection(data, affine)
     return json.dumps(meta)
 
 
