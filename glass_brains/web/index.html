@@ -19,7 +19,10 @@
         linear-gradient(45deg, #e9e9e9 25%, transparent 25%, transparent 75%, #e9e9e9 75%);
       background-size: 22px 22px; background-position: 0 0, 11px 11px; }
 
-    #viewer { position: relative; flex: 1; min-height: 0; }
+    /* isolate: confine the Free Canvas frames' high z-indexes (active frame = 250) INSIDE #viewer,
+       so the body-level parameter menus (.cmap-popup / .preset-pop, appended to <body>) always
+       render in front of the brains AND the blue boxes. */
+    #viewer { position: relative; flex: 1; min-height: 0; isolation: isolate; }
     /* brains are scissor-clipped to the canvas by WebGL; keep the controls above any
        Free-Canvas frame that overflows when zoomed in, so they never cover the buttons. */
     canvas { position: absolute; left: 0; top: 0; width: 100%; height: calc(100% - var(--cbstrip, 52px)); }
