@@ -96,6 +96,74 @@ def bake(demo_nifti=None):
     print(f"Baked template + demo -> {DATA}")
 
 
+def bake_template(out_dir, surfaces, *, inflated=None, aseg=None, aseg_affine=None, labels=None,
+                  structure_categories=None, subcortical=None, subcortical_colors=None,
+                  space="custom", has_white_surface=False):
+    """Bake a CUSTOM template into <out_dir>/data/ (the shape `render --template DIR` overlays).
+
+    `surfaces` is {hemi: trimesh OR (verts, faces[, curv])} — bring-your-own cortical surfaces in
+    ANY space (visualisation-grade: the user supplies maps already aligned to this template; we do
+    not register). `aseg` (a uint8 label volume) + `labels` (int -> category name) + `aseg_affine`
+    drive voxel classification; omit them for a shell-only template (render with --no-template, or
+    a classifying aseg is required for hemisphere/subcortical views). Reuses the fsaverage exporters,
+    so a custom template feeds the SAME engine. Returns out_dir."""
+    import shutil
+    from .export import export_mesh, export_mesh_with_scalars, write_scene_json
+    from .surfaces import to_trimesh
+
+    out = Path(out_dir)
+    data = out / "data"
+    data.mkdir(parents=True, exist_ok=True)
+    (data / "subcortical").mkdir(exist_ok=True)
+
+    def _mesh(s):
+        if hasattr(s, "vertices"):
+            return s
+        v, f = np.asarray(s[0]), np.asarray(s[1])
+        curv = np.asarray(s[2]) if len(s) > 2 and s[2] is not None else np.zeros(len(v), np.float32)
+        return to_trimesh(v, f, {"curvature": curv})
+
+    cortex_paths = {}
+    for hemi, s in surfaces.items():
+        export_mesh_with_scalars(_mesh(s), data / f"cortex_{hemi}.glb", scalar_name="curvature")
+        cortex_paths[hemi] = {"mesh": f"cortex_{hemi}.glb"}
+        if inflated and hemi in inflated:
+            export_mesh_with_scalars(_mesh(inflated[hemi]), data / f"cortex_{hemi}_inflated.glb", scalar_name="curvature")
+            cortex_paths[hemi]["meshInflated"] = f"cortex_{hemi}_inflated.glb"
+
+    subcort_paths = {}
+    for nm, m in (subcortical or {}).items():
+        mesh = _mesh(m)
+        safe = nm.lower().replace("-", "_").replace(" ", "_")
+        rel = f"subcortical/{safe}.glb"
+        color = (subcortical_colors or {}).get(nm, (0.6, 0.6, 0.6))
+        vc = (np.array([*color, 1.0]) * 255).astype(np.uint8)
+        export_mesh(mesh, data / rel, vertex_colors=np.tile(vc, (len(mesh.vertices), 1)))
+        subcort_paths[nm] = rel
+
+    write_scene_json(data, cortex_meshes=cortex_paths, subcortical_meshes=subcort_paths or None,
+                     subcortical_colors=subcortical_colors, space=space, template_mode="custom",
+                     has_white_surface=has_white_surface)
+
+    if aseg is not None:
+        aseg = np.asarray(aseg)
+        assert aseg.max() < 256, f"aseg labels must be < 256 for uint8 (got {aseg.max()})"
+        (data / "aseg_uint8.bin.gz").write_bytes(gzip.compress(aseg.astype(np.uint8).tobytes(order="C"), 9))
+        cats = {str(int(k)): v for k, v in (labels or {}).items()}
+        (data / "aseg.json").write_text(json.dumps({
+            "dims": list(aseg.shape), "dtype": "uint8", "order": "C",
+            "affine": (np.asarray(aseg_affine).tolist() if aseg_affine is not None else np.eye(4).tolist()),
+            "categories": cats, "structureCategories": structure_categories or sorted(set(cats.values())),
+            "hasWhiteSurface": has_white_surface}))
+
+    cm = DATA / "colormaps.json"          # self-contained bundle (a browser .zip can ship its own)
+    if cm.exists():
+        shutil.copy2(cm, data / "colormaps.json")
+    print(f"Baked custom template -> {data} (space={space}, {len(cortex_paths)} hemis, "
+          f"{'aseg' if aseg is not None else 'no aseg'})")
+    return out
+
+
 def bake_surface_sidecar(out_dir=None):
     """Bake the cortical-surface sidecar for surface-projection mode (M8): per hemisphere, the
     pial vertices (MNI152) + faces + curvature + the inward offset to the white surface (so the

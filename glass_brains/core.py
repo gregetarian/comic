@@ -113,7 +113,14 @@ def cli():
                                              'drag NIfTIs into the browser — processing is in-browser now)')
     op.add_argument('--port', type=int, default=8421)
 
-    sub.add_parser('bake', help='Re-bake the fsaverage template assets into web/data/ (needs the [bake] extra)')
+    bk = sub.add_parser('bake', help='Bake template assets: the bundled fsaverage by default, OR a '
+                                     'CUSTOM template with --out + --surfaces (needs the [bake] extra)')
+    bk.add_argument('--out', default=None, help='custom template output dir (omit = re-bake bundled fsaverage)')
+    bk.add_argument('--surfaces', default=None, help='lh=lh.pial,rh=rh.pial (FreeSurfer/.gii/.glb)')
+    bk.add_argument('--inflated', default=None, help='lh=...,rh=... inflated surfaces (optional)')
+    bk.add_argument('--aseg', default=None, help='label-volume NIfTI for voxel classification (optional)')
+    bk.add_argument('--aseg-labels', default=None, help='JSON map {label_id: category} for the aseg')
+    bk.add_argument('--space', default='custom', help='template space label (informational)')
 
     r = sub.add_parser('render', help='Render a custom multi-panel figure to PNG (headless)')
     r.add_argument('nifti', nargs='+',
@@ -148,6 +155,9 @@ def cli():
     r.add_argument('--no-template', action='store_true',
                    help='no-template / volume-only: mesh the volume in its own space with no '
                         'anatomical shell or classification (for non-MNI / edge-case maps)')
+    r.add_argument('--template', default=None,
+                   help='render against a CUSTOM template dir (as produced by `glass-brains bake '
+                        '--out DIR ...`) instead of the bundled fsaverage')
     # style overrides (unset = use viewer defaults)
     r.add_argument('--surface', choices=['inflated', 'pial'], default=None)
     r.add_argument('--voxels', default=None, help='blocky|smooth|surface; scalar or per-overlay comma list')
@@ -195,7 +205,21 @@ def cli():
 
     elif args.command == 'bake':
         from . import bake
-        bake.bake()
+        if args.out:                       # custom template from BYO surfaces (M9)
+            from .surfaces import load_surface_file
+            import nibabel as nib
+            kv = lambda s: dict(p.split('=', 1) for p in s.split(',')) if s else {}
+            surfs = {h: load_surface_file(p) for h, p in kv(args.surfaces).items()}
+            infl = {h: load_surface_file(p) for h, p in kv(args.inflated).items()} or None
+            aseg = aseg_aff = labels = None
+            if args.aseg:
+                img = nib.load(args.aseg); aseg = np.asarray(img.dataobj); aseg_aff = img.affine
+                if args.aseg_labels:
+                    labels = {int(k): v for k, v in json.loads(Path(args.aseg_labels).read_text()).items()}
+            bake.bake_template(args.out, surfs, inflated=infl, aseg=aseg, aseg_affine=aseg_aff,
+                               labels=labels, space=args.space)
+        else:
+            bake.bake()
 
     elif args.command == 'render':
         from .render import build_layout, render_to_png, load_spec, _deep_merge, to_volume_layout
@@ -295,7 +319,7 @@ def cli():
             bg_alpha = (layout.get('canvas') or {}).get('bgAlpha', 1.0)
 
         render_to_png(args.nifti, args.out, layout=layout, style=style,
-                      threshold=thresholds, cmap=cmap, names=names,
+                      threshold=thresholds, cmap=cmap, names=names, template_dir=args.template,
                       width=width, height=height, scale=args.scale,
                       include_subcortical=not args.no_subcortical, classify=not args.no_template,
                       background_alpha=bg_alpha, crop=args.crop,
