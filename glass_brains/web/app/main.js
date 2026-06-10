@@ -141,7 +141,7 @@ async function main() {
         download: downloadText,
         onApplied: () => {
             engine.applyStyle(); engine.recolor(); engine.applySmoothing();
-            buildOverlayRows({ engine, config, colormaps, onRemove: removeOverlay, onSurface: setOverlaySurface });
+            buildOverlayRows({ engine, config, colormaps, onRemove: removeOverlay, onSurface: setOverlaySurface, onReorder: reorderOverlays });
             syncGlobalControls();
         },
     });
@@ -306,6 +306,17 @@ function removeOverlay(i) {
     rebuild();
 }
 
+/** Move overlay `from` to position `to` (drag-to-reorder). Reorders the overlay AND its style slot
+ *  in parallel; rebuild() re-tags meta.overlay by position, so layer/draw order follows. */
+function reorderOverlays(from, to) {
+    if (from === to || from < 0 || to < 0 || from >= overlays.length || to >= overlays.length) return;
+    const [ov] = overlays.splice(from, 1); overlays.splice(to, 0, ov);
+    const os = (config.style.overlays ||= []);
+    while (os.length < overlays.length) os.push({});
+    const [s] = os.splice(from, 1); os.splice(to, 0, s ?? {});
+    rebuild();
+}
+
 /** Switch layout preset without a reload: swap only config.layout, keep overlays + style.
  *  'freeCanvas' is special: it bakes the CURRENT panels' on-screen rects into free `place`
  *  fractions (so the switch is visually seamless) and flips mode to 'free'. */
@@ -391,7 +402,7 @@ function rebuild() {
     if (!isHeadless) {
         const onb = document.getElementById('onboard'); if (onb) onb.style.display = overlays.length ? 'none' : 'flex';
         const tgl = document.getElementById('c-colorbar'); if (tgl) tgl.classList.toggle('active', colorbarsVisible);
-        buildOverlayRows({ engine, config, colormaps, onRemove: removeOverlay, onSurface: setOverlaySurface });
+        buildOverlayRows({ engine, config, colormaps, onRemove: removeOverlay, onSurface: setOverlaySurface, onReorder: reorderOverlays });
         if (config.layout.mode === 'free') {
             // Free Canvas: the per-panel editor frames replace the hover +/- zoom.
             zoomEls.forEach((el) => el.remove()); zoomEls = [];
@@ -431,7 +442,7 @@ function randomizeColormaps() {
     const used = new Set();
     overlays.forEach((o, i) => { const name = randomColormapName(colormaps, used); used.add(name); setOverlayStyle(config, i, { colormap: name }); });
     engine.recolor();
-    buildOverlayRows({ engine, config, colormaps, onRemove: removeOverlay, onSurface: setOverlaySurface });
+    buildOverlayRows({ engine, config, colormaps, onRemove: removeOverlay, onSurface: setOverlaySurface, onReorder: reorderOverlays });
 }
 
 /** Push config.style's global fields back onto the surface-row controls (after a preset
