@@ -83,10 +83,11 @@
     .fc-frame { position: absolute; border: 1.5px solid transparent; border-radius: 4px; z-index: 14;
       pointer-events: none; transition: border-color 0.12s; }
     .fc-frame.hover, .fc-frame.fc-editing { border-color: rgba(74,144,217,0.85); box-shadow: 0 0 0 1px rgba(255,255,255,0.5); }
+    .fc-frame.fc-active { border-color: rgba(74,144,217,0.95); box-shadow: 0 0 0 1px rgba(255,255,255,0.6); }
     .fc-frame .fc-head, .fc-frame .fc-resize, .fc-frame .fc-slice-handle { opacity: 0; transition: opacity 0.12s; }
-    .fc-frame.hover .fc-head, .fc-frame.fc-editing .fc-head,
-    .fc-frame.hover .fc-resize, .fc-frame.fc-editing .fc-resize,
-    .fc-frame.hover .fc-slice-handle, .fc-frame.fc-editing .fc-slice-handle { opacity: 1; }
+    .fc-frame.hover .fc-head, .fc-frame.fc-editing .fc-head, .fc-frame.fc-active .fc-head,
+    .fc-frame.hover .fc-resize, .fc-frame.fc-editing .fc-resize, .fc-frame.fc-active .fc-resize,
+    .fc-frame.hover .fc-slice-handle, .fc-frame.fc-editing .fc-slice-handle, .fc-frame.fc-active .fc-slice-handle { opacity: 1; }
     .fc-frame .fc-body { position: absolute; inset: 0; pointer-events: auto; cursor: move; } /* drag=move; shift+drag=orbit */
     .fc-frame .fc-head { position: absolute; left: -1px; top: -1px; display: flex; gap: 2px; align-items: center; padding: 2px 4px;
       background: rgba(255,255,255,0.94); border: 1px solid #cdddee; border-radius: 4px 0 4px 0; pointer-events: auto; cursor: grab;
@@ -96,7 +97,7 @@
       border: 1px solid #ccc; border-radius: 3px; background: #fff; color: #555; cursor: pointer; }
     .fc-frame .fc-head button:hover { background: #f0f0f0; border-color: #999; }
     .fc-frame .fc-head button.on { background: #4a90d9; color: #fff; border-color: #4a90d9; }
-    .fc-frame .fc-resize { position: absolute; right: -6px; bottom: -6px; width: 14px; height: 14px; background: #4a90d9;
+    .fc-frame .fc-resize { position: absolute; right: -8px; bottom: -8px; width: 18px; height: 18px; background: #4a90d9;
       border: 2px solid #fff; border-radius: 3px; pointer-events: auto; cursor: nwse-resize; }
     /* slice handles: anchor (orange) = move the cut · size (teal) = radius/extent.
        margin centres the 13px dot on its world point; display toggled by the editor. */

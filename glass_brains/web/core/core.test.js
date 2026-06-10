@@ -120,6 +120,22 @@ test('valueToT positive-only-guard pushes values into the LUT hot half', () => {
     assert.equal(valueToT(0, 1, 'sequential', 0.5, true), 0.5);
 });
 
+test('valueToT negative-only-guard confines values to the LUT cool half', () => {
+    // a small negative value, no guard: clamps to 0 (collapses to the LUT cool extreme)
+    // with the diverging-on-negative guard, it sits just below the white centre and never on it
+    assert.ok(valueToT(-0.1, 1, 'sequential', 0.5, false, true) < 0.5);
+    assert.ok(valueToT(-0.1, 1, 'sequential', 0.5, false, true) > 0.0);
+    assert.equal(valueToT(0, 1, 'sequential', 0.5, false, true), 0.5);   // zero → white centre
+    assert.equal(valueToT(-1, 1, 'sequential', 0.5, false, true), 0.0);  // most negative → cool extreme
+});
+
+test('resolveColormap guards a diverging map on negative-only data', () => {
+    const maps = loadColormaps({ n: 2, maps: { coolwarm: { lut: [[0, 0, 1], [1, 0, 0]], category: 'diverging' } } });
+    const neg = resolveColormap({ colormap: 'coolwarm', colormapMode: 'auto' }, false, maps, true);
+    assert.equal(neg.divergingMapOnNegative, true);
+    assert.equal(neg.divergingMapOnPositive, false);   // negative data must NOT take the positive guard
+});
+
 test('resolveColormap auto-picks sequential for positive data and guards diverging maps', () => {
     const maps = loadColormaps({ n: 2, maps: { coolwarm: { lut: [[0, 0, 1], [1, 0, 0]], category: 'diverging' }, viridis: { lut: [[0, 0, 0], [1, 1, 0]], category: 'sequential' } } });
     const auto = resolveColormap({ colormap: 'auto', colormapMode: 'auto' }, false, maps);
