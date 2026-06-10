@@ -239,8 +239,10 @@ def render_to_png(nifti, out_png, *, layout, style=None, threshold=2.3, cmap="au
             browser = pw.chromium.launch(headless=True, args=[
                 "--use-gl=angle", "--use-angle=swiftshader", "--ignore-gpu-blocklist"])
             page = browser.new_page(viewport={"width": width, "height": height}, device_scale_factor=scale)
+            # domcontentloaded (not networkidle): the real readiness gate is __GB_DONE__
+            # below, and with vendored assets there is no late network to idle-wait on.
             page.goto(f"http://localhost:{port}/index.html?headless=1&config=render-config.json",
-                      wait_until="networkidle")
+                      wait_until="domcontentloaded")
             page.wait_for_function("window.__GB_DONE__ === true || window.__GB_ERR__", timeout=timeout_ms)
             err = page.evaluate("window.__GB_ERR__ || null")
             if err:
