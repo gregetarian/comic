@@ -12,7 +12,7 @@ import { frameContent, mergeAABB } from '../core/framing.js';
 import { normalize, sub } from '../core/units.js';
 import { cameraBasis } from '../core/cameras.js';
 import { visible } from '../core/visibility.js';
-import { resolveColormap, colorizeValues } from '../core/colormap.js';
+import { resolveColormap, colorizeValues, deriveMaxAbs } from '../core/colormap.js';
 import { overlayStyle } from '../core/config-schema.js';
 import { makeGlassMaterial, makeAnatomyMaterial, makeOpaqueAnatomyMaterial, makeVoxelMaterial, makeSharedVoxelUniforms } from './materials.js';
 import { OutlinePass, makeThresholdDepthMaterial, makePlainDepthMaterial } from './passes.js';
@@ -68,7 +68,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
             positiveOnly: os.positiveOnly,
             voxel: { veil: os.veil, emissive: os.emissive, specular: os.specular, shininess: os.shininess, clusterMin: os.clusterMin },
         });
-        u.uMaxAbs.value = overlays[i].maxAbsValue ?? 1.0;
+        u.uMaxAbs.value = deriveMaxAbs(os.clim, overlays[i].maxAbsValue ?? 1.0);   // clim pins the scale
         u.uThreshold.value = os.threshold ?? overlays[i].threshold ?? 0;
         uniforms.push(u);
         const mat = makeVoxelMaterial({}, u);
@@ -121,7 +121,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
             const { name, mode, divergingMapOnPositive, divergingMapOnNegative } = resolveColormap(os, div, colormaps, neg);
             const cmap = colormaps.get(name) || colormaps.values().next().value;
             if (!cmap) continue;
-            const mAbs = overlays[i].maxAbsValue ?? 1.0;
+            const mAbs = deriveMaxAbs(os.clim, overlays[i].maxAbsValue ?? 1.0);   // clim pins the scale
             for (const tm of sceneModel.meshes) {
                 if (tm.meta.role !== 'voxel' || (tm.meta.overlay ?? 0) !== i || !tm.values) continue;
                 const lin = colorizeValues(tm.values, cmap, mAbs, mode, os.gamma, divergingMapOnPositive, divergingMapOnNegative);
