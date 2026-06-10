@@ -347,9 +347,10 @@ class RenderSession:
         self.close()
 
 
-def render_to_png(nifti, out_png, **kwargs):
-    """Byte-identical one-shot wrapper over RenderSession (existing CLI/callers unchanged)."""
-    with RenderSession() as s:
+def render_to_png(nifti, out_png, *, template_dir=None, **kwargs):
+    """Byte-identical one-shot wrapper over RenderSession. template_dir overlays a custom/non-MNI
+    template bundle (M9); omit it for the bundled fsaverage."""
+    with RenderSession(template_dir=template_dir) as s:
         s.render(nifti, out_png, **kwargs)
     return out_png
 
