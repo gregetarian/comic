@@ -10,7 +10,7 @@ import { resolveCamera, cameraBasis, PLANES } from './cameras.js';
 import { aabbOfPositions, mergeAABB, frameContent } from './framing.js';
 import { layoutGrid, freeRect } from './grid.js';
 import { visible } from './visibility.js';
-import { valueToT, resolveColormap, loadColormaps, sampleLUT } from './colormap.js';
+import { valueToT, resolveColormap, loadColormaps, sampleLUT, deriveMaxAbs } from './colormap.js';
 import { normalizeConfig, validateConfig, overlayStyle, DEFAULTS } from './config-schema.js';
 import { applyView, VIEWS } from './views.js';
 import { resolveConfig } from './presets.js';
@@ -127,6 +127,13 @@ test('valueToT negative-only-guard confines values to the LUT cool half', () => 
     assert.ok(valueToT(-0.1, 1, 'sequential', 0.5, false, true) > 0.0);
     assert.equal(valueToT(0, 1, 'sequential', 0.5, false, true), 0.5);   // zero → white centre
     assert.equal(valueToT(-1, 1, 'sequential', 0.5, false, true), 0.0);  // most negative → cool extreme
+});
+
+test('deriveMaxAbs: an explicit clim overrides the data-derived fallback', () => {
+    assert.equal(deriveMaxAbs(null, 7), 7);        // no clim -> data fallback
+    assert.equal(deriveMaxAbs(8, 7), 8);           // scalar -> |v|
+    assert.equal(deriveMaxAbs([-3, 5], 7), 5);     // pair -> larger magnitude bound
+    assert.equal(deriveMaxAbs([-9, 2], 7), 9);
 });
 
 test('resolveColormap guards a diverging map on negative-only data', () => {

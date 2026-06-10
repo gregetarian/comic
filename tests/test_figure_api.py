@@ -45,6 +45,16 @@ def test_render_spec_dict():
     assert fig.png[:8] == PNG
 
 
+def test_clim_is_consumed():
+    # An explicit clim must re-scale the colours (shader uMaxAbs + colorize). Use a real
+    # gradient map (faces) + a clim well above the data range so every t drops measurably.
+    faces = str(ROOT / "glass_brains" / "web" / "data" / "defaults" / "faces.nii.gz")
+    kw = dict(views=["dorsal"], grid="1x1", width=300, height=300, scale=1, colorbar=False)
+    base = gb.render(faces, **kw).png
+    pinned = gb.render(faces, clim=20, **kw).png
+    assert base != pinned, "clim was ignored by the shader"
+
+
 def test_scene_reuses_one_session():
     with gb.Scene(grid="1x2", views=["left_lateral", "dorsal"], width=400, height=300, scale=1, colorbar=False) as s:
         s.add(SPHERE, cmap="Reds")

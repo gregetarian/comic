@@ -2,6 +2,7 @@
 one-time asset bake (see glass_brains/bake.py). Per-upload meshing lives in
 glass_brains/pipeline.py; the interactive viewer is served by `open_viewer`."""
 
+import json
 import numpy as np
 from pathlib import Path
 
@@ -9,6 +10,39 @@ from .surfaces import load_template_surfaces
 from .subcortical import extract_all_subcortical, LABEL_COLORS
 
 WEB_DIR = Path(__file__).parent / 'web'   # the single static viewer (served by `open`)
+
+
+# --- CLI per-overlay parsing (the M5 "one parser rule"): a bare scalar broadcasts to every
+# overlay; a comma list binds per overlay -> style.overlays[i]. Same semantics as the notebook
+# figure.build_style, so the standalone CLI reaches --spec/notebook per-overlay parity. ---
+def _los(s, cast):
+    """'a,b,c' -> [cast(a),cast(b),cast(c)] per overlay (blank element -> None); else cast(s)."""
+    if s is None:
+        return None
+    s = str(s)
+    if ',' in s:
+        return [cast(x) if x.strip() != '' else None for x in s.split(',')]
+    return cast(s)
+
+
+def _parse_clim(s):
+    """--clim 'VMIN,VMAX' -> [vmin,vmax]; ',8' or '8' -> 8.0 (a single bound). Global (clim is
+    itself a pair); per-overlay clim goes through --overlay-json."""
+    if s is None:
+        return None
+    parts = [p.strip() for p in str(s).split(',')]
+    if len(parts) == 1:
+        return float(parts[0])
+    lo = float(parts[0]) if parts[0] else None
+    hi = float(parts[1]) if parts[1] else None
+    return hi if lo is None else lo if hi is None else [lo, hi]
+
+
+def _parse_units(s):
+    """--units 'value=z,cluster=mm3' -> {'value':'z','cluster':'mm3'}."""
+    if s is None:
+        return None
+    return dict(kv.split('=', 1) for kv in (p.strip() for p in str(s).split(',')) if '=' in kv)
 
 
 def open_viewer(port=8421):
@@ -95,21 +129,28 @@ def cli():
     r.add_argument('--spec', default=None,
                    help="path to a Free-Canvas figure JSON (the canvas document, as emitted by the "
                         "browser's Copy CLI). When given, it supplies the layout and overrides --grid/--views.")
-    r.add_argument('--threshold', type=float, default=2.3)
-    r.add_argument('-k', '--cluster-size', type=int, default=105,
-                   help='cluster-extent threshold: drop clusters smaller than this many voxels')
-    r.add_argument('--cmap', default='YlGnBu', help="colormap name, or 'auto' (seq/div from data)")
-    r.add_argument('--colormap-mode', choices=['auto', 'sequential', 'diverging'], default=None)
+    # Per-overlay flags accept a scalar (all maps) OR a comma list (one value per overlay).
+    r.add_argument('--threshold', default='2.3', help='voxel threshold; scalar or per-overlay comma list, e.g. 2.3,4.0')
+    r.add_argument('-k', '--cluster-size', default='105',
+                   help='cluster-extent threshold (voxels); scalar or per-overlay comma list')
+    r.add_argument('--cmap', default='YlGnBu', help="colormap name(s), or 'auto'; scalar or per-overlay comma list, e.g. Reds,YlGnBu")
+    r.add_argument('--colormap-mode', default=None, help='auto|sequential|diverging; scalar or per-overlay comma list')
+    r.add_argument('--clim', default=None, help="colour limit 'VMIN,VMAX' (or ',VMAX'); pins the colour scale")
+    r.add_argument('--units', default=None, help="display units, e.g. 'value=z,cluster=mm3'")
+    r.add_argument('--names', default=None, help='per-overlay colorbar labels, comma-separated')
+    r.add_argument('--style', default=None, help='path to a saved style-preset JSON (deep-merged under the flags)')
+    r.add_argument('--overlay-json', action='append', default=None,
+                   help='per-overlay style JSON (repeatable; the i-th binds overlay i) — the lossless escape hatch')
     r.add_argument('--width', type=int, default=None, help='output width px (default 1600, or the --spec canvas width)')
     r.add_argument('--height', type=int, default=None, help='output height px (default 1000, or the --spec canvas height)')
     r.add_argument('--scale', type=float, default=2, help='pixel ratio / supersampling (DPI)')
     r.add_argument('--no-subcortical', action='store_true')
     # style overrides (unset = use viewer defaults)
     r.add_argument('--surface', choices=['inflated', 'pial'], default=None)
-    r.add_argument('--voxels', choices=['blocky', 'smooth'], default=None)
+    r.add_argument('--voxels', default=None, help='blocky|smooth|surface; scalar or per-overlay comma list')
     r.add_argument('--smooth', type=int, default=None,
                    help='extra surface smoothing of the smooth (0.5mm-grid) mesh: Taubin iterations (0 = off)')
-    r.add_argument('--gamma', type=float, default=None)
+    r.add_argument('--gamma', default=None, help='colormap gamma; scalar or per-overlay comma list')
     r.add_argument('--veil', type=float, default=None)
     r.add_argument('--veil-k', type=float, default=None)
     r.add_argument('--emissive', type=float, default=None)
@@ -154,7 +195,11 @@ def cli():
         bake.bake()
 
     elif args.command == 'render':
-        from .render import build_layout, render_to_png, load_spec
+        from .render import build_layout, render_to_png, load_spec, _deep_merge
+        from .figure import build_style
+
+        n = len(args.nifti)
+        names = [s.strip() for s in args.names.split(',')] if args.names else None
 
         if args.spec:
             # --spec is self-contained (layout + style + size): reproduce it verbatim.
@@ -169,12 +214,26 @@ def cli():
             thresholds = [
                 (ov[i]['threshold'] if i < len(ov) and ov[i].get('threshold') is not None
                  else style['threshold'] if style.get('threshold') is not None
-                 else args.threshold)
-                for i in range(len(args.nifti))
+                 else float(args.threshold))
+                for i in range(n)
             ]
         else:
             layout = build_layout(args.grid, [v for v in args.views.split(',')])
-            style = {}
+            # Per-overlay style from comma-list flags (scalar broadcasts), over an optional preset.
+            base = {}
+            if args.style:
+                loaded = json.loads(Path(args.style).read_text())
+                base = loaded.get('style', loaded)
+            style, thresholds = build_style(
+                n, base=base,
+                cmap=_los(args.cmap, str), colormapMode=_los(args.colormap_mode, str),
+                gamma=_los(args.gamma, float), clim=_parse_clim(args.clim),
+                threshold=_los(args.threshold, float), clusterMin=_los(args.cluster_size, int),
+                positiveOnly=(True if args.positive_only else None),
+                voxels=_los(args.voxels, str), units=_parse_units(args.units),
+            )
+
+            # Remaining GLOBAL style flags (build_style handled the per-overlay ones above).
             def setp(path, val):
                 if val is None:
                     return
@@ -185,13 +244,9 @@ def cli():
                 d[keys[-1]] = val
 
             setp('cortexSurface', args.surface)
-            setp('voxel.representation', args.voxels)
-            setp('voxel.clusterMin', args.cluster_size)
             setp('voxel.smoothing', args.smooth)
             setp('margin', args.margin)
             setp('shadows.enabled', args.shadows)
-            setp('colormapMode', args.colormap_mode)
-            setp('gamma', args.gamma)
             setp('voxel.veil.strength', args.veil)
             setp('voxel.veil.k', args.veil_k)
             setp('voxel.emissive', args.emissive)
@@ -203,21 +258,31 @@ def cli():
             setp('outline.threshold', args.edge_thr)
             setp('outline.width', args.line_w)
             setp('voxel.edges.width', args.voxel_edge_w)
-            if args.positive_only:
-                setp('positiveOnly', True)
             if args.no_edges:
                 setp('voxel.edges.enabled', False)
             if args.no_outline:
                 setp('outline.enabled', False)
-            cmap = args.cmap
+            # --overlay-json: lossless per-overlay escape hatch (the i-th binds overlay i).
+            if args.overlay_json:
+                ovl = style.setdefault('overlays', [])
+                for i, oj in enumerate(args.overlay_json):
+                    while len(ovl) <= i:
+                        ovl.append({})
+                    ovl[i] = _deep_merge(ovl[i], json.loads(oj))
+            # Several maps without explicit per-overlay colormaps: distinct default palette.
+            if n > 1:
+                ovl = style.setdefault('overlays', [])
+                while len(ovl) < n:
+                    ovl.append({})
+                if not any((o or {}).get('colormap') for o in ovl):
+                    palette = ['YlGnBu', 'Reds', 'Greens', 'Purples', 'Oranges', 'Blues', 'YlOrRd', 'BuPu']
+                    for i in range(n):
+                        ovl[i]['colormap'] = palette[i % len(palette)]
+            # Global colormap for render_to_png: the scalar --cmap, or 'auto' when per-overlay
+            # colormaps drive each map (so the global doesn't override them).
+            cmap = args.cmap if ',' not in str(args.cmap) else 'auto'
             width = args.width if args.width is not None else 1600
             height = args.height if args.height is not None else 1000
-            thresholds = [args.threshold] * len(args.nifti)
-            # Several maps without a spec: give each a distinct default colormap so they don't
-            # collapse onto one colour (a single map keeps --cmap as the global colormap).
-            if len(args.nifti) > 1:
-                palette = ['YlGnBu', 'Reds', 'Greens', 'Purples', 'Oranges', 'Blues', 'YlOrRd', 'BuPu']
-                style['overlays'] = [{'colormap': palette[i % len(palette)]} for i in range(len(args.nifti))]
 
         # Transparent background: explicit --bg-alpha wins; else the spec's canvas.bgAlpha; else opaque.
         bg_alpha = args.bg_alpha
@@ -225,7 +290,7 @@ def cli():
             bg_alpha = (layout.get('canvas') or {}).get('bgAlpha', 1.0)
 
         render_to_png(args.nifti, args.out, layout=layout, style=style,
-                      threshold=thresholds, cmap=cmap,
+                      threshold=thresholds, cmap=cmap, names=names,
                       width=width, height=height, scale=args.scale,
                       include_subcortical=not args.no_subcortical,
                       background_alpha=bg_alpha, crop=args.crop,
@@ -234,3 +299,7 @@ def cli():
 
     else:
         parser.print_help()
+
+
+if __name__ == "__main__":
+    cli()
