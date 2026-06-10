@@ -111,7 +111,7 @@ function sw(labelText) {
 const btn = (text) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn'; b.textContent = text; return b; };
 
 /** Build one control row per overlay. Re-callable: clears + rebuilds on each engine rebuild. */
-export function buildOverlayRows({ engine, config, colormaps, onRemove, onSurface }) {
+export function buildOverlayRows({ engine, config, colormaps, onRemove, onSurface, onReorder }) {
     const host = $('overlay-rows'); if (!host) return;
     host.innerHTML = '';
     const overlays = engine.overlays || [];
@@ -120,7 +120,7 @@ export function buildOverlayRows({ engine, config, colormaps, onRemove, onSurfac
     const propagateAll = (patch) => {
         for (let k = 0; k < overlays.length; k++) setOverlayStyle(config, k, patch);
         engine.applyStyle(); engine.recolor(); engine.applySmoothing();
-        buildOverlayRows({ engine, config, colormaps, onRemove, onSurface });
+        buildOverlayRows({ engine, config, colormaps, onRemove, onSurface, onReorder });
     };
     // A per-overlay slider that (with >1 volume) shows a "⇶" to propagate its value to all.
     const ovRange = (el, val, oninput, opts, tip, patch) =>
@@ -158,6 +158,24 @@ export function buildOverlayRows({ engine, config, colormaps, onRemove, onSurfac
         rm.title = 'Remove this overlay';
         rm.addEventListener('click', () => onRemove(i));
         gName.append(nm, eye, rm); row.append(gName);
+
+        // Drag the name to reorder overlays (later overlays composite over earlier). Only the name
+        // is a drag handle, so the row's sliders/selects stay usable. rebuild() re-indexes by position.
+        if (onReorder && overlays.length > 1) {
+            nm.draggable = true; nm.style.cursor = 'grab'; nm.title = (ov.name || '') + ' — drag to reorder';
+            nm.addEventListener('dragstart', (e) => {
+                e.dataTransfer.setData('text/plain', String(i)); e.dataTransfer.effectAllowed = 'move';
+                row.classList.add('dragging');
+            });
+            nm.addEventListener('dragend', () => row.classList.remove('dragging'));
+            row.addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; row.classList.add('drop-target'); });
+            row.addEventListener('dragleave', () => row.classList.remove('drop-target'));
+            row.addEventListener('drop', (e) => {
+                e.preventDefault(); row.classList.remove('drop-target');
+                const from = parseInt(e.dataTransfer.getData('text/plain'), 10);
+                if (!Number.isNaN(from)) onReorder(from, i);
+            });
+        }
 
         const g = document.createElement('div'); g.className = 'grp';
 
