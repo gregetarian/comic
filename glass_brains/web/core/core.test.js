@@ -11,7 +11,7 @@ import { aabbOfPositions, mergeAABB, frameContent } from './framing.js';
 import { layoutGrid, freeRect } from './grid.js';
 import { visible } from './visibility.js';
 import { valueToT, resolveColormap, loadColormaps, sampleLUT } from './colormap.js';
-import { normalizeConfig, validateConfig } from './config-schema.js';
+import { normalizeConfig, validateConfig, overlayStyle, DEFAULTS } from './config-schema.js';
 import { applyView, VIEWS } from './views.js';
 import { resolveConfig } from './presets.js';
 import { isFreeFigure, buildSpec, buildRenderText } from '../controls/cli-export.js';
@@ -240,6 +240,53 @@ test('buildRenderText emits --spec + an embedded figure.json for a free figure',
     assert.equal(json.layout.canvas.bgAlpha, 0);
     assert.equal(json.layout.panels[0].rotate.yaw, 25);
     assert.equal(json.render.width, 800);
+});
+
+// --- M2: extended schema (clim/units/surfaceDepth, template kinds, surface representation) ---
+test('DEFAULTS carry the M2 additions with backward-compatible identities', () => {
+    assert.equal(DEFAULTS.template.kind, 'mni');
+    assert.equal(DEFAULTS.style.clim, null);                 // null = derive from data (today's behaviour)
+    assert.equal(DEFAULTS.style.units.cluster, 'voxels');
+    assert.equal(DEFAULTS.style.voxel.surfaceDepth, 6);
+    assert.equal(DEFAULTS.layout.view.s, 1);                 // identity → existing renders unchanged
+});
+
+test('overlayStyle resolves clim/units/surfaceDepth with per-overlay override', () => {
+    const cfg = { style: { clim: null, units: { value: 'stat', cluster: 'voxels' },
+        voxel: { surfaceDepth: 6, representation: 'smooth' },
+        overlays: [{ clim: [0, 8], units: { value: 'z' }, voxel: { representation: 'surface' } }] } };
+    const os = overlayStyle(cfg, 0);
+    assert.deepEqual(os.clim, [0, 8]);                       // per-overlay clim wins
+    assert.equal(os.units.value, 'z');                       // overridden
+    assert.equal(os.units.cluster, 'voxels');                // inherited
+    assert.equal(os.representation, 'surface');
+    assert.equal(os.surfaceDepth, 6);                        // inherited from global voxel
+    assert.equal(overlayStyle(cfg, 1).clim, null);           // absent overlay → global (null)
+});
+
+test('normalizeConfig promotes per-panel zoom/rotate/slice to declared fields', () => {
+    const cfg = normalizeConfig({ layout: { panels: [{ id: 'a', camera: { plane: 'dorsal' }, cell: { row: 0, col: 0 } }] } });
+    assert.equal(cfg.layout.panels[0].zoom, 1);
+    assert.equal(cfg.layout.panels[0].rotate, null);
+    assert.equal(cfg.layout.panels[0].slice, null);
+});
+
+test('validateConfig enforces template.kind, clim shape, representation enum', () => {
+    const base = { template: { kind: 'mni' }, style: {}, layout: { panels: [{ id: 'a', camera: { plane: 'dorsal' }, cell: { row: 0, col: 0 } }] } };
+    assert.equal(validateConfig(base).ok, true);
+    assert.equal(validateConfig({ ...base, template: { kind: 'bogus' } }).ok, false);
+    assert.equal(validateConfig({ ...base, style: { clim: [8, 1] } }).ok, false);     // vmin>vmax
+    assert.equal(validateConfig({ ...base, style: { clim: 8 } }).ok, true);           // scalar ok
+    assert.equal(validateConfig({ ...base, style: { voxel: { representation: 'surface' } } }).ok, true);
+    assert.equal(validateConfig({ ...base, style: { voxel: { representation: 'blobby' } } }).ok, false);
+});
+
+test("template.kind 'none' rejects cortex/anatomy roles + hemisphere split", () => {
+    const noTpl = (content) => validateConfig({ template: { kind: 'none' }, style: {},
+        layout: { panels: [{ id: 'a', camera: { plane: 'dorsal' }, cell: { row: 0, col: 0 }, content }] } });
+    assert.equal(noTpl({ roles: ['voxel'], hemisphere: 'both' }).ok, true);
+    assert.equal(noTpl({ roles: ['cortex', 'voxel'], hemisphere: 'both' }).ok, false);  // shell not allowed
+    assert.equal(noTpl({ roles: ['voxel'], hemisphere: 'lh' }).ok, false);              // no hemi split
 });
 
 test('validateConfig requires exactly one of cell / place', () => {
