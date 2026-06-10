@@ -4,7 +4,7 @@
  * as the voxel shader:  value → t (gamma, seq/div, +guard) → LUT (sRGB)
  *   → sRGB→linear albedo → ×emissive + glint → linear→sRGB.
  */
-import { resolveColormap, sampleLUT, srgbToLinear, linearToSrgb, valueToT, clamp01 } from '../core/colormap.js';
+import { resolveColormap, sampleLUT, srgbToLinear, linearToSrgb, valueToT, clamp01, deriveMaxAbs } from '../core/colormap.js';
 import { overlayStyle } from '../core/config-schema.js';
 
 // View-space half-vector z for a front-facing swatch (matches the shader glint).
@@ -60,7 +60,7 @@ export function createColorbar(container, { engine, config, colormaps, onHide })
             const os = overlayStyle(config, bar.i);
             const diverging = !!bar.ov.diverging;
             const negativeOnly = !!bar.ov.negativeOnly;
-            const maxAbs = bar.ov.maxAbsValue ?? 1.0;
+            const maxAbs = deriveMaxAbs(os.clim, bar.ov.maxAbsValue ?? 1.0);   // clim pins the bar to match the voxels
             const { name, mode, divergingMapOnPositive, divergingMapOnNegative } = resolveColormap(os, diverging, colormaps, negativeOnly);
             const cmap = colormaps.get(name);
             if (!cmap) continue;

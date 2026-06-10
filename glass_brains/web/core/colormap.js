@@ -82,6 +82,18 @@ export function defaultColormap(diverging) {
 }
 
 /**
+ * The colour-scale magnitude. An explicit clim overrides the data-derived 99th-pct fallback:
+ *   null      -> fallback (the per-overlay maxAbsValue from the pipeline)
+ *   number v  -> |v|   (diverging: symmetric [-v,v]; sequential: [0,v], per valueToT)
+ *   [lo, hi]  -> the larger-magnitude bound, which drives the single-scale shader/colorbar.
+ */
+export function deriveMaxAbs(clim, fallback) {
+    if (clim == null) return fallback;
+    if (typeof clim === 'number') return Math.abs(clim) || fallback;
+    return Math.max(Math.abs(clim[0]), Math.abs(clim[1])) || fallback;
+}
+
+/**
  * Decide the effective colormap name + mode from style + data.
  * @returns {{ name, mode, divergingMapOnPositive }}
  */
