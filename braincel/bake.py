@@ -1,15 +1,15 @@
-"""Bake the fixed fsaverage template assets into glass_brains/web/data/.
+"""Bake the fixed fsaverage template assets into braincel/web/data/.
 
 These do NOT depend on a user's upload, so we compute them once (with the full Python
 stack — mne/trimesh/cmap, the `[bake]` extra) and commit them as static files. At
 runtime the browser (Pyodide) and the CLI render both load them directly; only the
-per-NIfTI meshing runs live (glass_brains/pipeline.py, the same in both).
+per-NIfTI meshing runs live (braincel/pipeline.py, the same in both).
 
 Outputs (web/data/): cortex_{lh,rh}{,_inflated}.glb, subcortical/*.glb, colormaps.json,
 scene.json (base, no overlays), render-config.json, aseg_uint8.bin.gz + aseg.json,
 demo/{meta.json,buffers.bin}. Also copies the canonical pipeline.py into web/pyodide/.
 
-Run:  glass-brains bake     (or  python -m glass_brains.bake)
+Run:  braincel bake     (or  python -m braincel.bake)
 """
 
 import gzip
@@ -19,7 +19,7 @@ from pathlib import Path
 
 import numpy as np
 
-PKG = Path(__file__).resolve().parent           # glass_brains/
+PKG = Path(__file__).resolve().parent           # braincel/
 WEB = PKG / "web"
 DATA = WEB / "data"
 

@@ -2,7 +2,7 @@
 mirroring web/core/config-schema.js:validateConfig so a hand-authored or notebook-built
 spec fails LOUDLY the same way the browser would — never a silent degrade.
 
-`glass-brains render --spec` and the (M5) notebook API both run a spec through validate()
+`braincel render --spec` and the (M5) notebook API both run a spec through validate()
 before handing it to the engine, so the three front-ends agree on what a valid figure is.
 """
 
