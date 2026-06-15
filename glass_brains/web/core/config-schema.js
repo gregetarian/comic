@@ -45,7 +45,7 @@ export const DEFAULTS = {
             specular: 0.0,   // light-independent glint amount (slider 0..0.6); off = flat matte
             emissive: 1.0,   // full flat colormap colour (scene lights are 0 by default)
             surfaceDepth: 6, // M2: K depth samples pial->white when representation === 'surface' (M8)
-            veil: { strength: 0.66, k: 7.4, color: '#ffffff' },
+            veil: { strength: 0.30, k: 7.4, color: '#ffffff' },   // depth veil low by default (was 0.66)
             edges: { enabled: true, color: '#808080', opacity: 1.0, width: 1.9, threshold: 0.003 },
         },
         // Per-NIfTI overrides. Each entry overrides the voxel/colour fields above
