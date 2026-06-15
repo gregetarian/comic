@@ -1,5 +1,5 @@
 /**
- * cli-export.js — generate the `glass-brains render` CLI command that reproduces
+ * cli-export.js — generate the `braincel render` CLI command that reproduces
  * the current on-screen view.
  *
  * This works because the browser viewer and the CLI `render` command consume the
@@ -42,7 +42,7 @@ export function isFreeFigure(config) {
 
 /** The self-contained canvas document the CLI reproduces with `--spec figure.json`.
  *  It bundles the layout (place/rotate/slice/canvas), the full style, and the render
- *  size/aspect — so `glass-brains render <nifti> --spec figure.json` round-trips exactly. */
+ *  size/aspect — so `braincel render <nifti> --spec figure.json` round-trips exactly. */
 export function buildSpec(config) {
     const cv = config.layout && config.layout.canvas;
     return {
@@ -67,7 +67,7 @@ function commandFor(config, i, meta, colormaps, preset) {
     const cmap = resolveColormap(os, !!meta.diverging, colormaps).name;
     const pv = PRESET_VIEWS[preset] || PRESET_VIEWS.ninePanel;
 
-    const parts = [`glass-brains render ${q(meta.name)} -o glassbrain.png`];
+    const parts = [`braincel render ${q(meta.name)} -o glassbrain.png`];
     parts.push(`--grid ${pv.grid} --views ${pv.views}`);
     // data params — always explicit (the CLI's own defaults differ, e.g. -k 105)
     parts.push(`--threshold ${fmt(os.threshold ?? meta.threshold ?? 2.3)} -k ${fmt(os.clusterMin ?? 0)} --cmap ${cmap}`);
@@ -112,18 +112,18 @@ export function buildRenderText({ config, overlays, preset, colormaps, panelZoom
         const spec = buildSpec(config);
         const name = overlays[0].meta.name || 'stat.nii.gz';
         const notes = [
-            '# glass-brains render — Free Canvas figure (reproduces the exact on-screen layout).',
+            '# braincel render — Free Canvas figure (reproduces the exact on-screen layout).',
             '# 1) save the JSON below as figure.json   2) run the command (point it at your NIfTI on disk).',
         ];
         if (overlays.length > 1)
             notes.push('# note: figure.json carries the layout/style for ALL overlays; pass your maps in argument order (the i-th fills style.overlays[i]).');
-        const cmd = `glass-brains render ${q(name)} -o glassbrain.png --spec figure.json --crop content`;
+        const cmd = `braincel render ${q(name)} -o glassbrain.png --spec figure.json --crop content`;
         return notes.join('\n') + '\n\n' + cmd + '\n\n# ---- figure.json ----\n' + JSON.stringify(spec, null, 2) + '\n';
     }
 
     const notes = [
-        '# glass-brains render — reproduces the on-screen view from the CLI tool',
-        '# (needs the `glass-brains` Python package + Playwright/Chromium installed).',
+        '# braincel render — reproduces the on-screen view from the CLI tool',
+        '# (needs the `braincel` Python package + Playwright/Chromium installed).',
         '# Replace the filename with the path to your NIfTI on disk.',
     ];
     if (overlays.length > 1)

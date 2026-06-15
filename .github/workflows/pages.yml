@@ -1,4 +1,4 @@
-# Deploy the in-browser viewer (glass_brains/web) to GitHub Pages.
+# Deploy the in-browser viewer (braincel/web) to GitHub Pages.
 #
 # The site is static: HTML/JS + the baked fsaverage assets in web/data/. Pyodide and
 # its packages load from the jsDelivr CDN at runtime, so nothing heavy is built here.
@@ -9,7 +9,7 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches: [main]
-    paths: ["glass_brains/web/**", ".github/workflows/pages.yml"]
+    paths: ["braincel/web/**", ".github/workflows/pages.yml"]
   workflow_dispatch:
 
 permissions:
@@ -32,6 +32,6 @@ jobs:
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: glass_brains/web
+          path: braincel/web
       - id: deployment
         uses: actions/deploy-pages@v4

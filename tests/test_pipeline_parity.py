@@ -12,8 +12,8 @@ import numpy as np
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from glass_brains import pipeline as P
-from glass_brains.arrays import write_overlay_arrays
+from braincel import pipeline as P
+from braincel.arrays import write_overlay_arrays
 
 # Ground truth from the in-browser smoketest on test_sphere.nii.gz @ threshold 2.3.
 GT_BLOCKY = {'lh_cortex': 248, 'rh_cortex': 128, 'subcort_l': 144, 'subcort_r': 104}
@@ -30,8 +30,8 @@ def _find(*relpaths):
 
 
 def test_pipeline_parity():
-    aseg_gz = _find('glass_brains/web/data/aseg_uint8.bin.gz', 'comicbrains-in-browser/data/aseg_uint8.bin.gz')
-    aseg_json = _find('glass_brains/web/data/aseg.json', 'comicbrains-in-browser/data/aseg.json')
+    aseg_gz = _find('braincel/web/data/aseg_uint8.bin.gz', 'comicbrains-in-browser/data/aseg_uint8.bin.gz')
+    aseg_json = _find('braincel/web/data/aseg.json', 'comicbrains-in-browser/data/aseg.json')
     nifti = _find('test_sphere.nii.gz', 'comicbrains-in-browser/test_sphere.nii.gz')
 
     P.init_aseg(aseg_gz.read_bytes(), aseg_json.read_text())
