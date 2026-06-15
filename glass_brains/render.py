@@ -348,6 +348,52 @@ class RenderSession:
                   f"  ({width}x{height} @{scale}x, {n_overlays} overlay{'s' if n_overlays != 1 else ''})")
         return (brain, cbar) if return_bytes else (Path(out_png) if out_png is not None else brain)
 
+    def orbit(self, nifti, *, layout, yaws, style=None, threshold=2.3, cmap="auto",
+              width=1600, height=1000, scale=2, include_subcortical=True,
+              background="#ffffff", background_alpha=1.0, classify=True, names=None,
+              crop="none", timeout_ms=90000):
+        """Turntable: load the page ONCE, then spin the camera to each yaw via window.__GB_orbit and
+        screenshot — no per-frame page reload / re-mesh / re-serve (so all frames are fast and a
+        single WebGL context is used, sidestepping the multi-page software-GL slowdown). Returns a
+        list of PNG bytes, one per yaw. colorbar is always off (a turntable shows brains only)."""
+        if names is None and style and isinstance(style.get("overlays"), list):
+            names = [(o or {}).get("name") for o in style["overlays"]] or None
+        out_dir = prepare_render_dir(nifti, threshold, include_subcortical, names=names,
+                                     template_dir=self.template_dir, classify=classify,
+                                     surface=_wants_surface(style))
+        config, transparent = _render_config(
+            layout, style, cmap=cmap, width=width, height=height, scale=scale, background=background,
+            colorbar=False, colorbar_font=None, colorbar_fontsize=None, background_alpha=background_alpha)
+        (out_dir / "render-config.json").write_text(json.dumps(config))
+
+        httpd, port = _serve_dir(out_dir)
+        out = []
+        try:
+            page = self.browser.new_page(viewport={"width": width, "height": height}, device_scale_factor=scale)
+            try:
+                page.goto(f"http://localhost:{port}/index.html?headless=1&config=render-config.json",
+                          wait_until="domcontentloaded")
+                page.wait_for_function("window.__GB_DONE__ === true || window.__GB_ERR__", timeout=timeout_ms)
+                err = page.evaluate("window.__GB_ERR__ || null")
+                if err:
+                    raise RuntimeError(f"viewer error: {err}")
+                page.evaluate("() => { const c = document.querySelector('.colorbar'); if (c) c.style.display = 'none'; }")
+                if transparent:
+                    page.evaluate("() => { for (const s of ['html','body','#viewer']) { const e = document.querySelector(s); if (e) e.style.background = 'transparent'; } }")
+                if not page.evaluate("typeof window.__GB_orbit === 'function'"):
+                    raise RuntimeError("viewer has no __GB_orbit hook (stale web assets?)")
+                for yaw in yaws:
+                    page.evaluate(f"window.__GB_orbit({float(yaw)})")
+                    page.wait_for_timeout(15)   # let the in-place re-render settle before the shot
+                    out.append(page.locator("#viewer").screenshot(omit_background=transparent))
+            finally:
+                page.close()
+        finally:
+            httpd.shutdown()
+            if not self.keep_dirs:
+                shutil.rmtree(out_dir, ignore_errors=True)
+        return out
+
     def close(self):
         self.browser.close()
         self._pw.stop()
@@ -455,26 +501,21 @@ def region_report(nifti, threshold=2.3, template_dir=None):
 
 
 def render_orbit(nifti, out, *, layout, frames=24, degrees=360.0, fps=12, gif=False, template_dir=None, **render_kwargs):
-    """Turntable animation (M10): render `frames` views spinning the brain through `degrees` total
-    (yaw added to every panel's rotation), reusing ONE browser. Writes <stem>_000.png, _001.png, ...
-    and, with gif=True (needs imageio), assembles them into <out>. Returns the frame paths (or the
-    GIF path). The most compelling way to show a stylized 3D volume — what being volumetric earns."""
-    import copy
+    """Turntable animation (M10): spin the brain through `degrees` total over `frames` frames. Loads
+    the page ONCE and rotates the camera in place per frame (RenderSession.orbit) — so an N-frame
+    orbit is one page load, not N (fast + dodges the multi-page software-GL slowdown). Writes
+    <stem>_000.png, _001.png, ... and, with gif=True (needs imageio), assembles them into <out>.
+    Returns the frame paths (or the GIF path). What being a real 3D volume earns."""
     out = Path(out)
     stem, ext = out.with_suffix(""), (out.suffix if out.suffix not in ("", ".gif") else ".png")
-    render_kwargs.setdefault("timeout_ms", 45000)   # fail a stalled frame fast so the retry kicks in
-    frame_paths = []
+    yaws = [degrees * i / max(frames, 1) for i in range(frames)]
     with RenderSession(template_dir=template_dir) as s:
-        for i in range(frames):
-            yaw = degrees * i / max(frames, 1)
-            lay = copy.deepcopy(layout)
-            for p in lay.get("panels", []):
-                r = dict(p.get("rotate") or {})
-                r["yaw"] = (r.get("yaw") or 0) + yaw
-                p["rotate"] = r
-            fp = f"{stem}_{i:03d}{ext}"
-            s.render(nifti, fp, layout=lay, colorbar=False, **render_kwargs)
-            frame_paths.append(fp)
+        frame_bytes = s.orbit(nifti, layout=layout, yaws=yaws, **render_kwargs)
+    frame_paths = []
+    for i, b in enumerate(frame_bytes):
+        fp = f"{stem}_{i:03d}{ext}"
+        Path(fp).write_bytes(b)
+        frame_paths.append(fp)
     if gif:
         try:
             import imageio.v2 as imageio

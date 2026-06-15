@@ -23,6 +23,7 @@ import { initKapow } from '../controls/kapow.js';
 import { bindGlobalControls, buildOverlayRows } from '../controls/bind.js';
 import { buildRenderText, isFreeFigure, buildSpec } from '../controls/cli-export.js';
 import { createFreeCanvasEditor } from '../controls/freecanvas.js';
+import { exportSpinGif } from '../controls/gif-export.js';
 import { processNifti } from '../pyodide/bootstrap.js';
 
 const DATA = 'data/';
@@ -103,6 +104,7 @@ async function main() {
     initKapow(document.getElementById('c-kapow'));
     document.getElementById('c-save-brain').addEventListener('click', saveBrain);
     document.getElementById('c-save-bars').addEventListener('click', saveBars);
+    document.getElementById('c-gif')?.addEventListener('click', exportGif);
     document.getElementById('c-colorbar').addEventListener('click', () => setColorbarVisible(!colorbarsVisible));
     document.getElementById('c-cli').addEventListener('click', copyCliCommand);
     // Demo: load the example Neurosynth maps on demand. Disable on click; loadNeurosynthDemo is
@@ -208,6 +210,19 @@ async function runHeadless() {
     });
     window.__engine = () => engine;
     window.__contentBBox = () => contentBBoxPx(engine);   // for `--crop content` (tight brain crop)
+
+    // Turntable fast path: spin EVERY panel to a given yaw (added to its base rotation) and
+    // re-render in place — NO page reload. render.py drives this per frame, so an N-frame orbit is
+    // ONE page load (one WebGL context) instead of N. The engine reads def.rotate live, so mutating
+    // the config panels + renderFrame re-frames (rotation-invariant size) and redraws.
+    const __orbitBase = (config.layout.panels || []).map((p) => (p.rotate && p.rotate.yaw) || 0);
+    window.__GB_orbit = (yawDeg) => {
+        const panels = config.layout.panels || [];
+        for (let i = 0; i < panels.length; i++) {
+            panels[i].rotate = { ...(panels[i].rotate || {}), yaw: __orbitBase[i] + yawDeg };
+        }
+        for (let k = 0; k < 3; k++) engine.renderFrame();
+    };
 }
 
 /** Load the single pre-baked overlay (static files) — identical path to a live upload.
@@ -605,6 +620,33 @@ function downloadPng(cnv, name) {
         a.click();
         setTimeout(() => URL.revokeObjectURL(a.href), 2000);
     }, 'image/png');
+}
+
+/** Render + download a spinning turntable GIF of the current view, entirely in the browser. */
+async function exportGif() {
+    const btn = document.getElementById('c-gif');
+    if (!overlays.length) {
+        setLoading('Load a map first.'); setTimeout(() => setLoading(null), 1500); return;
+    }
+    const label = btn.textContent;
+    btn.disabled = true;
+    try {
+        const bytes = await exportSpinGif({
+            engine, config, canvas, frames: 48, degrees: 360, fps: 20,
+            background: (config.render && config.render.background) || '#ffffff',
+            onProgress: (p) => { btn.textContent = 'GIF ' + Math.round(p * 100) + '%'; },
+        });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(new Blob([bytes], { type: 'image/gif' }));
+        a.download = 'glassbrain_spin.gif';
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    } catch (e) {
+        console.error(e);
+        setLoading('GIF export failed: ' + (e && e.message)); setTimeout(() => setLoading(null), 3000);
+    } finally {
+        btn.textContent = label; btn.disabled = false;
+    }
 }
 
 /** Composite a colorbar element's bars + names + tick labels onto ctx `g`, with the
