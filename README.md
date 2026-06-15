@@ -7,7 +7,7 @@ voxels, live-threshold silhouette edges, and a depth "veil" that fades deep voxe
 toward white. It renders **the volume itself** (voxel cubes or marching-cubes
 isosurfaces) — not a cortical-surface projection.
 
-### ▶ Try it in your browser (no install): **https://gregetarian.github.io/comicbrains/**
+### ▶ Try it in your browser (no install): **https://gregetarian.github.io/braincel/**
 Drag in a NIfTI and it renders — the whole pipeline runs client-side via Pyodide, no backend.
 
 **Plot multiple volumes at once, each with its own colormap and colorbar** — overlay
@@ -69,8 +69,8 @@ view pixel-for-pixel.
 ## Install
 
 ```bash
-git clone https://github.com/gregetarian/comicbrains
-cd comicbrains
+git clone https://github.com/gregetarian/braincel
+cd braincel
 pip install -e .                 # runtime: nibabel/numpy/scipy/scikit-image (the pipeline)
 
 # Headless figure rendering (braincel render):
