@@ -70,13 +70,15 @@ export function createColorbar(container, { engine, config, colormaps, onHide })
             const cmap = colormaps.get(name);
             if (!cmap) continue;
             const W = bar.canvas.width, H = bar.canvas.height;
-            // Single-signed negative data reads as [-maxAbs, 0]; positive as [0, maxAbs]; diverging spans both.
-            const minVal = (diverging || negativeOnly) ? -maxAbs : 0;
-            const maxVal = negativeOnly ? 0 : maxAbs;
+            // Explicit [vmin,vmax] spans vmin..vmax linearly; else single-signed negative reads as
+            // [-maxAbs,0], positive as [0,maxAbs], diverging spans both.
+            const climRange = Array.isArray(os.clim) ? os.clim : null;
+            const minVal = climRange ? climRange[0] : ((diverging || negativeOnly) ? -maxAbs : 0);
+            const maxVal = climRange ? climRange[1] : (negativeOnly ? 0 : maxAbs);
             const img = bar.ctx.createImageData(W, H);
             for (let x = 0; x < W; x++) {
                 const value = minVal + (maxVal - minVal) * (x / (W - 1));
-                const t = valueToT(value, maxAbs, mode, os.gamma, divergingMapOnPositive, divergingMapOnNegative);
+                const t = valueToT(value, maxAbs, mode, os.gamma, divergingMapOnPositive, divergingMapOnNegative, climRange);
                 const [R, G, B] = swatch(t, os, lighting, cmap);
                 for (let y = 0; y < H; y++) {
                     const k = (y * W + x) * 4;
@@ -84,7 +86,8 @@ export function createColorbar(container, { engine, config, colormaps, onHide })
                 }
             }
             bar.ctx.putImageData(img, 0, 0);
-            const ticks = diverging ? [minVal, 0, maxVal]
+            const ticks = climRange ? [minVal, (minVal + maxVal) / 2, maxVal]
+                : diverging ? [minVal, 0, maxVal]
                 : negativeOnly ? [minVal, minVal / 2, 0] : [0, maxVal / 2, maxVal];
             bar.labels.innerHTML = ticks.map((v) => `<span>${v.toFixed(1)}</span>`).join('');
             const u = os.units && os.units.value;          // 'stat' = unitless default → no caption
