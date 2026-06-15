@@ -79,9 +79,14 @@ export function frameContent(aabb, cameraSpec, aspect, opts = {}) {
     const pose = resolveCamera(cameraSpec, center, distance, tilt, rotate);
     const { r, u, f } = cameraBasis(pose);
 
-    const halfW = projHalf(he, r);
-    const halfH = projHalf(he, u);
     const halfD = projHalf(he, f);
+    // Rotation-invariant size: when the panel is rotated (orbit / shift-drag), fit the bounding
+    // SPHERE (radius = AABB half-diagonal) instead of the per-orientation projected box — so the
+    // brain stays a CONSTANT size as it spins (no "bouncing" toward/away) and never clips at any
+    // angle. Static (unrotated) panels keep the tight per-view fit, so static renders are unchanged.
+    const radius = Math.hypot(he[0], he[1], he[2]);
+    const halfW = rotate ? radius : projHalf(he, r);
+    const halfH = rotate ? radius : projHalf(he, u);
 
     const ext = Math.max(halfH, halfW / aspect) * margin;
     const near = Math.max(1, distance - halfD - pad);
