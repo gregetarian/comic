@@ -208,6 +208,19 @@ async function runHeadless() {
     });
     window.__engine = () => engine;
     window.__contentBBox = () => contentBBoxPx(engine);   // for `--crop content` (tight brain crop)
+
+    // Turntable fast path: spin EVERY panel to a given yaw (added to its base rotation) and
+    // re-render in place — NO page reload. render.py drives this per frame, so an N-frame orbit is
+    // ONE page load (one WebGL context) instead of N. The engine reads def.rotate live, so mutating
+    // the config panels + renderFrame re-frames (rotation-invariant size) and redraws.
+    const __orbitBase = (config.layout.panels || []).map((p) => (p.rotate && p.rotate.yaw) || 0);
+    window.__GB_orbit = (yawDeg) => {
+        const panels = config.layout.panels || [];
+        for (let i = 0; i < panels.length; i++) {
+            panels[i].rotate = { ...(panels[i].rotate || {}), yaw: __orbitBase[i] + yawDeg };
+        }
+        for (let k = 0; k < 3; k++) engine.renderFrame();
+    };
 }
 
 /** Load the single pre-baked overlay (static files) — identical path to a live upload.
