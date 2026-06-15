@@ -290,37 +290,49 @@ class RenderSession:
         (out_dir / "render-config.json").write_text(json.dumps(config, indent=2))
 
         httpd, port = _serve_dir(out_dir)
-        page = self.browser.new_page(viewport={"width": width, "height": height}, device_scale_factor=scale)
         try:
-            # domcontentloaded (not networkidle): __GB_DONE__ is the real readiness gate and the
-            # vendored assets mean no late network to idle-wait on.
-            page.goto(f"http://localhost:{port}/index.html?headless=1&config=render-config.json",
-                      wait_until="domcontentloaded")
-            page.wait_for_function("window.__GB_DONE__ === true || window.__GB_ERR__", timeout=timeout_ms)
-            err = page.evaluate("window.__GB_ERR__ || null")
-            if err:
-                raise RuntimeError(f"viewer error: {err}")
-            # Brain: hide the colorbar so the brains fill the full frame, then screenshot to bytes.
-            page.evaluate("() => { const c = document.querySelector('.colorbar'); if (c) c.style.display = 'none'; }")
-            if transparent:
-                page.evaluate("() => { for (const s of ['html','body','#viewer']) { const e = document.querySelector(s); if (e) e.style.background = 'transparent'; } }")
-            bbox = page.evaluate("window.__contentBBox && window.__contentBBox()") if crop == "content" else None
-            if bbox:
-                brain = page.screenshot(omit_background=transparent,
-                                        clip={"x": bbox["x"], "y": bbox["y"], "width": bbox["w"], "height": bbox["h"]})
+            brain = cbar = last = None
+            for attempt in range(3):   # retry transient headless stalls (__GB_DONE__ never fires)
+                page = self.browser.new_page(viewport={"width": width, "height": height}, device_scale_factor=scale)
+                try:
+                    # domcontentloaded (not networkidle): __GB_DONE__ is the real readiness gate and the
+                    # vendored assets mean no late network to idle-wait on.
+                    page.goto(f"http://localhost:{port}/index.html?headless=1&config=render-config.json",
+                              wait_until="domcontentloaded")
+                    page.wait_for_function("window.__GB_DONE__ === true || window.__GB_ERR__", timeout=timeout_ms)
+                    err = page.evaluate("window.__GB_ERR__ || null")
+                    if err:
+                        raise RuntimeError(f"viewer error: {err}")
+                    # Brain: hide the colorbar so the brains fill the full frame, then screenshot to bytes.
+                    page.evaluate("() => { const c = document.querySelector('.colorbar'); if (c) c.style.display = 'none'; }")
+                    if transparent:
+                        page.evaluate("() => { for (const s of ['html','body','#viewer']) { const e = document.querySelector(s); if (e) e.style.background = 'transparent'; } }")
+                    bbox = page.evaluate("window.__contentBBox && window.__contentBBox()") if crop == "content" else None
+                    if bbox:
+                        brain = page.screenshot(omit_background=transparent,
+                                                clip={"x": bbox["x"], "y": bbox["y"], "width": bbox["w"], "height": bbox["h"]})
+                    else:
+                        brain = page.locator("#viewer").screenshot(omit_background=transparent)
+                    cbar = None
+                    if colorbar:
+                        # Reveal the bars on an opaque white strip so a multi-bar legend screenshots clean.
+                        page.evaluate("() => { const c = document.querySelector('.colorbar');"
+                                      " if (c) { c.style.display = ''; c.style.background = '#ffffff'; c.style.padding = '6px 10px'; } }")
+                        page.wait_for_timeout(60)
+                        bar = page.locator('.colorbar')
+                        if bar.count() and bar.bounding_box():
+                            cbar = bar.screenshot()
+                    break   # success
+                except RuntimeError:
+                    raise   # deterministic viewer error — don't retry
+                except Exception as e:   # transient headless stall — fresh page + retry
+                    last = e
+                    print(f"  (render attempt {attempt + 1}/3: {type(e).__name__}; retrying)")
+                finally:
+                    page.close()
             else:
-                brain = page.locator("#viewer").screenshot(omit_background=transparent)
-            cbar = None
-            if colorbar:
-                # Reveal the bars on an opaque white strip so a multi-bar legend screenshots clean.
-                page.evaluate("() => { const c = document.querySelector('.colorbar');"
-                              " if (c) { c.style.display = ''; c.style.background = '#ffffff'; c.style.padding = '6px 10px'; } }")
-                page.wait_for_timeout(60)
-                bar = page.locator('.colorbar')
-                if bar.count() and bar.bounding_box():
-                    cbar = bar.screenshot()
+                raise last
         finally:
-            page.close()
             httpd.shutdown()
             if not self.keep_dirs:
                 shutil.rmtree(out_dir, ignore_errors=True)
@@ -345,20 +357,6 @@ class RenderSession:
 
     def __exit__(self, *exc):
         self.close()
-
-
-def _render_retry(session, *args, attempts=3, **kwargs):
-    """Render one frame, retrying transient headless stalls. The reused-browser page occasionally
-    never signals __GB_DONE__ under repeated software-GL (swiftshader) renders; each attempt gets a
-    fresh page + server (render() cleans up on timeout), so a retry almost always succeeds."""
-    last = None
-    for k in range(attempts):
-        try:
-            return session.render(*args, **kwargs)
-        except Exception as e:           # noqa: BLE001 — transient headless stall; retry
-            last = e
-            print(f"  (frame attempt {k + 1}/{attempts} failed: {type(e).__name__}; retrying)")
-    raise last
 
 
 def render_to_png(nifti, out_png, *, template_dir=None, **kwargs):
@@ -401,7 +399,7 @@ def render_sweep(nifti, out, *, layout, param, values, cols=None, template_dir=N
                 st = dict(kw.get("style") or {})
                 st["voxel"] = {**(st.get("voxel") or {}), "clusterMin": v}
                 kw["style"] = st
-            png, _ = _render_retry(s, nifti, layout=layout, colorbar=False, return_bytes=True, **kw)
+            png, _ = s.render(nifti, layout=layout, colorbar=False, return_bytes=True, **kw)
             tiles.append((v, Image.open(io.BytesIO(png)).convert("RGB")))
     tw, th = tiles[0][1].size
     canvas = Image.new("RGB", (cols * tw, rows * th), "white")
@@ -475,7 +473,7 @@ def render_orbit(nifti, out, *, layout, frames=24, degrees=360.0, fps=12, gif=Fa
                 r["yaw"] = (r.get("yaw") or 0) + yaw
                 p["rotate"] = r
             fp = f"{stem}_{i:03d}{ext}"
-            _render_retry(s, nifti, fp, layout=lay, colorbar=False, **render_kwargs)
+            s.render(nifti, fp, layout=lay, colorbar=False, **render_kwargs)
             frame_paths.append(fp)
     if gif:
         try:

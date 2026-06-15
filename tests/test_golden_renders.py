@@ -46,7 +46,7 @@ def _render(job):
     name, nifti, grid, views, style = job
     out = Path("/tmp") / f"_golden_{name}.png"
     render_to_png(nifti, str(out), layout=build_layout(grid, views), style=style,
-                  threshold=2.3, width=W, height=H, scale=SCALE, colorbar=False)
+                  threshold=2.3, width=W, height=H, scale=SCALE, colorbar=False, timeout_ms=90000)
     return np.asarray(Image.open(out).convert("RGB"), dtype=np.float32)
 
 
@@ -56,11 +56,13 @@ def _diff(a, b):
     return float(np.abs(a - b).mean())
 
 
-def main(update=False):
+def main(update=False, only=None):
     GOLD.mkdir(exist_ok=True)
     failures = []
     for job in JOBS:
         name = job[0]
+        if only and name != only:
+            continue
         img = _render(job)
         ref_path = GOLD / f"{name}.png"
         if update or not ref_path.exists():
@@ -83,4 +85,7 @@ def test_golden_renders():
 
 
 if __name__ == "__main__":
-    main(update="--update" in sys.argv)
+    only = None
+    if "--only" in sys.argv:
+        only = sys.argv[sys.argv.index("--only") + 1]
+    main(update="--update" in sys.argv, only=only)
