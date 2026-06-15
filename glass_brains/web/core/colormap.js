@@ -61,7 +61,14 @@ export function sampleLUT(cmap, t) {
  *   negative-only data, confine t to the lower half [0,0.5] (without this, the
  *   sequential branch clamps negatives to 0 → t collapses onto the white centre).
  */
-export function valueToT(value, maxAbs, mode, gamma = 0.5, divergingMapOnPositive = false, divergingMapOnNegative = false) {
+export function valueToT(value, maxAbs, mode, gamma = 0.5, divergingMapOnPositive = false, divergingMapOnNegative = false, climRange = null) {
+    if (climRange) {
+        // Explicit [vmin, vmax]: linear map across the WHOLE LUT (vmin → bottom, vmax → top), with
+        // gamma — the standard asymmetric colour-limit control. Bypasses the symmetric/diverging
+        // logic (the user set the bounds explicitly). Default (climRange null) is unchanged.
+        const lo = climRange[0], hi = climRange[1];
+        return clamp01(Math.pow(clamp01((value - lo) / ((hi - lo) || 1)), gamma));
+    }
     if (mode === 'diverging') {
         const sn = clamp01(Math.abs(value) / maxAbs) * Math.sign(value);
         const amp = Math.sign(sn) * Math.pow(Math.abs(sn), gamma);
@@ -117,11 +124,11 @@ export function resolveColormap(style, dataDiverging, colormapsMap, dataNegative
  * Colorize per-vertex values → linear-RGB Float32Array (n*3), the single source
  * of truth for displayed colour (browser and headless identical).
  */
-export function colorizeValues(values, cmap, maxAbs, mode, gamma = 0.5, divergingMapOnPositive = false, divergingMapOnNegative = false) {
+export function colorizeValues(values, cmap, maxAbs, mode, gamma = 0.5, divergingMapOnPositive = false, divergingMapOnNegative = false, climRange = null) {
     const n = values.length;
     const out = new Float32Array(n * 3);
     for (let i = 0; i < n; i++) {
-        const t = valueToT(values[i], maxAbs, mode, gamma, divergingMapOnPositive, divergingMapOnNegative);
+        const t = valueToT(values[i], maxAbs, mode, gamma, divergingMapOnPositive, divergingMapOnNegative, climRange);
         const [r, g, b] = sampleLUT(cmap, t);
         out[i * 3] = srgbToLinear(r);
         out[i * 3 + 1] = srgbToLinear(g);

@@ -221,29 +221,26 @@ export function buildOverlayRows({ engine, config, colormaps, onRemove, onSurfac
         ovRange(clu.range, os.clusterMin ?? 0, (v) => { set({ voxel: { clusterMin: v } }); engine.applyStyle(); }, { min: 0, max: maxClu, step: 1 }, 'Cluster-extent threshold — hide clusters < N voxels.', (v) => ({ voxel: { clusterMin: v } }));
         g.append(clu.wrap);
 
-        const sm = sw('smooth+');
-        ovRange(sm.range, os.smoothing ?? 0, (v) => {
-            set({ voxel: { smoothing: v } });
-            // smooth+ only affects the SMOOTH mesh — if the overlay is showing blocky voxels
-            // the smoothing would be invisible, so switch it to smooth when the user dials it up.
-            if (v > 0) { set({ voxel: { representation: 'smooth' } }); repSel.value = 'smooth'; }
-            engine.applySmoothing(i);
-        }, { min: 0, max: 20, step: 1 }, 'Extra surface smoothing of the smooth (marching-cubes) mesh — rounds rough cluster surfaces (size-preserving). Auto-switches the overlay to Smooth. 0 = off; most visible on large/irregular blobs.', (v) => ({ voxel: { smoothing: v } }));
-        g.append(sm.wrap);
-
         const gam = sw('gamma');
         ovRange(gam.range, os.gamma ?? 0.5, (v) => { set({ gamma: v }); engine.recolor(); },
                 { min: 0.2, max: 1.5, step: 0.05 },
                 'Colormap gamma (power-law) — <1 lifts low values (0.5 = sqrt).', (v) => ({ gamma: v }));
         g.append(gam.wrap);
 
-        // Colour limit (M11 parity: was CLI/notebook-only). Scalar vmax; 0 = auto (data-derived).
-        // recolor re-bakes the vertex colours + syncs uMaxAbs, so it tracks live.
-        const cl = sw('clim');
-        ovRange(cl.range, typeof os.clim === 'number' ? os.clim : 0, (v) => { set({ clim: v > 0 ? v : null }); engine.recolor(); },
-                { min: 0, max: maxAbs * 2, step: Math.max(maxAbs / 100, 0.01) },
-                'Colour limit (vmax) — pins the scale so panels share one. 0 = auto.', (v) => ({ clim: v > 0 ? v : null }));
-        g.append(cl.wrap);
+        // Colour limits: explicit V min / V max (the scale's lower & upper bounds — vmin maps to the
+        // bottom of the colormap, vmax to the top). Recolour only. Defaults to the data-derived range.
+        const liveClim = () => { const c = overlayStyle(config, i).clim; return Array.isArray(c) ? c : null; };
+        const dLo = ov.diverging ? -maxAbs : 0, dHi = maxAbs;
+        const setClim = (lo, hi) => { set({ clim: [lo, hi] }); engine.recolor(); engine.applyStyle(); };
+        const rng = { min: -maxAbs * 2, max: maxAbs * 2, step: Math.max(maxAbs / 100, 0.01) };
+        const vmn = sw('vmin');
+        ovRange(vmn.range, (liveClim() || [dLo, dHi])[0], (v) => setClim(v, (liveClim() || [dLo, dHi])[1]),
+                rng, 'Colour-scale minimum — maps to the bottom of the colormap.');
+        g.append(vmn.wrap);
+        const vmx = sw('vmax');
+        ovRange(vmx.range, (liveClim() || [dLo, dHi])[1], (v) => setClim((liveClim() || [dLo, dHi])[0], v),
+                rng, 'Colour-scale maximum — maps to the top of the colormap.');
+        g.append(vmx.wrap);
 
         const pos = btn('+only');
         bindToggle(pos, !!os.positiveOnly, (on) => { set({ positiveOnly: on }); engine.applyStyle(); }, 'Show only positive values.');

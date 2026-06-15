@@ -129,6 +129,16 @@ test('valueToT negative-only-guard confines values to the LUT cool half', () => 
     assert.equal(valueToT(-1, 1, 'sequential', 0.5, false, true), 0.0);  // most negative → cool extreme
 });
 
+test('valueToT explicit [vmin,vmax] is a linear map across the whole LUT', () => {
+    const cr = [2, 8];   // asymmetric colour limits
+    assert.equal(valueToT(2, 1, 'diverging', 1.0, false, false, cr), 0);    // vmin → bottom of LUT
+    assert.equal(valueToT(8, 1, 'diverging', 1.0, false, false, cr), 1);    // vmax → top of LUT
+    assert.equal(valueToT(5, 1, 'diverging', 1.0, false, false, cr), 0.5);  // midpoint (gamma 1)
+    assert.equal(valueToT(0, 1, 'sequential', 1.0, false, false, cr), 0);   // below vmin clamps to 0
+    assert.equal(valueToT(99, 1, 'sequential', 1.0, false, false, cr), 1);  // above vmax clamps to 1
+    assert.ok(Math.abs(valueToT(5, 1, 'sequential', 0.5, false, false, cr) - Math.sqrt(0.5)) < 1e-6); // gamma lifts mid
+});
+
 test('deriveMaxAbs: an explicit clim overrides the data-derived fallback', () => {
     assert.equal(deriveMaxAbs(null, 7), 7);        // no clim -> data fallback
     assert.equal(deriveMaxAbs(8, 7), 8);           // scalar -> |v|
