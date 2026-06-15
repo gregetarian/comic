@@ -3,11 +3,11 @@ import subprocess
 import sys
 from pathlib import Path
 
-import glass_brains as gb
-from glass_brains.render import render_orbit, build_layout
+import braincel as gb
+from braincel.render import render_orbit, build_layout
 
 ROOT = Path(__file__).resolve().parent.parent
-F = str(ROOT / "glass_brains" / "web" / "data" / "defaults" / "faces.nii.gz")
+F = str(ROOT / "braincel" / "web" / "data" / "defaults" / "faces.nii.gz")
 
 
 def test_render_orbit_frames_differ(tmp_path):
@@ -20,7 +20,7 @@ def test_render_orbit_frames_differ(tmp_path):
 def test_cli_orbit(tmp_path):
     out = tmp_path / "o.png"
     r = subprocess.run(
-        [sys.executable, "-m", "glass_brains.core", "render", F, "-o", str(out),
+        [sys.executable, "-m", "braincel.core", "render", F, "-o", str(out),
          "--grid", "1x1", "--views", "dorsal", "--orbit", "180", "--frames", "2",
          "--width", "240", "--height", "240", "--scale", "1"],
         capture_output=True, text=True)

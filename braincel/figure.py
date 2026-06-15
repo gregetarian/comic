@@ -1,7 +1,7 @@
 """The notebook / Python front-end — the third way to drive the one engine (alongside the
 browser and the standalone CLI), all over the same config + RenderSession.
 
-    import glass_brains as gb
+    import braincel as gb
     fig = gb.render("zstat.nii.gz", views=["left_lateral", "dorsal"], grid="1x2", cmap="Reds")
     fig                      # renders INLINE in Jupyter / VSCode interactive (via _repr_png_)
     fig.save("figure.png")

@@ -4,11 +4,11 @@ import subprocess
 import sys
 from pathlib import Path
 
-from glass_brains.core import _los, _parse_clim, _parse_units
-from glass_brains.figure import build_style
+from braincel.core import _los, _parse_clim, _parse_units
+from braincel.figure import build_style
 
 ROOT = Path(__file__).resolve().parent.parent
-DEF = ROOT / "glass_brains" / "web" / "data" / "defaults"
+DEF = ROOT / "braincel" / "web" / "data" / "defaults"
 PNG = b"\x89PNG\r\n\x1a\n"
 
 
@@ -41,7 +41,7 @@ def test_per_overlay_binding_matches_build_style():
 def test_cli_render_per_overlay_end_to_end(tmp_path):
     out = tmp_path / "fig.png"
     r = subprocess.run(
-        [sys.executable, "-m", "glass_brains.core", "render",
+        [sys.executable, "-m", "braincel.core", "render",
          str(DEF / "faces.nii.gz"), str(DEF / "language.nii.gz"),
          "-o", str(out), "--grid", "1x2", "--views", "left_lateral,dorsal",
          "--cmap", "Reds,YlGnBu", "--threshold", "3,2.3", "-k", "50,100",

@@ -15,9 +15,9 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from glass_brains.render import render_to_png, load_spec
+from braincel.render import render_to_png, load_spec
 
-ROOT = Path(__file__).resolve().parent.parent / "glass_brains" / "web"
+ROOT = Path(__file__).resolve().parent.parent / "braincel" / "web"
 SHOTS = Path(__file__).resolve().parent / "shots"
 SHOTS.mkdir(exist_ok=True)
 

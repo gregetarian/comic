@@ -31,7 +31,7 @@ booms/
 # Paper drafting / figure scratch (not part of the published tool)
 /paper/
 
-# The standalone browser repo is being merged into glass_brains/web/ — keep it on disk
+# The standalone browser repo is being merged into braincel/web/ — keep it on disk
 # as a copy-source during the migration, but never commit it into this repo.
 /comicbrains-in-browser/
 
