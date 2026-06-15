@@ -290,37 +290,49 @@ class RenderSession:
         (out_dir / "render-config.json").write_text(json.dumps(config, indent=2))
 
         httpd, port = _serve_dir(out_dir)
-        page = self.browser.new_page(viewport={"width": width, "height": height}, device_scale_factor=scale)
         try:
-            # domcontentloaded (not networkidle): __GB_DONE__ is the real readiness gate and the
-            # vendored assets mean no late network to idle-wait on.
-            page.goto(f"http://localhost:{port}/index.html?headless=1&config=render-config.json",
-                      wait_until="domcontentloaded")
-            page.wait_for_function("window.__GB_DONE__ === true || window.__GB_ERR__", timeout=timeout_ms)
-            err = page.evaluate("window.__GB_ERR__ || null")
-            if err:
-                raise RuntimeError(f"viewer error: {err}")
-            # Brain: hide the colorbar so the brains fill the full frame, then screenshot to bytes.
-            page.evaluate("() => { const c = document.querySelector('.colorbar'); if (c) c.style.display = 'none'; }")
-            if transparent:
-                page.evaluate("() => { for (const s of ['html','body','#viewer']) { const e = document.querySelector(s); if (e) e.style.background = 'transparent'; } }")
-            bbox = page.evaluate("window.__contentBBox && window.__contentBBox()") if crop == "content" else None
-            if bbox:
-                brain = page.screenshot(omit_background=transparent,
-                                        clip={"x": bbox["x"], "y": bbox["y"], "width": bbox["w"], "height": bbox["h"]})
+            brain = cbar = last = None
+            for attempt in range(3):   # retry transient headless stalls (__GB_DONE__ never fires)
+                page = self.browser.new_page(viewport={"width": width, "height": height}, device_scale_factor=scale)
+                try:
+                    # domcontentloaded (not networkidle): __GB_DONE__ is the real readiness gate and the
+                    # vendored assets mean no late network to idle-wait on.
+                    page.goto(f"http://localhost:{port}/index.html?headless=1&config=render-config.json",
+                              wait_until="domcontentloaded")
+                    page.wait_for_function("window.__GB_DONE__ === true || window.__GB_ERR__", timeout=timeout_ms)
+                    err = page.evaluate("window.__GB_ERR__ || null")
+                    if err:
+                        raise RuntimeError(f"viewer error: {err}")
+                    # Brain: hide the colorbar so the brains fill the full frame, then screenshot to bytes.
+                    page.evaluate("() => { const c = document.querySelector('.colorbar'); if (c) c.style.display = 'none'; }")
+                    if transparent:
+                        page.evaluate("() => { for (const s of ['html','body','#viewer']) { const e = document.querySelector(s); if (e) e.style.background = 'transparent'; } }")
+                    bbox = page.evaluate("window.__contentBBox && window.__contentBBox()") if crop == "content" else None
+                    if bbox:
+                        brain = page.screenshot(omit_background=transparent,
+                                                clip={"x": bbox["x"], "y": bbox["y"], "width": bbox["w"], "height": bbox["h"]})
+                    else:
+                        brain = page.locator("#viewer").screenshot(omit_background=transparent)
+                    cbar = None
+                    if colorbar:
+                        # Reveal the bars on an opaque white strip so a multi-bar legend screenshots clean.
+                        page.evaluate("() => { const c = document.querySelector('.colorbar');"
+                                      " if (c) { c.style.display = ''; c.style.background = '#ffffff'; c.style.padding = '6px 10px'; } }")
+                        page.wait_for_timeout(60)
+                        bar = page.locator('.colorbar')
+                        if bar.count() and bar.bounding_box():
+                            cbar = bar.screenshot()
+                    break   # success
+                except RuntimeError:
+                    raise   # deterministic viewer error — don't retry
+                except Exception as e:   # transient headless stall — fresh page + retry
+                    last = e
+                    print(f"  (render attempt {attempt + 1}/3: {type(e).__name__}; retrying)")
+                finally:
+                    page.close()
             else:
-                brain = page.locator("#viewer").screenshot(omit_background=transparent)
-            cbar = None
-            if colorbar:
-                # Reveal the bars on an opaque white strip so a multi-bar legend screenshots clean.
-                page.evaluate("() => { const c = document.querySelector('.colorbar');"
-                              " if (c) { c.style.display = ''; c.style.background = '#ffffff'; c.style.padding = '6px 10px'; } }")
-                page.wait_for_timeout(60)
-                bar = page.locator('.colorbar')
-                if bar.count() and bar.bounding_box():
-                    cbar = bar.screenshot()
+                raise last
         finally:
-            page.close()
             httpd.shutdown()
             if not self.keep_dirs:
                 shutil.rmtree(out_dir, ignore_errors=True)
@@ -376,6 +388,7 @@ def render_sweep(nifti, out, *, layout, param, values, cols=None, template_dir=N
     from PIL import Image, ImageDraw
     cols = cols or min(len(values), 4)
     rows = math.ceil(len(values) / cols)
+    render_kwargs.setdefault("timeout_ms", 45000)
     tiles = []
     with RenderSession(template_dir=template_dir) as s:
         for v in values:
@@ -449,6 +462,7 @@ def render_orbit(nifti, out, *, layout, frames=24, degrees=360.0, fps=12, gif=Fa
     import copy
     out = Path(out)
     stem, ext = out.with_suffix(""), (out.suffix if out.suffix not in ("", ".gif") else ".png")
+    render_kwargs.setdefault("timeout_ms", 45000)   # fail a stalled frame fast so the retry kicks in
     frame_paths = []
     with RenderSession(template_dir=template_dir) as s:
         for i in range(frames):
