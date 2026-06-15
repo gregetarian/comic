@@ -347,6 +347,20 @@ class RenderSession:
         self.close()
 
 
+def _render_retry(session, *args, attempts=3, **kwargs):
+    """Render one frame, retrying transient headless stalls. The reused-browser page occasionally
+    never signals __GB_DONE__ under repeated software-GL (swiftshader) renders; each attempt gets a
+    fresh page + server (render() cleans up on timeout), so a retry almost always succeeds."""
+    last = None
+    for k in range(attempts):
+        try:
+            return session.render(*args, **kwargs)
+        except Exception as e:           # noqa: BLE001 — transient headless stall; retry
+            last = e
+            print(f"  (frame attempt {k + 1}/{attempts} failed: {type(e).__name__}; retrying)")
+    raise last
+
+
 def render_to_png(nifti, out_png, *, template_dir=None, **kwargs):
     """Byte-identical one-shot wrapper over RenderSession. template_dir overlays a custom/non-MNI
     template bundle (M9); omit it for the bundled fsaverage."""
@@ -376,6 +390,7 @@ def render_sweep(nifti, out, *, layout, param, values, cols=None, template_dir=N
     from PIL import Image, ImageDraw
     cols = cols or min(len(values), 4)
     rows = math.ceil(len(values) / cols)
+    render_kwargs.setdefault("timeout_ms", 45000)
     tiles = []
     with RenderSession(template_dir=template_dir) as s:
         for v in values:
@@ -386,7 +401,7 @@ def render_sweep(nifti, out, *, layout, param, values, cols=None, template_dir=N
                 st = dict(kw.get("style") or {})
                 st["voxel"] = {**(st.get("voxel") or {}), "clusterMin": v}
                 kw["style"] = st
-            png, _ = s.render(nifti, layout=layout, colorbar=False, return_bytes=True, **kw)
+            png, _ = _render_retry(s, nifti, layout=layout, colorbar=False, return_bytes=True, **kw)
             tiles.append((v, Image.open(io.BytesIO(png)).convert("RGB")))
     tw, th = tiles[0][1].size
     canvas = Image.new("RGB", (cols * tw, rows * th), "white")
@@ -449,6 +464,7 @@ def render_orbit(nifti, out, *, layout, frames=24, degrees=360.0, fps=12, gif=Fa
     import copy
     out = Path(out)
     stem, ext = out.with_suffix(""), (out.suffix if out.suffix not in ("", ".gif") else ".png")
+    render_kwargs.setdefault("timeout_ms", 45000)   # fail a stalled frame fast so the retry kicks in
     frame_paths = []
     with RenderSession(template_dir=template_dir) as s:
         for i in range(frames):
@@ -459,7 +475,7 @@ def render_orbit(nifti, out, *, layout, frames=24, degrees=360.0, fps=12, gif=Fa
                 r["yaw"] = (r.get("yaw") or 0) + yaw
                 p["rotate"] = r
             fp = f"{stem}_{i:03d}{ext}"
-            s.render(nifti, fp, layout=lay, colorbar=False, **render_kwargs)
+            _render_retry(s, nifti, fp, layout=lay, colorbar=False, **render_kwargs)
             frame_paths.append(fp)
     if gif:
         try:
