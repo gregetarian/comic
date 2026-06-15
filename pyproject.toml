@@ -36,8 +36,8 @@ dev = ["pytest", "pytest-xdist", "Pillow", "ruff"]
 braincel = "braincel.core:cli"
 
 [project.urls]
-Homepage = "https://github.com/gregetarian/comicbrains"
-Repository = "https://github.com/gregetarian/comicbrains"
+Homepage = "https://github.com/gregetarian/braincel"
+Repository = "https://github.com/gregetarian/braincel"
 
 [build-system]
 requires = ["setuptools>=68"]
