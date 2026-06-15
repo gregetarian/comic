@@ -14,7 +14,7 @@ from pathlib import Path
 
 from playwright.sync_api import sync_playwright
 
-ROOT = Path(__file__).resolve().parent.parent / "glass_brains" / "web"  # the single viewer
+ROOT = Path(__file__).resolve().parent.parent / "braincel" / "web"  # the single viewer
 
 # Ground truth from the native pipeline on test_sphere.nii.gz (see bake/validation).
 GT = {

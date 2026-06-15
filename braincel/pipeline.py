@@ -3,9 +3,9 @@
 This module is the ONE source of the per-upload meshing. It is self-contained
 (numpy / scipy.ndimage / scikit-image / nibabel only — no trimesh/cmap/mne, no
 intra-package imports), so the exact same file runs:
-  - in CPython for the CLI (`glass-brains render` imports it in-process), and
+  - in CPython for the CLI (`braincel render` imports it in-process), and
   - in Pyodide for the browser (a byte-identical copy is shipped to web/pyodide/
-    and loaded into the Pyodide FS; see glass_brains/bake.py + web/pyodide/bootstrap.js).
+    and loaded into the Pyodide FS; see braincel/bake.py + web/pyodide/bootstrap.js).
 
 The JS engine is the single COLOUR authority (it colourises from the per-vertex
 `aValue` attribute via a colormap LUT), so the pipeline only emits raw geometry

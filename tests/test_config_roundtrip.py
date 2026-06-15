@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from glass_brains import spec
+from braincel import spec
 
 ROOT = Path(__file__).resolve().parent.parent
 

@@ -2,8 +2,8 @@
 per-overlay scalar-or-list style builder shared with the CLI."""
 from pathlib import Path
 
-import glass_brains as gb
-from glass_brains.figure import build_style
+import braincel as gb
+from braincel.figure import build_style
 
 ROOT = Path(__file__).resolve().parent.parent
 SPHERE = str(ROOT / "test_sphere.nii.gz")
@@ -48,7 +48,7 @@ def test_render_spec_dict():
 def test_clim_is_consumed():
     # An explicit clim must re-scale the colours (shader uMaxAbs + colorize). Use a real
     # gradient map (faces) + a clim well above the data range so every t drops measurably.
-    faces = str(ROOT / "glass_brains" / "web" / "data" / "defaults" / "faces.nii.gz")
+    faces = str(ROOT / "braincel" / "web" / "data" / "defaults" / "faces.nii.gz")
     kw = dict(views=["dorsal"], grid="1x1", width=300, height=300, scale=1, colorbar=False)
     base = gb.render(faces, **kw).png
     pinned = gb.render(faces, clim=20, **kw).png
