@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>comicbrains — in-browser glass brain</title>
+  <title>BrainCel — in-browser glass brain</title>
   <!-- Computer Modern (LaTeX roman) web font for the colorbar ticks — vendored offline (web/vendor/). -->
   <link rel="stylesheet" href="./vendor/cm-fonts/fonts.css">
   <style>
@@ -193,7 +193,7 @@
 </head>
 <body>
   <div id="viewer">
-    <div class="title">comicbrains <span>· in-browser glass brain</span></div>
+    <div class="title">BrainCel <span>· in-browser glass brain</span></div>
     <div id="loading">Loading brain…</div>
     <canvas id="canvas"></canvas>
     <label class="kapow-toggle" title="Comic SFX: a 50% chance a 'BOOM!' pops where you click."><input type="checkbox" id="c-kapow" checked> Kapow</label>
@@ -213,7 +213,7 @@
         <button class="btn" id="c-colorbar" title="Show/hide the colorbars in the live view (off by default; showing reclaims/squashes the canvas accordingly)">Colorbar</button>
         <button class="btn" id="c-random" title="Randomise: give every loaded volume a different random colormap">Randomise</button>
         <button class="btn" id="c-presets" title="Style presets: save the current colormaps + parameters to your browser or a JSON file, and load them back onto the visible brains">Presets</button>
-        <button class="btn" id="c-cli" title="Copy a glass-brains render CLI command that reproduces this view to the clipboard (falls back to a .txt download)">Copy CLI</button>
+        <button class="btn" id="c-cli" title="Copy a braincel render CLI command that reproduces this view to the clipboard (falls back to a .txt download)">Copy CLI</button>
         <span class="zoomcluster" title="Zoom / pan the whole canvas — the brain size is fixed; scroll to zoom, drag empty space to pan">
           <button class="btn" id="c-zoom-out">–</button>
           <button class="btn" id="c-zoom-fit" title="Fit the whole figure to the window">Fit</button>

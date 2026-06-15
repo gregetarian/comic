@@ -1,7 +1,7 @@
 /**
  * views.js — the named anatomical-view vocabulary, for the Free Canvas editor. Pure.
  *
- * Mirrors the CLI's VIEWS dict in glass_brains/render.py (keep the two in sync). Each
+ * Mirrors the CLI's VIEWS dict in braincel/render.py (keep the two in sync). Each
  * entry expands a short name into the panel fields the engine needs: a camera plane,
  * the content filter (roles / hemisphere / categories), a display title, and — for the
  * subcortical close-ups — an anatomyOpacity. This is the "selectable views" menu in

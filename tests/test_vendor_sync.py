@@ -1,6 +1,6 @@
 """Vendored-assets guard (pure-Python, no browser).
 
-three.js and the Computer Modern font are vendored under glass_brains/web/vendor/ so the
+three.js and the Computer Modern font are vendored under braincel/web/vendor/ so the
 viewer + headless render are fully offline and deterministic (no CDN on the critical path,
 nothing to drift to @latest). This test asserts:
   - the three version in index.html's importmap matches web/vendor/VERSION,
@@ -11,7 +11,7 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-WEB = ROOT / "glass_brains" / "web"
+WEB = ROOT / "braincel" / "web"
 VENDOR = WEB / "vendor"
 
 

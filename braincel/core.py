@@ -1,13 +1,13 @@
 """GlassBrain — loads the fsaverage template (cortex + subcortical + aseg) for the
-one-time asset bake (see glass_brains/bake.py). Per-upload meshing lives in
-glass_brains/pipeline.py; the interactive viewer is served by `open_viewer`."""
+one-time asset bake (see braincel/bake.py). Per-upload meshing lives in
+braincel/pipeline.py; the interactive viewer is served by `open_viewer`."""
 
 import json
 import numpy as np
 from pathlib import Path
 
 # NOTE: surfaces/subcortical (which import trimesh + mne) are imported LAZILY inside GlassBrain
-# so `import glass_brains` and the [render]/notebook paths do NOT require the [bake] extra.
+# so `import braincel` and the [render]/notebook paths do NOT require the [bake] extra.
 
 WEB_DIR = Path(__file__).parent / 'web'   # the single static viewer (served by `open`)
 
@@ -101,12 +101,12 @@ class GlassBrain:
                 return
 
     def _repr_html_(self):
-        return "<p><b>GlassBrain</b>: bakes the fsaverage template. Run <code>glass-brains open</code> to view.</p>"
+        return "<p><b>GlassBrain</b>: bakes the fsaverage template. Run <code>braincel open</code> to view.</p>"
 
 
 def cli():
     import argparse
-    parser = argparse.ArgumentParser(description='Glass Brains 2.0 viewer')
+    parser = argparse.ArgumentParser(description='BrainCel 2.0 viewer')
     sub = parser.add_subparsers(dest='command')
 
     op = sub.add_parser('open', aliases=['show'],
@@ -158,7 +158,7 @@ def cli():
                    help='no-template / volume-only: mesh the volume in its own space with no '
                         'anatomical shell or classification (for non-MNI / edge-case maps)')
     r.add_argument('--template', default=None,
-                   help='render against a CUSTOM template dir (as produced by `glass-brains bake '
+                   help='render against a CUSTOM template dir (as produced by `braincel bake '
                         '--out DIR ...`) instead of the bundled fsaverage')
     # style overrides (unset = use viewer defaults)
     r.add_argument('--surface', choices=['inflated', 'pial'], default=None)
