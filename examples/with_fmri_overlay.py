@@ -4,7 +4,7 @@ Replace the path with your own z/t-stat NIfTI in MNI152 space. In a Jupyter / VS
 interactive notebook, `fig` displays inline. For the interactive viewer instead, call
 open_viewer() and drag the NIfTI into the browser.
 """
-import glass_brains as gb
+import braincel as gb
 
 fig = gb.render(
     "your_stat_map.nii.gz",

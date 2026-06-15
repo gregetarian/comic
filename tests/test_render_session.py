@@ -3,7 +3,7 @@ path the notebook API rides on), and render_to_png stays a byte-identical file-w
 """
 from pathlib import Path
 
-from glass_brains.render import RenderSession, render_to_png, render_batch, build_layout
+from braincel.render import RenderSession, render_to_png, render_batch, build_layout
 
 ROOT = Path(__file__).resolve().parent.parent
 SPHERE = str(ROOT / "test_sphere.nii.gz")

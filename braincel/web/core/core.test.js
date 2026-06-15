@@ -259,7 +259,7 @@ test('buildRenderText emits --spec + an embedded figure.json for a free figure',
     };
     const text = buildRenderText({ config, overlays: [{ meta: { name: 'zstat.nii.gz' } }], preset: 'freeCanvas', colormaps: new Map() });
     assert.match(text, /--spec figure\.json/);
-    assert.match(text, /glass-brains render/);
+    assert.match(text, /braincel render/);
     // the embedded JSON carries the free layout (mode, place, rotate, transparent bg)
     const json = JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1));
     assert.equal(json.layout.mode, 'free');

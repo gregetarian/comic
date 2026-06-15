@@ -1,6 +1,6 @@
 """Write a processed overlay to the static array format the viewer loads.
 
-Mirrors how glass_brains/bake.py stages the demo overlay: one concatenated `.bin`
+Mirrors how braincel/bake.py stages the demo overlay: one concatenated `.bin`
 holding all the staged geometry buffers, with a `bufferLayout` of [offset, length]
 per buffer index recorded in the meta. The viewer's asset-loader slices the `.bin`
 back into the per-buffer Uint8Arrays and feeds them to buildOverlayMeshes() — the

@@ -5,10 +5,10 @@ from pathlib import Path
 
 import numpy as np
 
-from glass_brains import pipeline as P
+from braincel import pipeline as P
 
 ROOT = Path(__file__).resolve().parent.parent
-DATA = ROOT / "glass_brains" / "web" / "data"
+DATA = ROOT / "braincel" / "web" / "data"
 DEF = DATA / "defaults"
 
 
@@ -41,7 +41,7 @@ def test_no_surface_when_not_requested():
 
 
 def test_surface_render_is_nonblank_and_differs_from_voxel():
-    import glass_brains as gb
+    import braincel as gb
     kw = dict(views=["left_lateral"], grid="1x1", width=400, height=320, scale=1, colorbar=False)
     surf = gb.render(str(DEF / "faces.nii.gz"), voxels="surface", **kw)
     vox = gb.render(str(DEF / "faces.nii.gz"), voxels="smooth", **kw)

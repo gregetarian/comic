@@ -4,15 +4,15 @@ import subprocess
 import sys
 
 
-def test_import_glass_brains_is_bake_free():
-    code = "import sys, glass_brains; print('trimesh' in sys.modules, 'mne' in sys.modules)"
+def test_import_braincel_is_bake_free():
+    code = "import sys, braincel; print('trimesh' in sys.modules, 'mne' in sys.modules)"
     r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
     assert r.stdout.strip() == "False False", f"package import pulled a [bake] dep: {r.stdout!r}"
 
 
 def test_render_api_surface_imports():
-    code = ("import glass_brains as gb; "
+    code = ("import braincel as gb; "
             "assert all(hasattr(gb, n) for n in "
             "('render','render_spec','Scene','Figure','RenderSession','render_orbit',"
             "'render_batch','bake_template','open_viewer','build_layout')); print('ok')")
@@ -21,6 +21,6 @@ def test_render_api_surface_imports():
 
 
 if __name__ == "__main__":
-    test_import_glass_brains_is_bake_free()
+    test_import_braincel_is_bake_free()
     test_render_api_surface_imports()
     print("PASS — import is bake-free; full API surface present")

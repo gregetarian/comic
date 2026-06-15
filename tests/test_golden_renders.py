@@ -20,11 +20,11 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from glass_brains.render import build_layout, render_to_png
+from braincel.render import build_layout, render_to_png
 
 GOLD = Path(__file__).parent / "golden"
 ROOT = Path(__file__).resolve().parent.parent
-DEF = ROOT / "glass_brains" / "web" / "data" / "defaults"
+DEF = ROOT / "braincel" / "web" / "data" / "defaults"
 TOL = 2.0          # mean abs diff over 0..255 channels
 W, H, SCALE = 600, 400, 1
 
