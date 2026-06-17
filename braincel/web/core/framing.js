@@ -70,7 +70,7 @@ export function viewDepthRange(aabb, position, lookAt) {
  * @returns pose + orthographic frustum: {position,up,lookAt, left,right,top,bottom, near,far, ext}
  */
 export function frameContent(aabb, cameraSpec, aspect, opts = {}) {
-    const { margin = 1.06, distance = 400, pad = 10, tilt = null, rotate = null } = opts;
+    const { margin = 1.06, distance = 400, pad = 10, tilt = null, rotate = null, spinFit = false } = opts;
     const center = aabbValid(aabb) ? aabbCenter(aabb) : [0, 0, 0];
     const he = aabbValid(aabb) ? aabbHalf(aabb) : [80, 80, 80];
 
@@ -80,13 +80,14 @@ export function frameContent(aabb, cameraSpec, aspect, opts = {}) {
     const { r, u, f } = cameraBasis(pose);
 
     const halfD = projHalf(he, f);
-    // Rotation-invariant size: when the panel is rotated (orbit / shift-drag), fit the bounding
-    // SPHERE (radius = AABB half-diagonal) instead of the per-orientation projected box — so the
-    // brain stays a CONSTANT size as it spins (no "bouncing" toward/away) and never clips at any
-    // angle. Static (unrotated) panels keep the tight per-view fit, so static renders are unchanged.
+    // Rotation-invariant size ONLY while actively spinning (orbit / shift-drag): fit the bounding
+    // SPHERE (radius = AABB half-diagonal) so the brain stays a CONSTANT size as it spins (no
+    // "bouncing") and never clips at any angle. A STATIC panel — even one with a fixed rotate (a
+    // tilted default view) — keeps the tight per-view fit so it fills its cell; only spinFit (set by
+    // the orbit hook / GIF export / shift-drag) switches to the sphere.
     const radius = Math.hypot(he[0], he[1], he[2]);
-    const halfW = rotate ? radius : projHalf(he, r);
-    const halfH = rotate ? radius : projHalf(he, u);
+    const halfW = (rotate && spinFit) ? radius : projHalf(he, r);
+    const halfH = (rotate && spinFit) ? radius : projHalf(he, u);
 
     const ext = Math.max(halfH, halfW / aspect) * margin;
     const near = Math.max(1, distance - halfD - pad);

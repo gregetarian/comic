@@ -354,6 +354,7 @@ export function createFreeCanvasEditor({ container, canvas, config, getEngine, o
             const up = () => {
                 handle.style.cursor = '';
                 if (fr) fr.classList.remove('fc-editing');
+                getEngine().setSpinFit?.(false);   // back to tight per-view fit after any drag
                 handle.removeEventListener('pointermove', move);
                 handle.removeEventListener('pointerup', up);
             };
@@ -389,6 +390,7 @@ export function createFreeCanvasEditor({ container, canvas, config, getEngine, o
             return { orbit: false, x: panel.place.x, y: panel.place.y }; // plain drag = move
         }, (c, dx, dy) => {
             if (c.orbit) {
+                getEngine().setSpinFit?.(true);   // constant-size sphere fit while orbiting (no bounce)
                 const r = panel.rotate;
                 r.yaw = c.yaw + dx * ORBIT_SENS;
                 r.pitch = clamp(c.pitch + dy * ORBIT_SENS, -85, 85);
