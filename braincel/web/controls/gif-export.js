@@ -24,6 +24,7 @@ export async function exportSpinGif({ engine, config, canvas, frames = 48, degre
 
     // Capture pass (synchronous: the RAF loop can't interleave, so each renderFrame's backbuffer is
     // intact for drawImage). Downscaled to maxW — GIFs are small and 256-colour anyway.
+    if (engine.setSpinFit) engine.setSpinFit(true);   // constant-size sphere fit across the spin (no bounce)
     const grabs = [];
     for (let i = 0; i < frames; i++) {
         setYaw(degrees * i / frames);
@@ -33,7 +34,9 @@ export async function exportSpinGif({ engine, config, canvas, frames = 48, degre
         grabs.push(ctx.getImageData(0, 0, W, H).data);
         onProgress(0.5 * (i + 1) / frames);
     }
-    setYaw(0); engine.renderFrame();                           // restore the live view
+    setYaw(0);
+    if (engine.setSpinFit) engine.setSpinFit(false);          // back to tight per-view fit
+    engine.renderFrame();                                      // restore the live view
 
     // Encode pass (yields to the UI so the button can show progress).
     const gif = GIFEncoder();
