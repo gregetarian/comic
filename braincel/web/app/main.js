@@ -217,6 +217,7 @@ async function runHeadless() {
     // the config panels + renderFrame re-frames (rotation-invariant size) and redraws.
     const __orbitBase = (config.layout.panels || []).map((p) => (p.rotate && p.rotate.yaw) || 0);
     window.__GB_orbit = (yawDeg) => {
+        engine.setSpinFit(true);   // constant-size sphere fit across the spin (no bounce)
         const panels = config.layout.panels || [];
         for (let i = 0; i < panels.length; i++) {
             panels[i].rotate = { ...(panels[i].rotate || {}), yaw: __orbitBase[i] + yawDeg };
