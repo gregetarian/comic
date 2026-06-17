@@ -417,7 +417,8 @@ export function createFreeCanvasEditor({ container, canvas, config, getEngine, o
         gridOverlay.style.left = '0px'; gridOverlay.style.top = '0px';
         gridOverlay.style.width = canvas.clientWidth + 'px'; gridOverlay.style.height = canvas.clientHeight + 'px';
         gridOverlay.style.backgroundSize = snapPx + 'px ' + snapPx + 'px';
-        const rects = getEngine().getPanelRects();
+        // Hug the rendered brain (content bbox), not the looser panel cell, so the frame fits tight.
+        const rects = getEngine().getPanelContentRects();
         frames.forEach((fr, i) => {
             const r = rects[i]; if (!r) return;
             fr.el.style.left = r.cssLeft + 'px';
