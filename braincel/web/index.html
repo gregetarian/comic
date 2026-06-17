@@ -110,8 +110,11 @@
       pointer-events: auto; cursor: grab; z-index: 16; }
     .fc-frame .fc-slice-handle.fc-slice-size { background: #16a085; cursor: ew-resize; }
 
+    /* position+z-index so the parameter panel ALWAYS sits above the brains/frames in #viewer
+       (which is isolation:isolate, a z:auto context) — clicks on its buttons always win over any
+       panel that overflows toward it. Still below the body-level menu popups (z 50). */
     #controls { flex: none; display: flex; flex-direction: column; background: #fafafa;
-      border-top: 1px solid #e3e3e3; max-height: 46vh; overflow-y: auto; }
+      border-top: 1px solid #e3e3e3; max-height: 46vh; overflow-y: auto; position: relative; z-index: 30; }
     /* minimise: a thin always-visible header with a chevron; collapsing hides every row
        (only the 17px bar remains) so the brains reclaim the freed height. */
     .ctrl-bar { flex: none; display: flex; justify-content: flex-end; align-items: center; height: 17px;

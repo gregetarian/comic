@@ -443,6 +443,14 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
             fr.top = ext; fr.bottom = -ext;
         }
 
+        // Per-panel CONTENT rect: the brain's on-screen bbox (centred in the cell, sized by its
+        // projected extent / the final ext). The Free Canvas frame hugs THIS, not the looser cell.
+        for (const { rect, fr } of frames) {
+            const pxPerMm = (rect.h / 2) / fr.ext;
+            const hw = (fr.pHalfW || 0) * pxPerMm, hh = (fr.pHalfH || 0) * pxPerMm;
+            const cx = rect.cssLeft + rect.w / 2, cy = rect.cssTop + rect.h / 2;
+            fr.contentRect = { cssLeft: cx - hw, cssTop: cy - hh, w: 2 * hw, h: 2 * hh };
+        }
         lastFrames = frames;   // expose this frame's framing for the editor (slice handles)
 
         // Paint back-to-front by z so higher-z (free-canvas) panels overdraw lower
@@ -572,6 +580,17 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
             return { id: def.id, title: def.title, cssLeft: r.cssLeft, cssTop: r.cssTop, w: r.w, h: r.h };
         });
     }
+    // The brain's on-screen bbox per panel (from the last framing pass), so the Free Canvas frame
+    // hugs the rendered brain rather than the looser panel cell. Falls back to the cell if missing.
+    function getPanelContentRects() {
+        return panels.map(({ def }) => {
+            const fo = lastFrames.find((x) => x.def === def);
+            const c = fo && fo.fr && fo.fr.contentRect;
+            const r = panelRect(def);
+            const cr = (c && c.w > 4 && c.h > 4) ? c : { cssLeft: r.cssLeft, cssTop: r.cssTop, w: r.w, h: r.h };
+            return { id: def.id, title: def.title, cssLeft: cr.cssLeft, cssTop: cr.cssTop, w: cr.w, h: cr.h };
+        });
+    }
     // World-space AABB of a panel's visible meshes (for the tight-crop bbox).
     function getPanelContentAABB(def) { return panelAABB(def.content); }
     // Design-space rects (pre view-transform), for baking grid→free `place` fractions.
@@ -644,7 +663,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
     }
 
     return {
-        scene, renderFrame, resize, setPixelRatio, getPanelRects, getPanelDesignRects, getPanelContentAABB, getPanelView, zoomPanel, scaleOutlines, recolor, applyStyle, applySmoothing, setColormap, dispose,
+        scene, renderFrame, resize, setPixelRatio, getPanelRects, getPanelContentRects, getPanelDesignRects, getPanelContentAABB, getPanelView, zoomPanel, scaleOutlines, recolor, applyStyle, applySmoothing, setColormap, dispose,
         setView, getView, panView, zoomViewAt, resetView, fitView,
         setSpinFit: (v) => { spinFit = !!v; },   // sphere-fit (constant size) only while spinning
         overlays, config, renderer, THREE, sceneModel,

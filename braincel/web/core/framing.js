@@ -85,9 +85,11 @@ export function frameContent(aabb, cameraSpec, aspect, opts = {}) {
     // "bouncing") and never clips at any angle. A STATIC panel — even one with a fixed rotate (a
     // tilted default view) — keeps the tight per-view fit so it fills its cell; only spinFit (set by
     // the orbit hook / GIF export / shift-drag) switches to the sphere.
+    const pHalfW = projHalf(he, r);   // TRUE projected half-extents of the content — used to size the
+    const pHalfH = projHalf(he, u);   // content-hugging Free Canvas frame (independent of spinFit).
     const radius = Math.hypot(he[0], he[1], he[2]);
-    const halfW = (rotate && spinFit) ? radius : projHalf(he, r);
-    const halfH = (rotate && spinFit) ? radius : projHalf(he, u);
+    const halfW = (rotate && spinFit) ? radius : pHalfW;
+    const halfH = (rotate && spinFit) ? radius : pHalfH;
 
     const ext = Math.max(halfH, halfW / aspect) * margin;
     const near = Math.max(1, distance - halfD - pad);
@@ -96,7 +98,7 @@ export function frameContent(aabb, cameraSpec, aspect, opts = {}) {
     return {
         position: pose.position, up: pose.up, lookAt: pose.lookAt,
         left: -ext * aspect, right: ext * aspect, top: ext, bottom: -ext,
-        near, far, ext,
+        near, far, ext, pHalfW, pHalfH,
         // view-space depth range of the content, for the depth veil (vViewZ).
         nearZ: distance - halfD, farZ: distance + halfD,
     };
