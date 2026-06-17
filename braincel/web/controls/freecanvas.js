@@ -354,6 +354,7 @@ export function createFreeCanvasEditor({ container, canvas, config, getEngine, o
             const up = () => {
                 handle.style.cursor = '';
                 if (fr) fr.classList.remove('fc-editing');
+                getEngine().setSpinFit?.(false);   // back to tight per-view fit after any drag
                 handle.removeEventListener('pointermove', move);
                 handle.removeEventListener('pointerup', up);
             };
@@ -389,6 +390,7 @@ export function createFreeCanvasEditor({ container, canvas, config, getEngine, o
             return { orbit: false, x: panel.place.x, y: panel.place.y }; // plain drag = move
         }, (c, dx, dy) => {
             if (c.orbit) {
+                getEngine().setSpinFit?.(true);   // constant-size sphere fit while orbiting (no bounce)
                 const r = panel.rotate;
                 r.yaw = c.yaw + dx * ORBIT_SENS;
                 r.pitch = clamp(c.pitch + dy * ORBIT_SENS, -85, 85);
@@ -415,7 +417,8 @@ export function createFreeCanvasEditor({ container, canvas, config, getEngine, o
         gridOverlay.style.left = '0px'; gridOverlay.style.top = '0px';
         gridOverlay.style.width = canvas.clientWidth + 'px'; gridOverlay.style.height = canvas.clientHeight + 'px';
         gridOverlay.style.backgroundSize = snapPx + 'px ' + snapPx + 'px';
-        const rects = getEngine().getPanelRects();
+        // Hug the rendered brain (content bbox), not the looser panel cell, so the frame fits tight.
+        const rects = getEngine().getPanelContentRects();
         frames.forEach((fr, i) => {
             const r = rects[i]; if (!r) return;
             fr.el.style.left = r.cssLeft + 'px';
