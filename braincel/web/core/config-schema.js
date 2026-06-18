@@ -54,8 +54,10 @@ export const DEFAULTS = {
         overlays: [],
         glass: { color: '#ffffff', maxOpacity: 0.0, minOpacity: 0.0, fresnelPower: 2.5, celBands: 3 },
         anatomy: { color: '#ffffff', maxOpacity: 0.14, opacity: 1.0 },
-        // Higher threshold = fewer/weaker cortex lines (less sulcal density).
-        outline: { enabled: true, color: '#000000', width: 4.0, threshold: 0.02 },
+        // Higher threshold = fewer/weaker cortex lines (less sulcal density). anatomyWidthMul
+        // scales the SUBCORTEX outline (its own pass) relative to the cortex line — 1.0 = uniform
+        // with the cortex; set <1 to thin the densely-packed subcortical structures if desired.
+        outline: { enabled: true, color: '#000000', width: 4.0, threshold: 0.02, anatomyWidthMul: 1.0 },
         // Scene lights off by default — voxel colour comes from emissive (full flat
         // colormap) + the light-independent glint, so the colours stay saturated.
         lighting: { directional: 0, ambient: 0, headlight: true },
@@ -188,7 +190,7 @@ export function normalizeConfig(raw = {}) {
         anatomyOpacity: null,
         // M2: declared per-panel fields the engine already reads — now defaulted so they
         // round-trip losslessly through buildSpec (identity values change no render).
-        zoom: 1, rotate: null, slice: null,
+        zoom: 1, rotate: null, slice: null, outline: null,
         framing: { margin: 1.06, fit: 'auto' },
         ...p,
         content: { roles: ['cortex', 'voxel'], hemisphere: 'both', categories: null, representation: null, anatomyStyle: 'glass', anatomyHemisphere: null, ...(p.content || {}) },

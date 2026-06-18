@@ -60,6 +60,11 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
     const anatomyClipDepthMat = makePlainDepthMaterial(THREE.BackSide);
     const anatomyMeshes = sceneModel.meshes.filter((tm) => tm.meta.role === 'anatomy').map((tm) => tm.mesh);
     const cortexMeshes = sceneModel.meshes.filter((tm) => tm.meta.role === 'cortex').map((tm) => tm.mesh);
+    // Subcortex gets its OWN layer (past the N overlay layers) so it can carry a SEPARATE outline
+    // pass: the cortex stays the sole occupant of layer 0's pass (its line-art unchanged), while the
+    // subcortical structures are stroked on their own layer at anatomyWidthMul × the cortex width
+    // (1.0 = uniform; <1 thins the densely-packed structures that merge under the depth-edge filter).
+    const ANATOMY_LAYER = N + 1;
 
     // --- per-overlay voxel materials + uniforms (overlay i → layer 1+i) ---
     const uniforms = [], voxelMats = [], surfaceMats = [];
@@ -86,7 +91,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
     for (const tm of sceneModel.meshes) {
         const m = tm.mesh;
         if (tm.meta.role === 'cortex') { m.material = glassMat; m.renderOrder = 1; m.layers.set(0); }
-        else if (tm.meta.role === 'anatomy') { m.material = anatomyMat; m.renderOrder = 5; m.layers.set(0); m.receiveShadow = SH.enabled; }
+        else if (tm.meta.role === 'anatomy') { m.material = anatomyMat; m.renderOrder = 5; m.layers.set(ANATOMY_LAYER); m.receiveShadow = SH.enabled; }
         else {
             const oi = tm.meta.overlay ?? 0;
             const surf = tm.meta.variant === 'surface';
@@ -233,6 +238,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
     const panels = config.layout.panels.map((p) => {
         const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 800);
         for (let i = 0; i < N; i++) cam.layers.enable(1 + i);
+        cam.layers.enable(ANATOMY_LAYER);                    // draw the subcortex shell (own layer)
         return { def: p, camera: cam, zoom: p.zoom || 1 };   // zoom: live per-panel rescale
     });
 
@@ -250,9 +256,15 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
 
     // --- grid + outline passes ---
     let grid = layoutGrid({ width: W0, height: H0, ...config.layout.grid });   // design-space grid
+    let outlineSaveScale = 1;   // Save-PNG supersampling factor for the cortex outline width (see scaleOutlines)
     const maxCellW = width, maxCellH = height;          // outline-pass targets track the VIEWPORT
     const cortexOutline = new OutlinePass(renderer, scene, maxCellW, maxCellH, {
         layer: 0, color: config.style.outline.color, width: config.style.outline.width, threshold: config.style.outline.threshold,
+    });
+    // Subcortex outline — its OWN pass on ANATOMY_LAYER so its width is independent of the cortex
+    // line (anatomyWidthMul, default 1.0 = uniform) without disturbing the cortex silhouette/sulci.
+    const anatomyOutline = new OutlinePass(renderer, scene, maxCellW, maxCellH, {
+        layer: ANATOMY_LAYER, color: config.style.outline.color, width: config.style.outline.width, threshold: config.style.outline.threshold,
     });
     // Per-overlay voxel edge passes (each its own layer + edge style + veil).
     const edgePasses = [];
@@ -276,6 +288,12 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
     let clipTarget = makeDepthTarget(maxCellW, maxCellH);
     const clipCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 800);
     cortexOutline.outlineMaterial.uniforms.uClipDepth.value = clipTarget.texture;
+    // The subcortex outline is on its own layer, so it lost the shared-depth occlusion by the
+    // cortex (a near cortex wall would otherwise show the far subcortex through it in a lateral
+    // view). Clip it against the cortex's depth pre-pass (cortexOutline renders it each panel just
+    // before this pass): hidden where the cortex is genuinely in front, still drawn where the
+    // subcortex is the nearer structure (medial views).
+    anatomyOutline.outlineMaterial.uniforms.uClipDepth.value = cortexOutline.depthTarget.texture;
     // Voxel edges clip against the SAME combined depth, so an overlay's edges are
     // occluded where a closer overlay's volume covers them (no longer see-through).
     for (const ep of edgePasses) ep.outlineMaterial.uniforms.uClipDepth.value = clipTarget.texture;
@@ -295,15 +313,12 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
                 renderer.render(scene, clipCam);            // depth-tested: nearest accumulates
             }
         }
-        // Fold the opaque subcortex's depth in (cortex hidden so only the shell contributes,
-        // not the see-through cortex) → edges/outline behind it get occluded like the fills.
+        // Fold the opaque subcortex's depth in → edges/outline behind it get occluded like the
+        // fills. The subcortex is on its own layer, so we render just it (no cortex to hide).
         if (opaqueAnat) {
-            const vis = cortexMeshes.map((m) => m.visible);
-            for (const m of cortexMeshes) m.visible = false;
-            clipCam.copy(camera); clipCam.layers.set(0);
+            clipCam.copy(camera); clipCam.layers.set(ANATOMY_LAYER);
             scene.overrideMaterial = anatomyClipDepthMat;
             renderer.render(scene, clipCam);
-            cortexMeshes.forEach((m, k) => { m.visible = vis[k]; });
         }
         scene.overrideMaterial = prev;
         renderer.setRenderTarget(null);
@@ -437,6 +452,25 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
             }
         }
 
+        // fit:'normalize' panels adopt a common on-screen FOOTPRINT (the projected brain bbox's
+        // larger side reads the same size in every panel) — so a wide lateral hemisphere and a
+        // compact anterior whole-brain look equally big, independent of view or cell. Footprints
+        // are view-dependent, so this can't be done with a view-invariant scale; we measure each
+        // panel's projected extent and shrink all to the SMALLEST (shrink-only → no cell overflow).
+        let normFoot = Infinity;
+        for (const { def, rect, fr } of frames)
+            if (def.framing.fit === 'normalize')
+                normFoot = Math.min(normFoot, Math.max(fr.pHalfW || 0, fr.pHalfH || 0) * rect.h / fr.ext);
+        if (normFoot < Infinity) {
+            for (const { def, rect, fr } of frames) {
+                if (def.framing.fit !== 'normalize') continue;
+                const ext = Math.max(fr.pHalfW || 0, fr.pHalfH || 0) * rect.h / normFoot;
+                fr.ext = ext;
+                fr.left = -ext * rect.aspect; fr.right = ext * rect.aspect;
+                fr.top = ext; fr.bottom = -ext;
+            }
+        }
+
         // Per-panel manual zoom (the hover +/- controls): shrink the extent to
         // zoom in. Applied after the shared scale so it's a manual override.
         for (const { panel, rect, fr } of frames) {
@@ -525,9 +559,27 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
                 edgePasses[i].update(camera, rect.x, rect.y, rect.w, rect.h);
             }
             // Black cortex outline on top — clipped so any voxel genuinely in front shows.
+            // Per-panel `def.outline` MULTIPLIES the global width/threshold (default 1) so e.g. a
+            // dorsal panel — whose densely-folded superior surface is seen face-on and merges into
+            // thick strokes — can thin its line / shed shallow folds without touching the others.
             if (config.style.outline.enabled) {
-                cortexOutline.outlineMaterial.uniforms.uClipApply.value = clip ? 1.0 : 0.0;
+                const po = def.outline, ou = cortexOutline.outlineMaterial.uniforms;
+                ou.uLineWidth.value = config.style.outline.width * outlineSaveScale * ((po && po.widthMul) || 1);
+                ou.uThreshold.value = config.style.outline.threshold * ((po && po.thresholdMul) || 1);
+                ou.uClipApply.value = clip ? 1.0 : 0.0;
                 cortexOutline.update(camera, rect.x, rect.y, rect.w, rect.h);
+                // Subcortex on top, on its own pass at the reduced anatomyWidthMul — only when this
+                // panel actually shows anatomy (else the empty layer-pass is skipped).
+                if (def.content && def.content.roles && def.content.roles.includes('anatomy')) {
+                    const aMul = config.style.outline.anatomyWidthMul ?? 1.0, au = anatomyOutline.outlineMaterial.uniforms;
+                    au.uLineWidth.value = config.style.outline.width * outlineSaveScale * aMul * ((po && po.widthMul) || 1);
+                    au.uThreshold.value = config.style.outline.threshold * ((po && po.thresholdMul) || 1);
+                    // Always clip against the cortex (just rendered into cortexOutline.depthTarget) so the
+                    // subcortex outline is occluded where the cortex wall is in front of it.
+                    au.uClipDepth.value = cortexOutline.depthTarget.texture;
+                    au.uClipApply.value = 1.0;
+                    anatomyOutline.update(camera, rect.x, rect.y, rect.w, rect.h);
+                }
             }
         }
     }
@@ -538,6 +590,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         // grid is DESIGN-space (built once against W0×H0) — NOT rebuilt on viewport resize,
         // so the brains keep a fixed size; only the view transform's screen mapping changes.
         cortexOutline.setSize(w, h);
+        anatomyOutline.setSize(w, h);
         for (const ep of edgePasses) ep.setSize(w, h);
         clipTarget.setSize(Math.round(w * renderer.getPixelRatio()), Math.round(h * renderer.getPixelRatio()));
     }
@@ -546,6 +599,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         renderer.setPixelRatio(pr);
         renderer.setSize(width, height, false);
         cortexOutline.pr = pr; cortexOutline.setSize(width, height);
+        anatomyOutline.pr = pr; anatomyOutline.setSize(width, height);
         for (const ep of edgePasses) { ep.pr = pr; ep.setSize(width, height); }
         clipTarget.setSize(Math.round(width * pr), Math.round(height * pr));
     }
@@ -650,7 +704,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
     // texels, so a higher pixel ratio (Save-PNG supersampling) thins the lines;
     // the Save path multiplies by savePr/basePr here to keep the on-screen look.
     function scaleOutlines(f) {
-        cortexOutline.outlineMaterial.uniforms.uLineWidth.value *= f;
+        outlineSaveScale *= f;   // cortex outline width is recomputed per-panel from this each frame
         for (const ep of edgePasses) ep.outlineMaterial.uniforms.uLineWidth.value *= f;
     }
 
@@ -662,6 +716,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         glassMat.dispose(); anatomyMat.dispose(); anatomyOpaqueMat.dispose(); anatomyClipDepthMat.dispose();
         for (const m of voxelMats) m.dispose();
         cortexOutline.dispose();
+        anatomyOutline.dispose();
         for (const ep of edgePasses) ep.dispose();
         clipTarget.dispose();
         scene.clear();
