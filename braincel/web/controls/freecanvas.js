@@ -254,6 +254,13 @@ export function createFreeCanvasEditor({ container, canvas, config, getEngine, o
             return b;
         };
         const rot = (k, d) => () => { (panel.rotate ||= { yaw: 0, pitch: 0, roll: 0 })[k] += d; };
+        // Per-panel cortex-outline tuning (multiplies the global width/threshold). Lets one view
+        // (e.g. a dorsal panel, whose face-on folds merge into thick strokes) thin its line or shed
+        // shallow folds without affecting the others. Engine reads def.outline live each frame.
+        const outlineAdj = (key, factor) => () => {
+            const o = (panel.outline ||= {});
+            o[key] = clamp((o[key] ?? 1) * factor, 0.2, 5);
+        };
         let sliceIdx = sliceCycleIndex(panel.slice);
         const sliceBtn = el('button', null, '✂'); sliceBtn.type = 'button';
         sliceBtn.classList.toggle('on', !!panel.slice);
@@ -273,6 +280,10 @@ export function createFreeCanvasEditor({ container, canvas, config, getEngine, o
             mkBtn('⟲', 'Roll left', rot('roll', -ROT_STEP)),
             mkBtn('⟳', 'Roll right', rot('roll', ROT_STEP)),
             sliceBtn,
+            mkBtn('╌', 'Thinner cortex outline', outlineAdj('widthMul', 1 / 1.18)),
+            mkBtn('━', 'Thicker cortex outline', outlineAdj('widthMul', 1.18)),
+            mkBtn('░', 'Fewer cortex lines (sparser folds)', outlineAdj('thresholdMul', 1.25)),
+            mkBtn('▓', 'More cortex lines (denser folds)', outlineAdj('thresholdMul', 1 / 1.25)),
             mkBtn('⤒', 'Bring to front', () => bringToFront(panel)),
             mkBtn('✕', 'Remove panel', () => removePanel(idx)));
 
