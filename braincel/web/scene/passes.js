@@ -41,7 +41,10 @@ void main(){
     float l = texture2D(tDepth, vUv-vec2(texel.x*w,0.)).r, r = texture2D(tDepth, vUv+vec2(texel.x*w,0.)).r;
     float u = texture2D(tDepth, vUv+vec2(0.,texel.y*w)).r, d = texture2D(tDepth, vUv-vec2(0.,texel.y*w)).r;
     float edge = abs(l-r)+abs(u-d), edge2 = abs(c-l)+abs(c-r)+abs(c-u)+abs(c-d);
-    float s = max(smoothstep(uThreshold*0.5,uThreshold,edge), smoothstep(uThreshold,uThreshold*2.,edge2));
+    // Near-BINARY strength: any depth step that clears the threshold draws at full opacity and full
+    // width; anything below doesn't draw at all. The narrow ramps (just wide enough for edge AA) stop
+    // weak/grazing folds rendering as faded half-strength smudges, so every line is uniformly visible.
+    float s = max(smoothstep(uThreshold*0.96,uThreshold,edge), smoothstep(uThreshold,uThreshold*1.08,edge2));
     // Depth-correct vs voxels: this (black surface) edge draws OVER voxel edges,
     // except where a voxel is genuinely in front of the nearest surface sample —
     // there the voxel occludes the silhouette, so let the voxel edge show.
