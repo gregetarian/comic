@@ -20,11 +20,11 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from braincel.render import build_layout, render_to_png
+from comic.render import build_layout, render_to_png
 
 GOLD = Path(__file__).parent / "golden"
 ROOT = Path(__file__).resolve().parent.parent
-DEF = ROOT / "braincel" / "web" / "data" / "defaults"
+DEF = ROOT / "comic" / "web" / "data" / "defaults"
 TOL = 2.0          # mean abs diff over 0..255 channels
 W, H, SCALE = 600, 400, 1
 

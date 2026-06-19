@@ -10,7 +10,7 @@ from pathlib import Path
 
 from playwright.sync_api import sync_playwright
 
-ROOT = Path(__file__).resolve().parent.parent / "braincel" / "web"
+ROOT = Path(__file__).resolve().parent.parent / "comic" / "web"
 SHOTS = Path(__file__).resolve().parent / "shots"
 SHOTS.mkdir(exist_ok=True)
 

@@ -1,15 +1,15 @@
-"""Bake the fixed fsaverage template assets into braincel/web/data/.
+"""Bake the fixed fsaverage template assets into comic/web/data/.
 
 These do NOT depend on a user's upload, so we compute them once (with the full Python
 stack — mne/trimesh/cmap, the `[bake]` extra) and commit them as static files. At
 runtime the browser (Pyodide) and the CLI render both load them directly; only the
-per-NIfTI meshing runs live (braincel/pipeline.py, the same in both).
+per-NIfTI meshing runs live (comic/pipeline.py, the same in both).
 
 Outputs (web/data/): cortex_{lh,rh}{,_inflated}.glb, subcortical/*.glb, colormaps.json,
 scene.json (base, no overlays), render-config.json, aseg_uint8.bin.gz + aseg.json,
 demo/{meta.json,buffers.bin}. Also copies the canonical pipeline.py into web/pyodide/.
 
-Run:  braincel bake     (or  python -m braincel.bake)
+Run:  comic bake     (or  python -m comic.bake)
 """
 
 import gzip
@@ -19,13 +19,13 @@ from pathlib import Path
 
 import numpy as np
 
-PKG = Path(__file__).resolve().parent           # braincel/
+PKG = Path(__file__).resolve().parent           # comic/
 WEB = PKG / "web"
 DATA = WEB / "data"
 
 
 def bake(demo_nifti=None):
-    from .core import GlassBrain
+    from .core import Comic
     from .surfaces import inflate_surfaces
     from .export import export_mesh, export_mesh_with_scalars, write_scene_json
     from .colormaps import export_colormaps
@@ -35,7 +35,7 @@ def bake(demo_nifti=None):
     (DATA / "subcortical").mkdir(exist_ok=True)
 
     print("Loading fsaverage template (surfaces + subcortical via mne)…")
-    gb = GlassBrain(include_subcortical=True)
+    gb = Comic(include_subcortical=True)
 
     # cortex: pial + slightly-inflated, curvature encoded in vertex-colour red
     inflated = inflate_surfaces(gb.surfaces)
