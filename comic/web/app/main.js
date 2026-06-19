@@ -1,11 +1,11 @@
 /**
  * main.js — the ONE viewer entry, for both modes:
- *   interactive (default)  — the static/Pyodide app (served by Pages and `braincel
+ *   interactive (default)  — the static/Pyodide app (served by Pages and `comic
  *     open`): fixed fsaverage template from baked GLBs, demo overlay from baked buffers,
  *     uploads processed by the Pyodide pipeline (lazy-loaded on first upload). Overlays
  *     live in browser memory; the engine (which bakes N overlays into its
  *     materials/layers/passes) is disposed + recreated in place on each add/remove.
- *   headless (?headless=1) — used by `braincel render`: fixed size from config.render,
+ *   headless (?headless=1) — used by `comic render`: fixed size from config.render,
  *     controls hidden, overlays loaded from the manifest's array .bin files (produced by
  *     the in-process CPython pipeline), a few frames rendered, then window.__GB_DONE__ set
  *     for the Playwright driver to screenshot. Same engine + same array geometry as the browser.
@@ -173,7 +173,7 @@ async function main() {
         .catch((e) => console.warn('demo overlays unavailable:', e));
 }
 
-/** Headless render (braincel render): fixed-size figure, overlays from the manifest's
+/** Headless render (comic render): fixed-size figure, overlays from the manifest's
  *  array .bin files, a few frames, then window.__GB_DONE__ for the Playwright screenshot. */
 async function runHeadless() {
     for (const sel of ['#controls', '.kapow-toggle', '.title']) {
@@ -576,12 +576,12 @@ function startLoopAndResize() {
 
     (function loop() { requestAnimationFrame(loop); engine.renderFrame(); colorbar?.update(); fcEditor?.reposition(); })();
     window.__engine = () => engine;   // debug handle
-    // The tight content bbox in CSS px (used by `braincel render --crop content` to
+    // The tight content bbox in CSS px (used by `comic render --crop content` to
     // screenshot just the brains; computed at the default view, so it's reproducible).
     window.__contentBBox = () => contentBBoxPx(engine);
 }
 
-/** Build a `braincel render` command reproducing the current view; copy it to the
+/** Build a `comic render` command reproducing the current view; copy it to the
  *  clipboard (falling back to a .txt download if the clipboard is unavailable). */
 async function copyCliCommand() {
     const btn = document.getElementById('c-cli');

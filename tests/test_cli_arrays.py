@@ -8,7 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from braincel.render import prepare_render_dir
+from comic.render import prepare_render_dir
 
 
 def test_cli_render_uses_arrays():
@@ -36,8 +36,8 @@ def test_cli_render_multi_overlay():
     """Several NIfTIs -> one overlay each (overlay_<i>.bin), distinct per-map meta, and a
     per-overlay threshold list. Guards the buffer-handoff: get_all_buffers() must be grabbed
     for each map BEFORE the next process_nifti clears _BUFFERS (else overlays cross-contaminate)."""
-    a = ROOT / "braincel" / "web" / "data" / "defaults" / "faces.nii.gz"
-    b = ROOT / "braincel" / "web" / "data" / "defaults" / "language.nii.gz"
+    a = ROOT / "comic" / "web" / "data" / "defaults" / "faces.nii.gz"
+    b = ROOT / "comic" / "web" / "data" / "defaults" / "language.nii.gz"
     d = prepare_render_dir([str(a), str(b)], threshold=[2.3, 3.5])
     try:
         data = d / "data"
@@ -57,8 +57,8 @@ def test_cli_render_multi_overlay():
 
 def test_overlay_names():
     """names= sets each overlay's display name (the colorbar label), overriding the filename."""
-    a = ROOT / "braincel" / "web" / "data" / "defaults" / "faces.nii.gz"
-    b = ROOT / "braincel" / "web" / "data" / "defaults" / "language.nii.gz"
+    a = ROOT / "comic" / "web" / "data" / "defaults" / "faces.nii.gz"
+    b = ROOT / "comic" / "web" / "data" / "defaults" / "language.nii.gz"
     d = prepare_render_dir([str(a), str(b)], threshold=[2.3, 3.5], names=["Clade 1 — DMN", "Clade 2 — language"])
     try:
         scene = json.loads((d / "data" / "scene.json").read_text())

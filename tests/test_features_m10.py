@@ -5,10 +5,10 @@ from pathlib import Path
 
 from PIL import Image
 
-from braincel.render import render_sweep, colorbar_svg, build_layout
+from comic.render import render_sweep, colorbar_svg, build_layout
 
 ROOT = Path(__file__).resolve().parent.parent
-F = str(ROOT / "braincel" / "web" / "data" / "defaults" / "faces.nii.gz")
+F = str(ROOT / "comic" / "web" / "data" / "defaults" / "faces.nii.gz")
 
 
 def test_render_sweep_montage(tmp_path):
@@ -27,7 +27,7 @@ def test_colorbar_svg_builder(tmp_path):
 def test_cli_sweep_and_svg(tmp_path):
     out = tmp_path / "f.png"
     r = subprocess.run(
-        [sys.executable, "-m", "braincel.core", "render", F, "-o", str(out),
+        [sys.executable, "-m", "comic.core", "render", F, "-o", str(out),
          "--grid", "1x1", "--views", "dorsal", "--sweep", "cluster=0,150",
          "--colorbar-svg", "--width", "200", "--height", "200", "--scale", "1"],
         capture_output=True, text=True)

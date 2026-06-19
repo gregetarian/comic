@@ -1,4 +1,4 @@
-# BrainCel 2.0 — Implementation Plan
+# COMIC 2.0 — Implementation Plan
 
 A dependency-ordered roadmap for: the Free Canvas corner-steal fix, headless/test
 speedup, **project-to-surface** mode, a **custom / non-MNI template upload**, all the
@@ -14,7 +14,7 @@ thing — **full parity across the three front-ends: interactive browser ⇄ sta
 
 ## 0. The one idea
 
-BrainCel is **one engine** (`pipeline.py`, byte-mirrored to `web/pyodide/pipeline.py`)
+COMIC is **one engine** (`pipeline.py`, byte-mirrored to `web/pyodide/pipeline.py`)
 driving **one renderer** (`web/`) from **one declarative config** (`config-schema.js`).
 Today there are effectively *two* front-ends (browser, headless CLI) and they diverge in
 small, fixable ways. The goal of this round is **three** front-ends — browser, CLI, and an
@@ -175,8 +175,8 @@ Copy-CLI emits placeholder filenames (`<map1.nii.gz>`).
   inherits the corrected stacking.*
 - **cluster-min decision:** keep DEFAULTS=105 and `-k` default=105; make `bake.py`'s demo
   `clusterMin:0` an explicit recorded choice, not a schema default. (mm³ units escape hatch arrives in M2.)
-- **Hygiene:** fix the regressed `examples/*.py` (they call removed `GlassBrain.show()/.add_overlay()`);
-  delete dead `GlassBrain` ctor params; fix the stale `cli-export.js` "cannot composite" note;
+- **Hygiene:** fix the regressed `examples/*.py` (they call removed `Comic.show()/.add_overlay()`);
+  delete dead `Comic` ctor params; fix the stale `cli-export.js` "cannot composite" note;
   **rewrite `METHODS.md`** to the current `pipeline.py`/`arrays.py`/`web/` architecture.
 - **speedup:** `render.py` `wait_until` `networkidle`→`domcontentloaded` (the `__GB_DONE__`
   gate already handles readiness; ~0.4–1.0s/render).
@@ -195,7 +195,7 @@ extended `validateConfig`/`overlayStyle`, and `core.test.js` assertions (the nod
 ### M3 — Canonical serializer + `spec.py` `[M, med]`
 `buildSpec` includes `layout.view` and relies on `panel.zoom` in the def (drop the shadow
 field); `renderer.js zoomPanel` writes `def.zoom`; `main.js` applies `layout.view` on boot
-(identity-safe headless). New `braincel/spec.py:normalize/validate` mirrors
+(identity-safe headless). New `comic/spec.py:normalize/validate` mirrors
 `validateConfig`. Keystone test: `normalizeConfig → buildSpec → spec.normalize → re-serialize`
 is a fixed point carrying clim/units/surface/zoom/view/template.
 
@@ -215,7 +215,7 @@ Serve `WEB_DIR` once, stage only the 3 diff files (symlink heavy assets), `.giti
 `--fast` (skip colorbar 2nd screenshot) + `--gpu` lane.
 
 ### M5 — Notebook/Python API + per-overlay CLI + clim/units (PARITY HEADLINE) `[L, med]`
-- `braincel/figure.py`: `render()`, `render_spec()`, `Figure` (`png`/`colorbar_png`/`config`,
+- `comic/figure.py`: `render()`, `render_spec()`, `Figure` (`png`/`colorbar_png`/`config`,
   `.save`/`.pil`/`.to_ipython_image`/`_repr_png_`/`_repr_html_`), `Scene` fluent builder; re-export
   from `__init__`. Per-overlay kwargs accept scalar (broadcast) or list. Inline display in
   Jupyter/VSCode via the repr hooks — no `display()` needed.
@@ -336,7 +336,7 @@ Keep the volume-forward title (volume stays the default and the distinctive thin
 
 - `test_pyodide_sync.py` (keep green): `web/pyodide/pipeline.py` byte-identical after **both** the
   classifier-as-data refactor (M6) and the `init_cortex`/surface additions (M8). Every
-  pipeline-touching phase ends with `braincel bake`.
+  pipeline-touching phase ends with `comic bake`.
 - `test_pipeline_parity.py` (extend): data-driven categories produce byte-identical buckets vs the
   old hardcoded tables; add `GT_SURFACE` (K-depth average vs numpy recompute).
 - `test_config_roundtrip` (**the parity keystone**): `render_spec(spec)` stages the same
@@ -363,7 +363,7 @@ Keep the volume-forward title (volume stays the default and the distinctive thin
    "user-supplied and user-aligned." Light sanity checks only (dims>0, invertible affine, ≥1 category),
    crash loudly on malformed bundles.
 3. ✅ **Browser custom-template ingest = pre-baked `.zip` bundle only for v1.** The bundle is produced by
-   `braincel bake`; raw `.pial`/`.gii` in-browser meshing is deferred (keeps Pyodide light).
+   `comic bake`; raw `.pial`/`.gii` in-browser meshing is deferred (keeps Pyodide light).
 4. ✅ **`clim` = sign-aware scalar default, with an explicit `[vmin,vmax]` form also accepted.** A bare
    value `v` → `[-v,v]` on diverging maps / `[0,v]` on sequential (the nilearn-style `vmax` intuition);
    passing `[vmin,vmax]` (CLI `--clim 1,8`, leading-blank `--clim ,8` = auto vmin) overrides explicitly.
