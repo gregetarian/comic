@@ -1,4 +1,4 @@
-"""BrainCel 2.0 — Interactive 3D glass brain viewer + headless/notebook renderer."""
+"""COMIC 2.0 — Interactive 3D glass brain viewer + headless/notebook renderer."""
 
 from .core import GlassBrain, open_viewer
 from .figure import render, render_spec, Scene, Figure

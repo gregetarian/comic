@@ -1,4 +1,4 @@
-# BrainCel 2.0
+# COMIC 2.0
 
 A **volumetric** glass-brain viewer + headless figure renderer for 3D neuroimaging
 results — **clusters, statistical blobs, parcellations** — in **MNI152 space**, with a
@@ -7,7 +7,7 @@ voxels, live-threshold silhouette edges, and a depth "veil" that fades deep voxe
 toward white. It renders **the volume itself** (voxel cubes or marching-cubes
 isosurfaces) — not a cortical-surface projection.
 
-### ▶ Try it in your browser (no install): **https://gregetarian.github.io/braincel/**
+### ▶ Try it in your browser (no install): **https://gregetarian.github.io/comic/**
 Drag in a NIfTI and it renders — the whole pipeline runs client-side via Pyodide, no backend.
 
 **Plot multiple volumes at once, each with its own colormap and colorbar** — overlay
@@ -16,7 +16,7 @@ several clusters / contrasts / network clades in one figure (top row drawn on to
 One Python pipeline turns a NIfTI stat map into per-structure geometry; a single
 config-driven Three.js viewer renders multi-panel views **interactively in the browser**
 (locally or on GitHub Pages — meshing client-side via Pyodide) or **headlessly to a PNG**
-(`braincel render`, same pipeline in-process) — so the figure matches the interactive
+(`comic render`, same pipeline in-process) — so the figure matches the interactive
 view pixel-for-pixel.
 
 ![Five cluster volumes, each its own colour, on one glass brain](figures/clusters_example.png)
@@ -69,20 +69,20 @@ view pixel-for-pixel.
 ## Install
 
 ```bash
-git clone https://github.com/gregetarian/braincel
-cd braincel
+git clone https://github.com/gregetarian/comic
+cd comic
 pip install -e .                 # runtime: nibabel/numpy/scipy/scikit-image (the pipeline)
 
-# Headless figure rendering (braincel render):
+# Headless figure rendering (comic render):
 pip install -e ".[render]"
 python -m playwright install chromium
 
-# Only to RE-BAKE the fsaverage template (braincel bake) — most users never need this:
+# Only to RE-BAKE the fsaverage template (comic bake) — most users never need this:
 pip install -e ".[bake]"         # adds trimesh/mne/cmap
 ```
 
-The fsaverage template is **pre-baked** and committed under `braincel/web/data/`,
-so normal use needs no `mne`/fsaverage download — only `braincel bake` fetches
+The fsaverage template is **pre-baked** and committed under `comic/web/data/`,
+so normal use needs no `mne`/fsaverage download — only `comic bake` fetches
 fsaverage via MNE (cached under `~/mne_data/`).
 
 ---
@@ -92,33 +92,33 @@ fsaverage via MNE (cached under `~/mne_data/`).
 ```bash
 # Interactive viewer — serves the local site + opens the browser. Drag NIfTIs in;
 # they're meshed in-browser via Pyodide (identical to the GitHub Pages site).
-braincel open
+comic open
 
 # Headless figure → PNG (default: 9-panel, YlGnBu, smooth voxels). Writes a clean
 # full-size brain PNG + a separate <out>_colorbars.png legend.
-braincel render zstat.nii.gz -o figure.png
+comic render zstat.nii.gz -o figure.png
 
 # Custom layout: L/R lateral on top, axial + frontal on the bottom; extra smoothing.
-braincel render zstat.nii.gz -o figure.png \
+comic render zstat.nii.gz -o figure.png \
     --grid 2x2 --views left_lateral,right_lateral,axial,frontal \
     --cmap YlGnBu -k 100 --smooth 6 --width 1600 --height 1000
 
 # Multiple volumes in ONE figure — each map is its own overlay with its own colormap +
 # colorbar (seed-based connectivity / multi-network). Pass several NIfTIs; each gets a
 # distinct default colormap, in argument order.
-braincel render seed.nii.gz networkA.nii.gz networkB.nii.gz -o multi.png \
+comic render seed.nii.gz networkA.nii.gz networkB.nii.gz -o multi.png \
     --grid 1x3 --views left_lateral,dorsal,right_lateral -k 100
 
 # Reproduce a Free-Canvas figure exactly: the browser's figure.json (its Copy-CLI output)
 # + one NIfTI per overlay slot (the i-th map fills style.overlays[i]).
-braincel render faces.nii.gz language.nii.gz addiction.nii.gz dmn.nii.gz \
+comic render faces.nii.gz language.nii.gz addiction.nii.gz dmn.nii.gz \
     -o figure.png --spec figure.json
 
 # Re-bake the fsaverage template assets into web/data/ (one-time; needs the [bake] extra)
-braincel bake
+comic bake
 ```
 
-> **Hosted:** the same viewer is a static site at `braincel/web/`, deployed to
+> **Hosted:** the same viewer is a static site at `comic/web/`, deployed to
 > GitHub Pages — upload a NIfTI in the browser, no install required.
 
 ---
@@ -135,7 +135,7 @@ toggle) for a one-line explanation.**
   upload fetches the ~30 MB scientific stack once). Each appends a new overlay row.
 - **Demo** — load the example Neurosynth maps (faces · addiction · default-network ·
   language), meshed in-browser — a one-click showcase on the otherwise empty canvas.
-- **Copy CLI** — copy a `braincel render` command that reproduces the current view.
+- **Copy CLI** — copy a `comic render` command that reproduces the current view.
 - **layout** — switch 4-panel / 9-panel / overview / **Free Canvas** (see below).
 - **Save brain** — high-res, print-tuned capture of the brains only (no colorbars,
   full canvas — never squashed by a stack of bars).
@@ -181,7 +181,7 @@ switch is seamless) to turn the figure into a free 2D canvas of brain panels:
   **orange** dot to move the cut (shift-drag for depth), the **teal** dot to resize it.
 - **Toolbar** — seed an *R × C* grid of panels, **+ panel**, or tick **transparent**
   for a transparent figure background (exports a transparent PNG).
-- **Copy CLI** — emits `braincel render … --spec figure.json` and downloads the
+- **Copy CLI** — emits `comic render … --spec figure.json` and downloads the
   `figure.json`; running that command reproduces the exact figure headlessly.
 
 > Slicing supports arbitrary plane normals / sphere centres / cube bounds in the
@@ -190,7 +190,7 @@ switch is seamless) to turn the figure into a free 2D canvas of brain panels:
 
 ## CLI reference
 
-`braincel render` takes **one or more** NIfTIs — each map becomes its own overlay
+`comic render` takes **one or more** NIfTIs — each map becomes its own overlay
 (its own colormap + colorbar; argument order = overlay/draw order), so a single command
 renders a multi-volume figure. It is fully parameterised — `--grid RxC`, `--views ...`
 (row-major; `_` = blank cell; aliases like `axial=dorsal`, `frontal=anterior`), or
@@ -204,7 +204,7 @@ plus `--bg-alpha 0` for a transparent PNG, plus style flags:
 `--voxel-edge-w`, `--margin`, `--colorbar/--no-colorbar`, `--colorbar-font`,
 `--colorbar-fontsize`, `--shadows/--no-shadows`, `--positive-only`,
 `--no-edges`, `--no-outline`, `--no-subcortical`, and output `--width`,
-`--height`, `--scale`. Run `braincel render -h` for the full list.
+`--height`, `--scale`. Run `comic render -h` for the full list.
 
 ---
 
@@ -236,7 +236,7 @@ pipeline (fresnel glass, opaque depth-veiled voxels, light-independent glint,
 depth-edge silhouette passes, headless Playwright capture).
 
 ```
-braincel/
+comic/
   pipeline.py      THE backend: NIfTI → per-structure geometry ARRAYS. Pure
                    numpy/scipy/scikit-image/nibabel — the SAME file runs in CPython
                    (CLI) and in Pyodide (browser, a byte-identical copy in web/pyodide/).
@@ -245,40 +245,40 @@ braincel/
   render.py        headless layout builder + Playwright PNG renderer (in-process pipeline)
   bake.py          one-time fsaverage template bake → web/data/ (needs the [bake] extra)
   surfaces.py / subcortical.py / colormaps.py / export.py   bake-only (mne/trimesh/cmap)
-  web/             THE single Three.js viewer — served by Pages, by `braincel open`,
+  web/             THE single Three.js viewer — served by Pages, by `comic open`,
                    and shipped in the wheel:
     index.html · app/main.js (one shell; ?headless=1 for render)
     core/          pure, unit-tested geometry/visibility/colour (node --test)
     scene/         materials, passes, renderer, asset-loader (GLB template + array overlays)
     controls/      UI bindings, colorbar, Copy-CLI, comic SFX
-    pyodide/       bootstrap.js + pipeline.py (copy of braincel/pipeline.py)
+    pyodide/       bootstrap.js + pipeline.py (copy of comic/pipeline.py)
     data/          baked template (cortex/subcortical GLB, colormaps, aseg) + demo + nibabel wheel
 ```
 
-**One backend, one renderer, three ways to run it.** `braincel/pipeline.py` is the
-only per-upload meshing code; `braincel/web/` is the only viewer. They power:
-`braincel render` (headless PNG, pipeline in-process), `braincel open` (local
+**One backend, one renderer, three ways to run it.** `comic/pipeline.py` is the
+only per-upload meshing code; `comic/web/` is the only viewer. They power:
+`comic render` (headless PNG, pipeline in-process), `comic open` (local
 interactive — serves `web/`, meshing in-browser via Pyodide), and the GitHub Pages site
-(the same `web/`). The fixed fsaverage template is baked once (`braincel bake`) and
+(the same `web/`). The fixed fsaverage template is baked once (`comic bake`) and
 committed under `web/data/`.
 
 ## Development
 
 ```bash
 # Pure-core JS unit tests (no browser needed)
-cd braincel/web && node --test
+cd comic/web && node --test
 
 # Python + headless-browser tests (Playwright):
 python tests/test_pipeline_parity.py   # CPython pipeline == browser ground truth
 python tests/test_cli_arrays.py        # render uses array overlays, not GLB
-python tests/test_pyodide_sync.py      # web/pyodide/pipeline.py == braincel/pipeline.py
+python tests/test_pyodide_sync.py      # web/pyodide/pipeline.py == comic/pipeline.py
 python tests/test_smoothing.py         # smooth+ moves vertices, scales, restores, preserves aValue
 python tests/test_free_canvas.py       # Free Canvas: move/resize/rotate/view/slice + --spec round-trip
 python tests/smoketest.py              # Pyodide boots + meshes the demo in a browser
 python tests/integration_test.py       # full app: demo, upload, preset switch, remove
 ```
 
-> `braincel open` serves `web/` and opens it; `render`/`bake` are the headless +
+> `comic open` serves `web/` and opens it; `render`/`bake` are the headless +
 > asset-bake commands. The fsaverage download (`bake`) and figure rendering (`render`)
 > need the `[bake]` / `[render]` extras respectively.
 

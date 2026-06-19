@@ -9,7 +9,7 @@
  */
 import { overlayStyle, setOverlayStyle, deepMerge } from '../core/config-schema.js';
 
-const KEY = 'braincel.stylePresets.v1';
+const KEY = 'comic.stylePresets.v1';
 // Global style fields a preset carries (everything in config.style EXCEPT the per-overlay
 // `overlays` array, which is captured separately, and nothing layout-related).
 const GLOBAL_KEYS = ['colormap', 'colormapMode', 'threshold', 'positiveOnly', 'gamma', 'margin',
@@ -132,7 +132,7 @@ export function createPresetsUI({ button, getConfig, getColormaps, getNOverlays,
         // Export / Import a JSON file
         const fileRow = document.createElement('div'); fileRow.className = 'preset-filerow';
         const exp = document.createElement('button'); exp.type = 'button'; exp.className = 'btn'; exp.textContent = 'Export';
-        exp.addEventListener('click', () => download(JSON.stringify(captureStyle(getConfig(), getNOverlays()), null, 2), 'braincel-style.json'));
+        exp.addEventListener('click', () => download(JSON.stringify(captureStyle(getConfig(), getNOverlays()), null, 2), 'comic-style.json'));
         const impLbl = document.createElement('label'); impLbl.className = 'btn'; impLbl.textContent = 'Import';
         const imp = document.createElement('input'); imp.type = 'file'; imp.accept = '.json,application/json'; imp.style.display = 'none';
         imp.addEventListener('change', async (e) => {

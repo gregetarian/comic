@@ -9,10 +9,10 @@ from pathlib import Path
 import numpy as np
 import trimesh
 
-from braincel.bake import bake_template
+from comic.bake import bake_template
 
 ROOT = Path(__file__).resolve().parent.parent
-DATA = ROOT / "braincel" / "web" / "data"
+DATA = ROOT / "comic" / "web" / "data"
 SPHERE = str(ROOT / "test_sphere.nii.gz")
 PNG = b"\x89PNG\r\n\x1a\n"
 
@@ -49,7 +49,7 @@ def test_render_against_custom_template(tmp_path):
 
     out = tmp_path / "fig.png"
     r = subprocess.run(
-        [sys.executable, "-m", "braincel.core", "render", SPHERE, "-o", str(out),
+        [sys.executable, "-m", "comic.core", "render", SPHERE, "-o", str(out),
          "--template", str(tpl), "--grid", "1x1", "--views", "left_lateral",
          "--width", "400", "--height", "320", "--scale", "1", "--no-colorbar"],
         capture_output=True, text=True)

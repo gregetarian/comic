@@ -1,5 +1,5 @@
 [project]
-name = "braincel"
+name = "comic"
 version = "0.1.0"
 description = "Interactive 3D glass-brain viewer and headless figure renderer with a cel-shaded aesthetic"
 readme = "README.md"
@@ -14,9 +14,9 @@ classifiers = [
     "Intended Audience :: Science/Research",
     "Topic :: Scientific/Engineering :: Visualization",
 ]
-# Runtime deps = the per-upload pipeline only (braincel/pipeline.py; also runs in
+# Runtime deps = the per-upload pipeline only (comic/pipeline.py; also runs in
 # Pyodide). trimesh/mne/cmap are needed ONLY to re-bake the fsaverage template assets
-# (braincel bake) → the [bake] extra.
+# (comic bake) → the [bake] extra.
 dependencies = [
     "nibabel>=5.0",
     "numpy>=1.24",
@@ -27,30 +27,30 @@ dependencies = [
 [project.optional-dependencies]
 # Re-bake the template assets into web/data/ (one-time / maintainer).
 bake = ["trimesh>=4.0", "mne>=1.5", "cmap>=0.1"]
-# Headless PNG rendering (`braincel render`). After install, run:
+# Headless PNG rendering (`comic render`). After install, run:
 #   python -m playwright install chromium
 render = ["playwright>=1.40"]
 dev = ["pytest", "pytest-xdist", "Pillow", "ruff"]
 
 [project.scripts]
-braincel = "braincel.core:cli"
+comic = "comic.core:cli"
 
 [project.urls]
-Homepage = "https://github.com/gregetarian/braincel"
-Repository = "https://github.com/gregetarian/braincel"
+Homepage = "https://github.com/gregetarian/comic"
+Repository = "https://github.com/gregetarian/comic"
 
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["braincel*"]
+include = ["comic*"]
 
 # Ship the single web viewer (engine + baked assets) alongside the Python package, so
-# `braincel render`/`open` serve the SAME files GitHub Pages deploys. The .py under
+# `comic render`/`open` serve the SAME files GitHub Pages deploys. The .py under
 # web/pyodide/ ship as data (the browser fetches them into Pyodide), not as modules.
 [tool.setuptools.package-data]
-braincel = [
+comic = [
     "web/**/*.js", "web/**/*.html", "web/**/*.json", "web/**/*.png", "web/**/*.css",
     "web/**/*.glb", "web/**/*.bin", "web/**/*.gz", "web/**/*.whl",
     "web/**/*.py", "web/**/*.nii.gz", "web/**/*.woff", "web/vendor/VERSION",
