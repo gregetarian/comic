@@ -1,15 +1,15 @@
-# BrainCel 2.0 — Methods
+# COMIC 2.0 — Methods
 
 How a NIfTI statistical map becomes a rendered glass-brain figure. There is ONE
-meshing backend (`braincel/pipeline.py`) and ONE rendering engine (the
-Three.js viewer under `braincel/web/`). The same files run three ways:
+meshing backend (`comic/pipeline.py`) and ONE rendering engine (the
+Three.js viewer under `comic/web/`). The same files run three ways:
 
-- **Browser** (GitHub Pages / `braincel open`): uploads are meshed in-browser
+- **Browser** (GitHub Pages / `comic open`): uploads are meshed in-browser
   by a byte-identical Pyodide copy of `pipeline.py`; the engine renders live.
-- **Standalone CLI** (`braincel render`): `pipeline.py` runs in CPython
+- **Standalone CLI** (`comic render`): `pipeline.py` runs in CPython
   in-process, geometry is written as arrays, and the *same* engine is driven
   headlessly in Playwright/Chromium to screenshot a PNG.
-- **Python** (`braincel.render.render_to_png`): the function the CLI calls.
+- **Python** (`comic.render.render_to_png`): the function the CLI calls.
 
 > This document supersedes the original PyVista/VTK prototype AND the later
 > GLB-per-overlay `overlays.py`/`export.py`-overlay path. Per-upload meshing now
@@ -20,7 +20,7 @@ Three.js viewer under `braincel/web/`). The same files run three ways:
 ## 1. Data sources & the one-time bake — `bake.py`
 
 Fixed `fsaverage` assets are baked once (needs the `[bake]` extra: mne/trimesh/cmap)
-into `braincel/web/data/`:
+into `comic/web/data/`:
 
 - Cortical **pial** + **inflated** surface GLBs per hemisphere (curvature in the
   vertex-colour red channel — currently UNUSED by the glass material).

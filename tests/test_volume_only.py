@@ -8,10 +8,10 @@ path, M7) — meshed in the map's own space with no anatomical classification.
 import json
 from pathlib import Path
 
-from braincel import pipeline as P
+from comic import pipeline as P
 
 ROOT = Path(__file__).resolve().parent.parent
-DATA = ROOT / "braincel" / "web" / "data"
+DATA = ROOT / "comic" / "web" / "data"
 SPHERE = str(ROOT / "test_sphere.nii.gz")
 
 
@@ -39,7 +39,7 @@ def test_classify_true_never_produces_a_volume_bucket():
 
 
 def test_render_template_none_inline():
-    import braincel as gb
+    import comic as gb
     fig = gb.render(SPHERE, views=["dorsal"], grid="1x1", template="none",
                     width=300, height=300, scale=1, colorbar=False)
     assert fig.png[:8] == b"\x89PNG\r\n\x1a\n"
@@ -51,7 +51,7 @@ def test_cli_no_template_end_to_end(tmp_path):
     import sys
     out = tmp_path / "vol.png"
     r = subprocess.run(
-        [sys.executable, "-m", "braincel.core", "render", SPHERE, "-o", str(out),
+        [sys.executable, "-m", "comic.core", "render", SPHERE, "-o", str(out),
          "--no-template", "--grid", "1x1", "--views", "dorsal",
          "--width", "300", "--height", "300", "--scale", "1", "--no-colorbar"],
         capture_output=True, text=True)

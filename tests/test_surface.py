@@ -5,10 +5,10 @@ from pathlib import Path
 
 import numpy as np
 
-from braincel import pipeline as P
+from comic import pipeline as P
 
 ROOT = Path(__file__).resolve().parent.parent
-DATA = ROOT / "braincel" / "web" / "data"
+DATA = ROOT / "comic" / "web" / "data"
 DEF = DATA / "defaults"
 
 
@@ -41,7 +41,7 @@ def test_no_surface_when_not_requested():
 
 
 def test_surface_render_is_nonblank_and_differs_from_voxel():
-    import braincel as gb
+    import comic as gb
     kw = dict(views=["left_lateral"], grid="1x1", width=400, height=320, scale=1, colorbar=False)
     surf = gb.render(str(DEF / "faces.nii.gz"), voxels="surface", **kw)
     vox = gb.render(str(DEF / "faces.nii.gz"), voxels="smooth", **kw)
