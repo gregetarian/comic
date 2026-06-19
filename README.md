@@ -241,7 +241,7 @@ comic/
                    numpy/scipy/scikit-image/nibabel — the SAME file runs in CPython
                    (CLI) and in Pyodide (browser, a byte-identical copy in web/pyodide/).
   arrays.py        write a processed overlay as one .bin + bufferLayout (for the CLI render)
-  core.py          GlassBrain (template loader for the bake) + `open`/`bake`/`render` CLI
+  core.py          Comic (template loader for the bake) + `open`/`bake`/`render` CLI
   render.py        headless layout builder + Playwright PNG renderer (in-process pipeline)
   bake.py          one-time fsaverage template bake → web/data/ (needs the [bake] extra)
   surfaces.py / subcortical.py / colormaps.py / export.py   bake-only (mne/trimesh/cmap)

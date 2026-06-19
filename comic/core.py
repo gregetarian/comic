@@ -1,4 +1,4 @@
-"""GlassBrain — loads the fsaverage template (cortex + subcortical + aseg) for the
+"""Comic — loads the fsaverage template (cortex + subcortical + aseg) for the
 one-time asset bake (see comic/bake.py). Per-upload meshing lives in
 comic/pipeline.py; the interactive viewer is served by `open_viewer`."""
 
@@ -6,7 +6,7 @@ import json
 import numpy as np
 from pathlib import Path
 
-# NOTE: surfaces/subcortical (which import trimesh + mne) are imported LAZILY inside GlassBrain
+# NOTE: surfaces/subcortical (which import trimesh + mne) are imported LAZILY inside Comic
 # so `import comic` and the [render]/notebook paths do NOT require the [bake] extra.
 
 WEB_DIR = Path(__file__).parent / 'web'   # the single static viewer (served by `open`)
@@ -71,7 +71,7 @@ def open_viewer(port=8421):
         print("\nStopped.")
 
 
-class GlassBrain:
+class Comic:
     """Loads the fsaverage template (cortex + subcortical + aseg) for the one-time asset bake.
     Display config (colormap, layout, cluster threshold) lives in the viewer
     (config-schema.js / render-config.json), not here."""

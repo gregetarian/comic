@@ -25,7 +25,7 @@ DATA = WEB / "data"
 
 
 def bake(demo_nifti=None):
-    from .core import GlassBrain
+    from .core import Comic
     from .surfaces import inflate_surfaces
     from .export import export_mesh, export_mesh_with_scalars, write_scene_json
     from .colormaps import export_colormaps
@@ -35,7 +35,7 @@ def bake(demo_nifti=None):
     (DATA / "subcortical").mkdir(exist_ok=True)
 
     print("Loading fsaverage template (surfaces + subcortical via mne)…")
-    gb = GlassBrain(include_subcortical=True)
+    gb = Comic(include_subcortical=True)
 
     # cortex: pial + slightly-inflated, curvature encoded in vertex-colour red
     inflated = inflate_surfaces(gb.surfaces)

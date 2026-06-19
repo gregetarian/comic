@@ -175,8 +175,8 @@ Copy-CLI emits placeholder filenames (`<map1.nii.gz>`).
   inherits the corrected stacking.*
 - **cluster-min decision:** keep DEFAULTS=105 and `-k` default=105; make `bake.py`'s demo
   `clusterMin:0` an explicit recorded choice, not a schema default. (mm³ units escape hatch arrives in M2.)
-- **Hygiene:** fix the regressed `examples/*.py` (they call removed `GlassBrain.show()/.add_overlay()`);
-  delete dead `GlassBrain` ctor params; fix the stale `cli-export.js` "cannot composite" note;
+- **Hygiene:** fix the regressed `examples/*.py` (they call removed `Comic.show()/.add_overlay()`);
+  delete dead `Comic` ctor params; fix the stale `cli-export.js` "cannot composite" note;
   **rewrite `METHODS.md`** to the current `pipeline.py`/`arrays.py`/`web/` architecture.
 - **speedup:** `render.py` `wait_until` `networkidle`→`domcontentloaded` (the `__GB_DONE__`
   gate already handles readiness; ~0.4–1.0s/render).
