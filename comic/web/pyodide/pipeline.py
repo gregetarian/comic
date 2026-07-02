@@ -21,6 +21,7 @@ Entry points:
 import gzip
 import json
 import os
+import warnings
 
 import numpy as np
 import nibabel as nib
@@ -115,6 +116,62 @@ def build_surface_projection(data, overlay_affine, depth=SURFACE_DEPTH):
     return out
 
 
+# --- MNI152 sanity envelope (scientific-correctness guard) --------------------------------
+# The whole pipeline assumes the uploaded stat map lives in MNI152 world space: geometry is
+# placed by the map's own affine, and every voxel is aseg-classified by mapping its MNI world
+# coordinate into the bundled MNI segmentation. If the map is NOT in MNI, placement and region
+# labels are silently wrong. These bounds describe what a whole-brain MNI152 volume looks like;
+# _warn_if_not_mni only WARNS (never crashes) on a CLEAR mismatch, and is deliberately permissive
+# so real (near-)MNI stat maps never false-alarm.
+MNI_VOX_MM_RANGE = (0.3, 6.0)        # plausible (near-isotropic) voxel size, mm
+MNI_MAX_EXTENT_MM = 350.0            # longest world axis of a head-sized field of view, mm
+MNI_WHOLEBRAIN_EXTENT_MM = 130.0     # >= this on the longest axis => expect the AC well inside
+MNI_ORIGIN_INTERIOR_FRAC = 0.10      # AC (world origin) must sit in the central (1 - 2*frac) band
+
+
+def _warn_if_not_mni(affine, shape):
+    """Loudly warn (never crash) when a loaded volume is clearly NOT in MNI152 space.
+
+    Placement and aseg-region classification both assume MNI152; a wrong space makes them
+    silently incorrect. We only flag unambiguous mismatches (odd voxel size / units, a FOV far
+    too large for a head, or the MNI origin sitting at a volume edge rather than inside), so the
+    bundled MNI fixtures and any real MNI stat map pass without a warning. Near-MNI data still
+    renders — hence a warning, not an exception."""
+    reasons = []
+    vox = np.sqrt((affine[:3, :3] ** 2).sum(axis=0))
+    lo_mm, hi_mm = MNI_VOX_MM_RANGE
+    if vox.min() < lo_mm or vox.max() > hi_mm:
+        reasons.append(f"voxel size {np.round(vox, 3).tolist()} mm is outside the plausible "
+                       f"[{lo_mm}, {hi_mm}] mm MNI range (wrong units?)")
+    # World bounding box over the 8 voxel-grid corners (orientation/flip agnostic).
+    d = np.asarray(shape[:3], float)
+    corners = np.array([[i * d[0], j * d[1], k * d[2], 1.0]
+                        for i in (0, 1) for j in (0, 1) for k in (0, 1)])
+    world = (affine @ corners.T).T[:, :3]
+    wmin, wmax = world.min(0), world.max(0)
+    extent = wmax - wmin
+    if extent.max() > MNI_MAX_EXTENT_MM:
+        reasons.append(f"field of view {np.round(extent, 1).tolist()} mm is larger than a head "
+                       f"(> {MNI_MAX_EXTENT_MM} mm); not a brain-sized volume")
+    if extent.max() >= MNI_WHOLEBRAIN_EXTENT_MM:
+        # In MNI152 the world origin IS the anterior commissure, which sits comfortably inside a
+        # whole-brain volume. At/beyond an edge => the map was never MNI-normalised (e.g. a native
+        # scanner grid with the origin at a corner).
+        span = np.where(extent > 0, extent, 1.0)
+        frac = (0.0 - wmin) / span                    # origin's fractional position per axis
+        f = MNI_ORIGIN_INTERIOR_FRAC
+        if np.any(frac < f) or np.any(frac > 1.0 - f):
+            reasons.append(f"the MNI origin (anterior commissure) sits at a volume edge "
+                           f"(fractional position {np.round(frac, 2).tolist()}); the brain is not "
+                           f"centred where MNI152 expects it")
+    if reasons:
+        msg = ("Uploaded volume does not look like MNI152 space: " + "; ".join(reasons)
+               + ". Rendering anyway, but spatial placement and aseg region classification "
+                 "may be WRONG.")
+        warnings.warn(msg, stacklevel=2)
+        print("WARNING:", msg)
+
+
 def load_stat_map(src, filename=None, threshold=2.3):
     """Load a NIfTI from a path (CLI) or raw bytes (browser upload) and threshold.
 
@@ -138,6 +195,7 @@ def load_stat_map(src, filename=None, threshold=2.3):
         raise ValueError(
             f"Expected a 3D statistical map, got shape {np.asarray(img.dataobj).shape}. "
             "Upload a 3D stat map in MNI152 space (not a 4D timeseries).")
+    _warn_if_not_mni(img.affine, data.shape)
     # NaN/inf in a masked map mean "no data here" — zero them so they neither mesh nor
     # poison the colour limit. np.abs(nan) < threshold is False, so without this they would
     # survive thresholding and make np.percentile(maxAbsValue) NaN, breaking the whole overlay.
@@ -243,6 +301,16 @@ def classify_overlay_voxels(data, overlay_affine, aseg_data, aseg_affine,
     return masks
 
 
+# Memory guard for the per-component 0.5 mm upsample. zoom = vox / target_mm, so at 2 mm each
+# component's bounding box grows ~64x in voxel count before Gaussian smoothing + marching cubes.
+# A pathologically large low-threshold component (e.g. a near-whole-brain blob) can allocate
+# several GB and OOM the browser tab (Pyodide/WASM). Cap the upsampled voxel count per component
+# and coarsen that one component's resolution when it would exceed the budget. Normal activation
+# clusters upsample to a few million voxels (the bundled fixtures peak at ~5.7M), an order of
+# magnitude under this cap, so their zoom is untouched and their geometry is byte-identical.
+SMOOTH_MAX_UPSAMPLED_VOXELS = 40_000_000   # ~160 MB per float32 array; keeps the working set ~<1 GB
+
+
 def build_smooth_mesh(mask, signed_data, affine, sigma_mm=1.0, target_mm=0.5,
                       pad=2, cluster_data=None):
     """Per-component upsample + Gaussian smooth + marching cubes -> world mesh."""
@@ -257,16 +325,29 @@ def build_smooth_mesh(mask, signed_data, affine, sigma_mm=1.0, target_mm=0.5,
         lo = np.maximum(idx.min(0) - pad, 0)
         hi = np.minimum(idx.max(0) + pad + 1, np.array(mask.shape))
         sl = tuple(slice(a, b) for a, b in zip(lo, hi))
+        # Per-component resolution: coarsen only when this component's upsample blows the budget,
+        # otherwise use the exact default zoom/sigma so normal output stays byte-identical.
+        c_zoom, c_sigma_vox = zoom, sigma_vox
+        up_count = float(np.prod((hi - lo) * c_zoom))
+        if up_count > SMOOTH_MAX_UPSAMPLED_VOXELS:
+            scale = (SMOOTH_MAX_UPSAMPLED_VOXELS / up_count) ** (1.0 / 3.0)   # <1, isotropic coarsen
+            c_zoom = zoom * scale
+            c_sigma_vox = sigma_vox * scale
+            msg = (f"smooth mesh: a component would upsample to {up_count / 1e6:.0f}M voxels "
+                   f"(> {SMOOTH_MAX_UPSAMPLED_VOXELS / 1e6:.0f}M cap); coarsening its smoothing "
+                   f"resolution to ~{target_mm / scale:.2f} mm (blockier) to stay within memory.")
+            warnings.warn(msg, stacklevel=2)
+            print("WARNING:", msg)
         sub_occ = comp[sl].astype(np.float32)
         sub_val = signed_data[sl].astype(np.float32)
         zero = sub_val == 0
         if zero.any() and (~zero).any():
             ind = ndimage.distance_transform_edt(zero, return_distances=False, return_indices=True)
             sub_val = sub_val[tuple(ind)]
-        occ = ndimage.gaussian_filter(ndimage.zoom(sub_occ, zoom, order=1), sigma_vox)
+        occ = ndimage.gaussian_filter(ndimage.zoom(sub_occ, c_zoom, order=1), c_sigma_vox)
         if occ.max() < 0.5:
             continue
-        val = ndimage.zoom(sub_val, zoom, order=1)
+        val = ndimage.zoom(sub_val, c_zoom, order=1)
         verts, faces, _, _ = measure.marching_cubes(occ, level=0.5)
         vert_vals = ndimage.map_coordinates(val, verts.T, order=1)
         if cluster_data is not None:
@@ -275,9 +356,9 @@ def build_smooth_mesh(mask, signed_data, affine, sigma_mm=1.0, target_mm=0.5,
             if czero.any() and (~czero).any():
                 ind = ndimage.distance_transform_edt(czero, return_distances=False, return_indices=True)
                 sub_clu = sub_clu[tuple(ind)]
-            clu = ndimage.zoom(sub_clu, zoom, order=0)
+            clu = ndimage.zoom(sub_clu, c_zoom, order=0)
             all_clu.append(ndimage.map_coordinates(clu, verts.T, order=0).astype(np.float32))
-        native_idx = lo[np.newaxis, :] + verts / zoom[np.newaxis, :]
+        native_idx = lo[np.newaxis, :] + verts / c_zoom[np.newaxis, :]
         homo = np.column_stack([native_idx, np.ones(len(native_idx))])
         world = (affine @ homo.T).T[:, :3]
         all_v.append(world.astype(np.float32))
