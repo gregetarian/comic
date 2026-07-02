@@ -1,7 +1,6 @@
 """Export meshes to glTF/GLB and write scene.json manifest."""
 
 import json
-import struct
 import numpy as np
 import trimesh
 from pathlib import Path
@@ -69,37 +68,6 @@ def export_mesh_with_scalars(mesh, path, scalar_name='curvature'):
         mesh.visual = trimesh.visual.ColorVisuals(mesh=mesh, vertex_colors=colors)
 
     mesh.export(str(path), file_type='glb')
-
-
-def export_volume(volume_info, bin_path, json_path):
-    """Write volume data as raw float32 binary + JSON sidecar.
-
-    Parameters
-    ----------
-    volume_info : dict
-        From overlays.prepare_volume_texture.
-    bin_path : str or Path
-    json_path : str or Path
-    """
-    bin_path = Path(bin_path)
-    json_path = Path(json_path)
-    bin_path.parent.mkdir(parents=True, exist_ok=True)
-
-    # Write raw float32 binary (C-order)
-    data = volume_info['data'].flatten(order='C')
-    with open(bin_path, 'wb') as f:
-        f.write(data.tobytes())
-
-    # Write JSON sidecar
-    meta = {
-        'dims': volume_info['dims'],
-        'affine': volume_info['affine'],
-        'clim': volume_info['clim'],
-        'dtype': 'float32',
-        'order': 'C',
-    }
-    with open(json_path, 'w') as f:
-        json.dump(meta, f, indent=2)
 
 
 def write_scene_json(out_dir, cortex_meshes=None, subcortical_meshes=None,
