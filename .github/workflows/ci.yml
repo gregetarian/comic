@@ -1,0 +1,102 @@
+# Fast, required CI: lint + the pure (no-browser) pytest suite + the JS core tests.
+#
+# The headless renderer (Playwright/Chromium, golden images) is swiftshader-flaky and slow
+# — those tests live in the separate `render` job below, which is continue-on-error and MUST
+# NOT block merges. The `python`/`node` jobs are the ones to mark Required in branch protection.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  # ---- Fast, required: lint + pure pytest (no headless browser) -------------------------
+  python:
+    name: python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install package (render + dev extras)
+        run: pip install -e ".[render,dev]"
+      - name: Lint
+        run: ruff check .
+      # Deselect every test that imports playwright or drives a headless render (RenderSession /
+      # render_to_png / render_batch / render_orbit / render_sweep / gb.render / gb.Scene / the
+      # CLI `render` subcommand), plus test_custom_template.py (imports trimesh, a [bake]-only dep
+      # not installed here). What remains is pure-Python: parity, spec, arrays, invariant guards.
+      - name: Test (pure; no headless browser)
+        run: >
+          pytest -q
+          --ignore=tests/integration_test.py
+          --ignore=tests/test_animation.py
+          --ignore=tests/test_cli_per_overlay.py
+          --ignore=tests/test_custom_template.py
+          --ignore=tests/test_features_m10.py
+          --ignore=tests/test_figure_api.py
+          --ignore=tests/test_free_canvas.py
+          --ignore=tests/test_golden_renders.py
+          --ignore=tests/test_overlay_controls.py
+          --ignore=tests/test_region_report.py
+          --ignore=tests/test_render_session.py
+          --ignore=tests/test_smoothing.py
+          --ignore=tests/test_style_presets.py
+          --ignore=tests/test_surface.py
+          --ignore=tests/test_ui_defaults.py
+          --ignore=tests/test_view_transform.py
+          --ignore=tests/test_volume_only.py
+
+  # ---- Fast, required: the browser-core JS unit tests (node's built-in test runner) ------
+  node:
+    name: node
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Test JS core
+        run: node --test comic/web/core/
+
+  # ---- Optional, non-blocking: the slow/flaky headless renders -------------------------
+  # continue-on-error keeps this off the merge gate. It runs exactly the files deselected above
+  # (the [bake] extra is added so test_custom_template.py's trimesh import resolves).
+  render:
+    name: render (optional, non-blocking)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install package (render + dev + bake extras)
+        run: pip install -e ".[render,dev,bake]"
+      - name: Install Chromium
+        run: python -m playwright install --with-deps chromium
+      - name: Test (headless renders — flaky, non-blocking)
+        run: >
+          pytest -q
+          tests/integration_test.py
+          tests/test_animation.py
+          tests/test_cli_per_overlay.py
+          tests/test_custom_template.py
+          tests/test_features_m10.py
+          tests/test_figure_api.py
+          tests/test_free_canvas.py
+          tests/test_golden_renders.py
+          tests/test_overlay_controls.py
+          tests/test_region_report.py
+          tests/test_render_session.py
+          tests/test_smoothing.py
+          tests/test_style_presets.py
+          tests/test_surface.py
+          tests/test_ui_defaults.py
+          tests/test_view_transform.py
+          tests/test_volume_only.py
