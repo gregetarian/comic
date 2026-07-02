@@ -1,0 +1,17 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: COMIC
+authors:
+  - family-names: Cooper
+    given-names: Greg
+    email: gregcooper95@gmail.com
+    orcid: "https://orcid.org/0000-0000-0000-0000"
+repository-code: "https://github.com/gregetarian/comic"
+license: MIT
+version: 0.1.0
+keywords:
+  - neuroimaging
+  - fmri
+  - brain
+  - visualization
+  - glass-brain

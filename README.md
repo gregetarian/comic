@@ -44,7 +44,7 @@ view pixel-for-pixel.
   figure headlessly, pixel-faithful.
 - **Statistical controls** — voxelwise threshold, **cluster-extent threshold**
   (drop clusters below *k* voxels), positive-only.
-- **Faithful colour** — all ~150 matplotlib colormaps (every continuous map +
+- **Faithful colour** — all ~156 matplotlib colormaps (every continuous map +
   its `_r` reverse, RdPu/PuRd and the rest), auto sequential-vs-diverging
   selection, and a positive-data washout guard; an on-screen colorbar (one per
   overlay) runs the *same* shader pipeline so it matches the voxels. Step through
