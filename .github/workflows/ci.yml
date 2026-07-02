@@ -62,7 +62,7 @@ jobs:
         with:
           node-version: "20"
       - name: Test JS core
-        run: node --test comic/web/core/
+        run: node --test comic/web/core/*.test.js
 
   # ---- Optional, non-blocking: the slow/flaky headless renders -------------------------
   # continue-on-error keeps this off the merge gate. It runs exactly the files deselected above
