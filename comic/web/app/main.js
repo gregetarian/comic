@@ -25,21 +25,21 @@ import { buildRenderText, isFreeFigure, buildSpec } from '../controls/cli-export
 import { createFreeCanvasEditor } from '../controls/freecanvas.js';
 import { exportSpinGif } from '../controls/gif-export.js';
 import { processNifti } from '../pyodide/bootstrap.js';
+import { createSessionState } from './state.js';
 
 const DATA = 'data/';
 
-// --- session state (engine + colorbar are recreated on every rebuild) ---
+// --- session state ---
+// Session flags + the current preset live in ONE object (see app/state.js): state.isHeadless,
+// state.colorbarsVisible, state.demoLoaded, state.viewInitialized, state.panelZoomUsed, state.preset.
+// The render-pipeline HANDLES below stay module-level for now (engine + colorbar are recreated on
+// every rebuild); folding them into `state` is a separate, browser-verified follow-up.
+const state = createSessionState();
 let renderer, colormaps, baseScene, config, engine, colorbar;
 let overlays = [];   // [{ meta, meshObjs: [{ mesh, meta, values, aabb }, ...] }]
 let zoomEls = [];
 let fcEditor = null;   // Free Canvas editor overlay (only in layout.mode === 'free')
 let container, canvas;
-let preset;            // current layout preset name (for the CLI-command export)
-let panelZoomUsed = false;  // the +/- buttons have no CLI equivalent; flag for the export note
-let colorbarsVisible = false;  // live colorbars OFF by default; the Colorbar button (or ✕) toggles them on
-let demoLoaded = false;        // the Neurosynth Demo has loaded once (guards ?demo=1 + the Demo button against stacking duplicates)
-let viewInitialized = false;   // the whole-canvas view has been fit-to-viewport once (then it's user-controlled)
-let isHeadless = false;       // ?headless=1: render-to-PNG mode (no controls, no ✕, sets __GB_DONE__)
 
 async function fetchJSON(url, fb) {
     try { const r = await fetch(url); if (!r.ok) throw 0; return await r.json(); }
@@ -68,35 +68,35 @@ async function main() {
     canvas = document.getElementById('canvas');
 
     const params = new URLSearchParams(location.search);
-    isHeadless = params.get('headless') === '1';
+    state.isHeadless = params.get('headless') === '1';
     // Colorbars are off by default in the interactive viewer, but the headless/CLI render
     // path governs them via config.render.colorbar (render.py screenshots the .colorbar
     // element), so keep them present headlessly.
-    if (isHeadless) colorbarsVisible = true;
+    if (state.isHeadless) state.colorbarsVisible = true;
 
     // Config: ?config=… (render dir, headless) else data/render-config.json (static site).
     const cfgUrl = params.get('config') || (DATA + 'render-config.json');
-    const rc = isHeadless ? await fetchJSONStrict(cfgUrl)
+    const rc = state.isHeadless ? await fetchJSONStrict(cfgUrl)
                           : await fetchJSON(cfgUrl, { preset: 'freeDefault', style: {} });
-    preset = params.get('preset') || rc.preset || 'freeDefault';
-    config = (rc.layout && !params.get('preset')) ? resolveConfig(rc) : resolveConfig(preset, { style: rc.style || {} });
+    state.preset = params.get('preset') || rc.preset || 'freeDefault';
+    config = (rc.layout && !params.get('preset')) ? resolveConfig(rc) : resolveConfig(state.preset, { style: rc.style || {} });
 
-    colormaps = loadColormaps(isHeadless ? await fetchJSONStrict(DATA + 'colormaps.json')
+    colormaps = loadColormaps(state.isHeadless ? await fetchJSONStrict(DATA + 'colormaps.json')
                                          : await fetchJSON(DATA + 'colormaps.json', { n: 2, maps: {} }));
-    if (isHeadless && colormaps.size === 0) throw new Error('colormaps.json contained no colormaps');
+    if (state.isHeadless && colormaps.size === 0) throw new Error('colormaps.json contained no colormaps');
     baseScene = await loadBaseScene(DATA);
 
     // preserveDrawingBuffer for the headless screenshot path; CSS-driven pixelRatio interactively.
-    renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, preserveDrawingBuffer: isHeadless });
-    renderer.setPixelRatio(isHeadless ? (config.render.pixelRatio || 2) : window.devicePixelRatio);
+    renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, preserveDrawingBuffer: state.isHeadless });
+    renderer.setPixelRatio(state.isHeadless ? (config.render.pixelRatio || 2) : window.devicePixelRatio);
     renderer.setSize(canvas.clientWidth || 1, canvas.clientHeight || 1, false);
 
-    if (isHeadless) { await runHeadless(); return; }
+    if (state.isHeadless) { await runHeadless(); return; }
 
     // ---- interactive ----
     document.body.classList.toggle('nobar', config.render.colorbar === false);
     bindGlobalControls({
-        config, colormaps, preset,
+        config, colormaps, preset: state.preset,
         getEngine: () => engine,
         onUpload: handleUpload,
         onPreset: setPreset,
@@ -105,14 +105,14 @@ async function main() {
     document.getElementById('c-save-brain').addEventListener('click', saveBrain);
     document.getElementById('c-save-bars').addEventListener('click', saveBars);
     document.getElementById('c-gif')?.addEventListener('click', exportGif);
-    document.getElementById('c-colorbar').addEventListener('click', () => setColorbarVisible(!colorbarsVisible));
+    document.getElementById('c-colorbar').addEventListener('click', () => setColorbarVisible(!state.colorbarsVisible));
     document.getElementById('c-cli').addEventListener('click', copyCliCommand);
     // Demo: load the example Neurosynth maps on demand. Disable on click; loadNeurosynthDemo is
     // idempotent (demoLoaded guard), so a second click — or ?demo=1 then a click — can't stack dupes.
     const demoBtn = document.getElementById('c-demo');
     demoBtn.addEventListener('click', () => {
         demoBtn.disabled = true;
-        loadNeurosynthDemo().catch((e) => { console.warn('demo load failed:', e); demoLoaded = false; demoBtn.disabled = false; });
+        loadNeurosynthDemo().catch((e) => { console.warn('demo load failed:', e); state.demoLoaded = false; demoBtn.disabled = false; });
     });
     // Viewer-wide drag-and-drop upload (drop a NIfTI anywhere on the canvas).
     const viewerEl = document.getElementById('viewer');
@@ -239,8 +239,8 @@ async function loadBakedFixture() {
  *  user upload (so the result is identical to dragging them in). The first one boots
  *  Pyodide (~30 MB, once). Falls back to the pre-baked overlay if the manifest is missing. */
 async function loadNeurosynthDemo() {
-    if (demoLoaded) return;     // idempotent: ?demo=1 + the Demo button must never stack duplicate overlays
-    demoLoaded = true;
+    if (state.demoLoaded) return;     // idempotent: ?demo=1 + the Demo button must never stack duplicate overlays
+    state.demoLoaded = true;
     const man = await fetchJSON(DATA + 'defaults/manifest.json', null);
     if (!man || !Array.isArray(man.overlays) || !man.overlays.length) return loadBakedFixture();
     const note = 'First load fetches the ~30 MB scientific stack once, then meshes the maps.';
@@ -349,7 +349,7 @@ function reorderOverlays(from, to) {
  *  'freeCanvas' is special: it bakes the CURRENT panels' on-screen rects into free `place`
  *  fractions (so the switch is visually seamless) and flips mode to 'free'. */
 function setPreset(name) {
-    preset = name;
+    state.preset = name;
     // Bake from DESIGN rects + the design size (view-transform-independent), so switching
     // to Free Canvas preserves the fixed layout regardless of the current zoom/pan.
     const v = engine.getView ? engine.getView() : { W0: canvas.clientWidth || 1, H0: canvas.clientHeight || 1 };
@@ -409,7 +409,7 @@ function rebuild() {
     // carried-over view is centred/scaled for the old size and would overflow. The very
     // first fit happens in fit() once the canvas has its real (post-layout) size. Headless
     // keeps the default s=1/centred (design size = render size) so renders are byte-identical.
-    if (!isHeadless && viewInitialized) {
+    if (!state.isHeadless && state.viewInitialized) {
         const nv = engine.getView();
         if (prevView && prevView.W0 === nv.W0 && prevView.H0 === nv.H0)
             engine.setView({ s: prevView.s, cx: prevView.cx, cy: prevView.cy });
@@ -420,15 +420,15 @@ function rebuild() {
     // Colorbar: remove the previous one, recreate for the new overlay set (unless the
     // user has hidden it via ✕). The ✕ calls setColorbarVisible(false).
     if (colorbar) colorbar.el.remove();
-    const showColorbar = config.render.colorbar !== false && overlays.length > 0 && colorbarsVisible;
+    const showColorbar = config.render.colorbar !== false && overlays.length > 0 && state.colorbarsVisible;
     colorbar = showColorbar
-        ? createColorbar(container, { engine, config, colormaps, onHide: isHeadless ? undefined : (() => setColorbarVisible(false)) })
+        ? createColorbar(container, { engine, config, colormaps, onHide: state.isHeadless ? undefined : (() => setColorbarVisible(false)) })
         : null;
     document.body.classList.toggle('nobar', !colorbar);
 
     // Interactive-only chrome (control rows, the Colorbar toggle state, hover zoom buttons).
-    if (!isHeadless) {
-        const tgl = document.getElementById('c-colorbar'); if (tgl) tgl.classList.toggle('active', colorbarsVisible);
+    if (!state.isHeadless) {
+        const tgl = document.getElementById('c-colorbar'); if (tgl) tgl.classList.toggle('active', state.colorbarsVisible);
         buildOverlayRows({ engine, config, colormaps, onRemove: removeOverlay, onSurface: setOverlaySurface, onReorder: reorderOverlays });
         if (config.layout.mode === 'free') {
             // Free Canvas: the per-panel editor frames replace the hover +/- zoom.
@@ -449,7 +449,7 @@ function rebuild() {
 /** Show/hide the live colorbars. Hiding sets the strip to 0 so the brains reclaim the
  *  full canvas height (no squash); showing recreates the bars for the current overlays. */
 function setColorbarVisible(v) {
-    colorbarsVisible = v;
+    state.colorbarsVisible = v;
     const tgl = document.getElementById('c-colorbar'); if (tgl) tgl.classList.toggle('active', v);
     if (v && !colorbar && overlays.length) {
         colorbar = createColorbar(container, { engine, config, colormaps, onHide: () => setColorbarVisible(false) });
@@ -500,8 +500,8 @@ function rebuildPanelZoom() {
         el.className = 'panel-zoom';
         const plus = document.createElement('button'); plus.textContent = '+'; plus.title = 'Zoom in';
         const minus = document.createElement('button'); minus.textContent = '–'; minus.title = 'Zoom out';
-        plus.addEventListener('click', (e) => { e.stopPropagation(); panelZoomUsed = true; engine.zoomPanel(i, 1.15); });
-        minus.addEventListener('click', (e) => { e.stopPropagation(); panelZoomUsed = true; engine.zoomPanel(i, 1 / 1.15); });
+        plus.addEventListener('click', (e) => { e.stopPropagation(); state.panelZoomUsed = true; engine.zoomPanel(i, 1.15); });
+        minus.addEventListener('click', (e) => { e.stopPropagation(); state.panelZoomUsed = true; engine.zoomPanel(i, 1 / 1.15); });
         el.append(plus, minus);
         container.appendChild(el);
         return el;
@@ -532,7 +532,7 @@ function fit() {
         // Fit-to-viewport ONCE, now that the canvas has its real (post-layout) size. NEVER
         // in headless (rebuild() calls fit() there too) — the CLI render keeps s=1 (identity)
         // so it stays byte-identical to the pre-view-transform output.
-        if (!isHeadless && !viewInitialized) { engine.fitView(); viewInitialized = true; }
+        if (!state.isHeadless && !state.viewInitialized) { engine.fitView(); state.viewInitialized = true; }
         placeZoom(); fcEditor?.reposition();
     }
 }
@@ -589,7 +589,7 @@ async function copyCliCommand() {
     // M3: capture the live whole-canvas pan/zoom into the config so buildSpec/figure.json
     // round-trips it (identity by default → existing figures unchanged).
     if (engine && engine.getView) { const v = engine.getView(); config.layout.view = { s: v.s, cx: v.cx, cy: v.cy }; }
-    const text = buildRenderText({ config, overlays, preset, colormaps, panelZoomUsed });
+    const text = buildRenderText({ config, overlays, preset: state.preset, colormaps, panelZoomUsed: state.panelZoomUsed });
     const flash = (m) => { btn.textContent = m; setTimeout(() => { btn.textContent = label; }, 1600); };
     console.log(text);
     // For a Free Canvas figure, also hand the user figure.json (the command needs it).

@@ -13,6 +13,8 @@
  */
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { hemiOfCategory, categoryOfStructure } from '../core/mesh-meta.js';
+import { asF32, asU32, sliceBuffers } from '../core/buffers.js';
 
 const gltfLoader = new GLTFLoader();
 const loadGLB = (url) => new Promise((res, rej) => gltfLoader.load(url, res, undefined, rej));
@@ -21,19 +23,6 @@ function firstMesh(obj) {
     if (obj.isMesh) return obj;
     for (const c of obj.children) { const m = firstMesh(c); if (m) return m; }
     return null;
-}
-
-function hemiOfCategory(cat) {
-    if (cat.endsWith('_l') || cat === 'lh_cortex') return 'lh';
-    if (cat.endsWith('_r') || cat === 'rh_cortex') return 'rh';
-    return 'mid'; // brainstem
-}
-function categoryOfStructure(name) {
-    const cereb = name.includes('Cerebellum');
-    if (name === 'Brainstem') return 'brainstem';
-    if (name.startsWith('L-')) return cereb ? 'cereb_l' : 'subcort_l';
-    if (name.startsWith('R-')) return cereb ? 'cereb_r' : 'subcort_r';
-    return 'brainstem';
 }
 
 function bboxOf(mesh) {
@@ -82,11 +71,6 @@ export async function loadBaseScene(base = 'data/') {
     return { meshes, manifest };
 }
 
-/** Float32/Uint32 view over a transferred byte buffer (copied to a 0-offset buffer
- *  so the typed-array alignment is always valid regardless of the source offset). */
-const asF32 = (u8) => new Float32Array(u8.slice().buffer);
-const asU32 = (u8) => new Uint32Array(u8.slice().buffer);
-
 /** Fetch a static overlay's `.bin` and slice it back into per-buffer Uint8Arrays via
  *  the meta's `bufferLayout` ([offset,length] per buffer index). Used for the baked
  *  demo (data/demo/) and for the CLI render (one overlay_<i>.bin) — the same arrays a
@@ -94,7 +78,7 @@ const asU32 = (u8) => new Uint32Array(u8.slice().buffer);
 export async function loadOverlayArrays(base, meta) {
     const file = meta.buffersFile || 'buffers.bin';
     const buf = await fetch(base + file).then((r) => r.arrayBuffer());
-    return meta.bufferLayout.map(([o, l]) => new Uint8Array(buf, o, l));
+    return sliceBuffers(buf, meta.bufferLayout);
 }
 
 /** Build one overlay's tagged THREE meshes from the Pyodide pipeline output.
