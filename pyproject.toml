@@ -8,7 +8,11 @@ requires-python = ">=3.9"
 authors = [{ name = "Greg Cooper", email = "gregcooper95@gmail.com" }]
 keywords = ["neuroimaging", "fmri", "brain", "visualization", "glass-brain", "fsaverage", "three.js"]
 classifiers = [
+    "Development Status :: 3 - Alpha",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.13",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Intended Audience :: Science/Research",
@@ -38,6 +42,14 @@ comic = "comic.core:cli"
 [project.urls]
 Homepage = "https://github.com/gregetarian/comic"
 Repository = "https://github.com/gregetarian/comic"
+
+[tool.pytest.ini_options]
+# The headless-render tests (Playwright/Chromium golden images) are slow and swiftshader-flaky;
+# CI deselects them by path (see .github/workflows/ci.yml). This registers a `slow` marker so
+# those tests can optionally be tagged `@pytest.mark.slow` and run with `-m "not slow"` locally.
+markers = [
+    "slow: launches a headless browser / golden render (flaky, excluded from required CI)",
+]
 
 [build-system]
 requires = ["setuptools>=68"]
