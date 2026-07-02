@@ -14,6 +14,7 @@ import { cameraBasis } from '../core/cameras.js';
 import { visible } from '../core/visibility.js';
 import { resolveColormap, colorizeValues, deriveMaxAbs } from '../core/colormap.js';
 import { overlayStyle } from '../core/config-schema.js';
+import { meshLayer, anatomyLayer } from '../core/mesh-meta.js';
 import { makeGlassMaterial, makeAnatomyMaterial, makeOpaqueAnatomyMaterial, makeVoxelMaterial, makeSurfaceMaterial, makeSharedVoxelUniforms } from './materials.js';
 import { OutlinePass, makeThresholdDepthMaterial, makePlainDepthMaterial } from './passes.js';
 
@@ -64,7 +65,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
     // pass: the cortex stays the sole occupant of layer 0's pass (its line-art unchanged), while the
     // subcortical structures are stroked on their own layer at anatomyWidthMul × the cortex width
     // (1.0 = uniform; <1 thins the densely-packed structures that merge under the depth-edge filter).
-    const ANATOMY_LAYER = N + 1;
+    const ANATOMY_LAYER = anatomyLayer(N);
 
     // --- per-overlay voxel materials + uniforms (overlay i → layer 1+i) ---
     const uniforms = [], voxelMats = [], surfaceMats = [];
@@ -88,15 +89,19 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
     }
 
     // --- place meshes, assign materials + layers + shadows ---
+    // Layer + renderOrder come from the shared scheme (core/mesh-meta): cortex→0,
+    // overlay i→1+i, subcortex shell→N+1; only the THREE material/shadow wiring stays here.
     for (const tm of sceneModel.meshes) {
         const m = tm.mesh;
-        if (tm.meta.role === 'cortex') { m.material = glassMat; m.renderOrder = 1; m.layers.set(0); }
-        else if (tm.meta.role === 'anatomy') { m.material = anatomyMat; m.renderOrder = 5; m.layers.set(ANATOMY_LAYER); m.receiveShadow = SH.enabled; }
+        const { layer, renderOrder } = meshLayer(tm.meta, N);
+        m.renderOrder = renderOrder;
+        m.layers.set(layer);
+        if (tm.meta.role === 'cortex') { m.material = glassMat; }
+        else if (tm.meta.role === 'anatomy') { m.material = anatomyMat; m.receiveShadow = SH.enabled; }
         else {
             const oi = tm.meta.overlay ?? 0;
             const surf = tm.meta.variant === 'surface';
             m.material = (surf ? surfaceMats[oi] : voxelMats[oi]) || voxelMats[0];
-            m.renderOrder = 15; m.layers.set(1 + oi);       // each overlay on its own layer
             m.castShadow = SH.enabled; m.receiveShadow = SH.enabled;
         }
         scene.add(m);
