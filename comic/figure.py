@@ -20,6 +20,7 @@ browser and the standalone CLI), all over the same config + RenderSession.
 import base64
 import copy
 import os
+import tempfile
 
 from .render import RenderSession, build_layout, to_volume_layout
 
@@ -116,6 +117,28 @@ class Figure:
         return html
 
 
+def _to_paths(items):
+    """Materialize each overlay input to a NIfTI path so the engine can load it.
+    Each item may be a path (str/PathLike), an in-memory nibabel image, or an
+    (array, affine) pair; images/arrays are written to a temp .nii.gz. Returns
+    (paths, tempfiles) so the caller can delete the temps after rendering."""
+    import numpy as np
+    import nibabel as nib
+    paths, tmp = [], []
+    for x in items:
+        if isinstance(x, (str, os.PathLike)):
+            paths.append(str(x))
+            continue
+        if isinstance(x, tuple) and len(x) == 2:          # (array, affine)
+            x = nib.Nifti1Image(np.asarray(x[0], dtype=np.float32), np.asarray(x[1]))
+        fd, name = tempfile.mkstemp(suffix=".nii.gz")     # a nibabel image
+        os.close(fd)
+        nib.save(x, name)
+        paths.append(name)
+        tmp.append(name)
+    return paths, tmp
+
+
 def _layout_from(layout, views, grid):
     if layout is not None:
         return layout
@@ -131,10 +154,15 @@ def render(nifti, *, out=None, layout=None, views=None, grid="2x4", style=None,
            width=1600, height=1000, scale=2, include_subcortical=True,
            background="#ffffff", background_alpha=1.0, crop="none", colorbar=True,
            template=None, session=None):
-    """Render a NIfTI (or list of NIfTIs) to a Figure. Per-overlay kwargs accept a scalar
-    (same for every overlay) or a list (one value per overlay). `template` is a custom template
-    dir (M9) or None. Pass an existing `session` (a RenderSession) to reuse one browser."""
-    n = 1 if isinstance(nifti, (str, os.PathLike)) else len(nifti)
+    """Render a NIfTI to a Figure. `nifti` may be a path, an in-memory nibabel image, or an
+    (array, affine) pair --- or a list of these for a multi-overlay figure. Per-overlay kwargs
+    accept a scalar (same for every overlay) or a list (one value per overlay). `template` is a
+    custom template dir (M9) or None. Pass an existing `session` (a RenderSession) to reuse one
+    browser."""
+    items = nifti if isinstance(nifti, list) else [nifti]
+    paths, _tmpfiles = _to_paths(items)
+    n = len(paths)
+    nifti = paths[0] if n == 1 else paths
     layout = _layout_from(layout, views, grid)
     built, bake_thr = build_style(n, base=style, cmap=(None if cmap == "auto" else cmap),
                                   colormapMode=colormapMode, gamma=gamma, clim=clim,
@@ -153,6 +181,8 @@ def render(nifti, *, out=None, layout=None, views=None, grid="2x4", style=None,
     finally:
         if session is None:
             sess.close()
+        for _p in _tmpfiles:            # clean up any temp NIfTIs written for in-memory inputs
+            os.unlink(_p)
     kind = "none" if is_none else ("custom" if template else "mni")
     config = {"template": {"kind": kind, "dir": (None if is_none else template), "space": "MNI152"},
               "layout": layout, "style": built,
