@@ -8,7 +8,6 @@ exact same code path the browser uses for an uploaded NIfTI. Used by the CLI ren
 so it feeds overlays as arrays (no GLB, no trimesh).
 """
 
-import json
 from pathlib import Path
 
 

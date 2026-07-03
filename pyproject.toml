@@ -67,3 +67,10 @@ comic = [
     "web/**/*.glb", "web/**/*.bin", "web/**/*.gz", "web/**/*.whl",
     "web/**/*.py", "web/**/*.nii.gz", "web/**/*.woff", "web/vendor/VERSION",
 ]
+
+# Lint for BUGS (pyflakes), not formatting. The codebase deliberately uses a compact
+# one-statement-per-line style (semicolons, `if x: y`, late/lazy imports, lambda aliases),
+# so ignore those stylistic rules; keep F + the meaningful E checks (undefined names,
+# comparisons, bare excepts, syntax).
+[tool.ruff.lint]
+ignore = ["E701", "E702", "E401", "E402", "E731"]
