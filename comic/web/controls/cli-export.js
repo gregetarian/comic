@@ -26,8 +26,8 @@ const PRESET_VIEWS = {
 const D = {
     cortexSurface: 'inflated', representation: 'smooth', gamma: 0.5,
     veilStrength: 0.66, veilK: 7.4, emissive: 1.0, specular: 0.0, shininess: 200,
-    directional: 0, ambient: 0, glassMaxOpacity: 0.0, outlineThreshold: 0.02,
-    edgeWidth: 1.9, colormapMode: 'auto',
+    directional: 0, ambient: 0, glassMaxOpacity: 0.0, outlineThreshold: 0.018,
+    edgeWidth: 1.9, colormapMode: 'auto', overVoxelOpacity: 0.4,
 };
 
 const fmt = (n) => { const v = +n; return Number.isInteger(v) ? String(v) : String(Math.round(v * 1e4) / 1e4); };
@@ -94,6 +94,8 @@ function commandFor(config, i, meta, colormaps, preset) {
     if (os.positiveOnly) extra.push('--positive-only');
     if (os.edges.enabled === false) extra.push('--no-edges');
     if (s.outline.enabled === false) extra.push('--no-outline');
+    if (s.outline.overVoxels === false) extra.push('--no-lines-over-voxels');
+    else if ((s.outline.overVoxelOpacity ?? 1) !== D.overVoxelOpacity) extra.push(`--lines-over-voxels --over-voxel-opacity ${fmt(s.outline.overVoxelOpacity ?? 1)}`);
     if (extra.length) parts.push(extra.join(' '));
 
     return parts.join(' \\\n  ');

@@ -57,7 +57,12 @@ export const DEFAULTS = {
         // Higher threshold = fewer/weaker cortex lines (less sulcal density). anatomyWidthMul
         // scales the SUBCORTEX outline (its own pass) relative to the cortex line — 1.0 = uniform
         // with the cortex; set <1 to thin the densely-packed subcortical structures if desired.
-        outline: { enabled: true, color: '#000000', width: 4.0, threshold: 0.02, anatomyWidthMul: 1.0 },
+        // overVoxels: when true the black cortex outline is drawn over the (opaque) voxels instead
+        // of being masked where a blob sits in front. overVoxelOpacity (0..1) is the stroke strength
+        // for the buried portion: 1 = full black on top, <1 = a muted/greyed stroke that blends with
+        // the voxel it crosses (so the line reads as passing under the blob). Default false = the
+        // depth-correct look (voxels occlude the lines behind them).
+        outline: { enabled: true, color: '#000000', width: 7.0, threshold: 0.018, anatomyWidthMul: 1.0, overVoxels: true, overVoxelOpacity: 0.4 },
         // Scene lights off by default — voxel colour comes from emissive (full flat
         // colormap) + the light-independent glint, so the colours stay saturated.
         lighting: { directional: 0, ambient: 0, headlight: true },
