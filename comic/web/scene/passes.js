@@ -33,7 +33,7 @@ export function makePlainDepthMaterial(side = THREE.DoubleSide) {
 const outlineFrag = `
 uniform sampler2D tDepth; uniform vec2 uResolution; uniform float uLineWidth, uThreshold, uOpacity; uniform vec3 uColor;
 uniform float uVeilApply, uNearZ, uFarZ, uVeilStrength, uVeilK; uniform vec3 uVeilColor;
-uniform sampler2D uClipDepth; uniform float uClipApply;
+uniform sampler2D uClipDepth; uniform float uClipApply, uOverVoxelAlpha;
 varying vec2 vUv;
 void main(){
     vec2 texel = 1.0/uResolution; float w = uLineWidth;
@@ -45,13 +45,15 @@ void main(){
     // width; anything below doesn't draw at all. The narrow ramps (just wide enough for edge AA) stop
     // weak/grazing folds rendering as faded half-strength smudges, so every line is uniformly visible.
     float s = max(smoothstep(uThreshold*0.96,uThreshold,edge), smoothstep(uThreshold,uThreshold*1.08,edge2));
-    // Depth-correct vs voxels: this (black surface) edge draws OVER voxel edges,
-    // except where a voxel is genuinely in front of the nearest surface sample —
-    // there the voxel occludes the silhouette, so let the voxel edge show.
+    // Depth-correct vs voxels: where a voxel is genuinely in front of the nearest surface
+    // sample, the line passes UNDER the voxel. uOverVoxelAlpha scales the stroke there:
+    // 0 = fully occluded (the voxel hides the line), 1 = drawn at full strength on top,
+    // and values in between draw a semi-transparent stroke that blends with the voxel colour
+    // (so the buried line reads as a muted/greyed version of the blob it crosses).
     if (uClipApply > 0.5 && s > 0.0) {
         float surfNear = min(min(min(c,l),min(r,u)),d);   // closest surface sample (depth/500)
         float vd = texture2D(uClipDepth, vUv).r;          // voxel depth/500 (1.0 = none)
-        if (vd < surfNear - 0.0008 && vd < 0.999) s = 0.0;
+        if (vd < surfNear - 0.0008 && vd < 0.999) s *= uOverVoxelAlpha;
     }
     vec3 col = uColor;
     // Voxel edges fade with the same depth veil as the voxels (scales with the
@@ -129,6 +131,9 @@ export class OutlinePass {
                 // engine: the cortex outline clips against the voxel depth).
                 uClipDepth: { value: null },
                 uClipApply: { value: 0.0 },
+                // Stroke strength where a voxel is in front of this line. 0 = occluded (default,
+                // so the voxel-edge passes keep their old behaviour); the cortex outline sets it.
+                uOverVoxelAlpha: { value: 0.0 },
             },
         });
         this.quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.outlineMaterial);

@@ -60,6 +60,7 @@ const TIPS = {
     'c-cortex': 'Cortex glass opacity. 0 = invisible (only the outline shows).',
     'c-outline-thresh': 'Surface-line density — higher hides shallower folds (fewer lines).',
     'c-outline-width': 'Surface (cortex outline) line thickness.',
+    'c-outline-overvox': 'Cortex line strength where it crosses a voxel: 0 = hidden under the blob, 1 = full black on top, in between = a greyed line blended with the blob.',
     'c-directional': 'Directional (headlight) intensity — global.',
     'c-ambient': 'Ambient light intensity — global.',
 };
@@ -295,6 +296,7 @@ export function bindGlobalControls({ config, colormaps, getEngine, preset, onUpl
     slider('c-cortex', s.glass.maxOpacity, (v) => { s.glass.maxOpacity = v; apply(); }, { min: 0, max: 1.0, step: 0.01 });
     slider('c-outline-thresh', s.outline.threshold, (v) => { s.outline.threshold = v; apply(); }, { min: 0.001, max: 0.02, step: 0.0005 });
     slider('c-outline-width', s.outline.width, (v) => { s.outline.width = v; apply(); }, { min: 0.3, max: 8, step: 0.1 });
+    slider('c-outline-overvox', s.outline.overVoxelOpacity ?? 1, (v) => { s.outline.overVoxels = true; s.outline.overVoxelOpacity = v; apply(); }, { min: 0, max: 1, step: 0.05 });
     slider('c-directional', s.lighting.directional, (v) => { s.lighting.directional = v; apply(); }, { min: 0, max: 4, step: 0.05 });
     slider('c-ambient', s.lighting.ambient, (v) => { s.lighting.ambient = v; apply(); }, { min: 0, max: 4, step: 0.05 });
 
