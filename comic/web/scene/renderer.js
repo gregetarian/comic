@@ -571,7 +571,13 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
                 const po = def.outline, ou = cortexOutline.outlineMaterial.uniforms;
                 ou.uLineWidth.value = config.style.outline.width * outlineSaveScale * ((po && po.widthMul) || 1);
                 ou.uThreshold.value = config.style.outline.threshold * ((po && po.thresholdMul) || 1);
+                // overVoxels: where a blob sits in front of a cortex line, draw the line at
+                // outline.overVoxelOpacity instead of hiding it. overVoxels=false → 0 (occluded,
+                // the depth-correct default); true → overVoxelOpacity (1 = full black on top,
+                // <1 = a muted/greyed stroke that blends with the voxel it crosses).
                 ou.uClipApply.value = clip ? 1.0 : 0.0;
+                ou.uOverVoxelAlpha.value = config.style.outline.overVoxels
+                    ? (config.style.outline.overVoxelOpacity ?? 1.0) : 0.0;
                 cortexOutline.update(camera, rect.x, rect.y, rect.w, rect.h);
                 // Subcortex on top, on its own pass at the reduced anatomyWidthMul — only when this
                 // panel actually shows anatomy (else the empty layer-pass is skipped).

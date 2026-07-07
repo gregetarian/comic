@@ -180,6 +180,12 @@ def cli():
     r.add_argument('--positive-only', action='store_true')
     r.add_argument('--no-edges', action='store_true')
     r.add_argument('--no-outline', action='store_true')
+    r.add_argument('--lines-over-voxels', action=argparse.BooleanOptionalAction, default=None,
+                   help='draw the black cortex outline ON TOP of the voxels instead of letting '
+                        'opaque blobs mask the sulcal lines behind them')
+    r.add_argument('--over-voxel-opacity', type=float, default=None,
+                   help='with --lines-over-voxels: stroke strength where a line crosses a voxel '
+                        '(0..1; 1 = full black on top, <1 = a muted/greyed line that blends with the blob)')
     r.add_argument('--shadows', action=argparse.BooleanOptionalAction, default=None,
                    help='inter-voxel shadows (clusters cast onto each other); off by default')
     r.add_argument('--colorbar', action=argparse.BooleanOptionalAction, default=True,
@@ -298,6 +304,8 @@ def cli():
             setp('glass.maxOpacity', args.cortex_alpha)
             setp('outline.threshold', args.edge_thr)
             setp('outline.width', args.line_w)
+            setp('outline.overVoxels', args.lines_over_voxels)
+            setp('outline.overVoxelOpacity', args.over_voxel_opacity)
             setp('voxel.edges.width', args.voxel_edge_w)
             if args.no_edges:
                 setp('voxel.edges.enabled', False)
