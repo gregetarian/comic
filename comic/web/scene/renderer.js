@@ -618,6 +618,11 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
     // Push current config.style to live uniforms/materials/lights (global + per-overlay).
     function applyStyle() {
         const s = config.style;
+        // Reset the Save-PNG outline supersampling: scaleOutlines() bumps it during a save and
+        // relies on the next applyStyle() to clear it. Without this the cortex outline (recomputed
+        // per-frame as outline.width * outlineSaveScale) stays thickened after a save, and grows
+        // on each repeated save whenever savePr > basePr.
+        outlineSaveScale = 1;
         dir.intensity = s.lighting.directional;
         amb.intensity = s.lighting.ambient;
         glassMat.uniforms.uMaxOpacity.value = s.glass.maxOpacity;
