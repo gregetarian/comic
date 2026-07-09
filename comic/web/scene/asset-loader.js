@@ -133,7 +133,10 @@ export function buildOverlayMeshes(meta, buffers, oi) {
         out.push({
             mesh,
             meta: { role: 'voxel', overlay: oi, hemisphere: hemi,
-                    structure: `${meta.name}_${hemi}_cortex`, category: `${hemi}_cortex`, variant: 'surface' },
+                    structure: `${meta.name}_${hemi}_cortex`, category: `${hemi}_cortex`, variant: 'surface',
+                    // A native surface overlay (process_surface) has ONLY this variant — no blocky/smooth.
+                    // Tagging it lets visibility force the 'surface' gate so it always shows.
+                    surfaceOnly: !!meta.surfaceOnly },
             values,
             aabb: bboxOf(mesh),
         });

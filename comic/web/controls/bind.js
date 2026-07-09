@@ -201,18 +201,26 @@ export function buildOverlayRows({ engine, config, colormaps, onRemove, onSurfac
         infoIcon(modeSel, 'Colour scale: auto (sequential/diverging picked from the data), or force one.');
 
         // Voxel representation: blocky / smooth / surface (M8 — surface projects onto the cortex,
-        // keeping the cel-shaded glass look; chosen lazily re-meshes via onSurface).
-        const repSel = document.createElement('select'); repSel.className = 'btn';
-        for (const r of ['blocky', 'smooth', 'surface']) {
-            const o = document.createElement('option'); o.value = r; o.textContent = r; repSel.append(o);
+        // keeping the cel-shaded glass look; chosen lazily re-meshes via onSurface). A NATIVE surface
+        // overlay (per-vertex data) has no volumetric geometry, so it shows a fixed 'surface' tag and
+        // the blocky/smooth options are withheld entirely.
+        if (ov.surfaceOnly) {
+            const tag = document.createElement('span'); tag.className = 'lab'; tag.textContent = 'surface';
+            g.append(tag);
+            infoIcon(tag, 'Surface (per-vertex) overlay — always drawn on the cortical surface; blocky/smooth volumetric modes do not apply.');
+        } else {
+            const repSel = document.createElement('select'); repSel.className = 'btn';
+            for (const r of ['blocky', 'smooth', 'surface']) {
+                const o = document.createElement('option'); o.value = r; o.textContent = r; repSel.append(o);
+            }
+            repSel.value = os.representation || 'smooth';
+            repSel.addEventListener('change', () => {
+                if (repSel.value === 'surface') { if (onSurface) onSurface(i, repSel); else repSel.value = 'smooth'; }
+                else { set({ voxel: { representation: repSel.value } }); engine.applyStyle(); engine.recolor(); }
+            });
+            g.append(repSel);
+            infoIcon(repSel, 'Voxel representation: blocky, smooth (marching cubes), or surface (project onto the cortex — keeps the glass-brain look).');
         }
-        repSel.value = os.representation || 'smooth';
-        repSel.addEventListener('change', () => {
-            if (repSel.value === 'surface') { if (onSurface) onSurface(i, repSel); else repSel.value = 'smooth'; }
-            else { set({ voxel: { representation: repSel.value } }); engine.applyStyle(); engine.recolor(); }
-        });
-        g.append(repSel);
-        infoIcon(repSel, 'Voxel representation: blocky, smooth (marching cubes), or surface (project onto the cortex — keeps the glass-brain look).');
 
         const thr = sw('thr');
         ovRange(thr.range, os.threshold ?? ov.threshold ?? 0, (v) => { set({ threshold: v }); engine.applyStyle(); }, { min: 0, max: maxAbs, step: maxAbs / 200 }, 'Statistical threshold — hide |value| below this.', (v) => ({ threshold: v }));

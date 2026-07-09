@@ -171,25 +171,37 @@ def _wants_surface(style):
                for o in (style.get("overlays") or []))
 
 
-def prepare_render_dir(nifti, threshold=2.3, include_subcortical=True, names=None, template_dir=None,
-                       classify=True, surface=False):
+def _surface_map_name(sm):
+    """Default display name for a surface overlay: strip a lh./rh. prefix + surface suffix."""
+    import re
+    src = sm.get("lh") or sm.get("rh") or "surface"
+    base = Path(str(src)).name
+    base = re.sub(r"\.(gii|mgh|mgz|surfdat)$", "", base, flags=re.I)
+    base = re.sub(r"^(lh|rh)[._-]", "", base, flags=re.I)
+    return base or "surface"
+
+
+def prepare_render_dir(nifti=None, threshold=2.3, include_subcortical=True, names=None, template_dir=None,
+                       classify=True, surface=False, surface_maps=None):
     """Stage a self-contained render dir: a copy of the single viewer with the overlay(s)
     processed in-process (same pipeline.py the browser runs) and written as ARRAYS
     (overlay_<i>.bin + meta in scene.json) — no GLB, no per-render template re-bake.
 
     `nifti` is a single path (str/Path) OR a list of paths for a multi-overlay figure;
-    `threshold` is a scalar (applied to every map) OR a per-overlay list. `names` (optional)
-    is a per-overlay display name (used as the colorbar label; defaults to the filename).
-    Each map becomes its own overlay, so the engine renders N overlays with per-overlay style
-    from `style.overlays[i]` — the same path the browser uses for N dragged-in NIfTIs.
-    Returns the dir path."""
+    `surface_maps` is an optional list of {lh, rh, name?} dicts — each a NATIVE fsaverage
+    surface overlay (per-vertex .gii/.mgh/.mgz), rendered on the cortex sheet with no
+    blocky/smooth geometry. Volume overlays come first, then surface overlays.
+    `threshold` is a scalar (applied to every overlay) OR a per-overlay list spanning both;
+    `names` (optional) is a per-overlay display name. Returns the dir path."""
     from . import pipeline as P
     from .arrays import write_overlay_arrays
 
-    niftis = [nifti] if isinstance(nifti, (str, Path)) else list(nifti)
-    thresholds = ([float(threshold)] * len(niftis) if isinstance(threshold, (int, float))
+    niftis = [] if nifti is None else ([nifti] if isinstance(nifti, (str, Path)) else list(nifti))
+    surface_maps = list(surface_maps or [])
+    n_total = len(niftis) + len(surface_maps)
+    thresholds = ([float(threshold)] * n_total if isinstance(threshold, (int, float))
                   else [float(t) for t in threshold])
-    names = names or [None] * len(niftis)
+    names = names or [None] * n_total
 
     out_dir = Path(tempfile.mkdtemp(prefix="gb_render_"))
     shutil.copytree(WEB_DIR, out_dir, dirs_exist_ok=True)
@@ -199,14 +211,20 @@ def prepare_render_dir(nifti, threshold=2.3, include_subcortical=True, names=Non
     if template_dir is not None:
         shutil.copytree(Path(template_dir) / "data", data, dirs_exist_ok=True)
     P.init_aseg((data / "aseg_uint8.bin.gz").read_bytes(), (data / "aseg.json").read_text())
-    if surface and (data / "cortex_surface.bin.gz").exists():
+    # Native surface overlays (and volume->surface projection) both need the cortex sidecar.
+    if (surface or surface_maps) and (data / "cortex_surface.bin.gz").exists():
         P.init_cortex((data / "cortex_surface.bin.gz").read_bytes(), (data / "cortex_surface.json").read_text())
 
     metas = []
     for i, src in enumerate(niftis):
         name = names[i] or Path(src).name.replace(".nii.gz", "").replace(".nii", "")
         meta = json.loads(P.process_nifti(str(src), name, thresholds[i], classify=classify, surface=surface))
-        # grab THIS overlay's buffers before the next process_nifti clears _BUFFERS
+        # grab THIS overlay's buffers before the next process_* clears _BUFFERS
+        metas.append(write_overlay_arrays(data, meta, P.get_all_buffers(), index=i))
+    for j, sm in enumerate(surface_maps):
+        i = len(niftis) + j
+        name = names[i] or sm.get("name") or _surface_map_name(sm)
+        meta = json.loads(P.process_surface(sm.get("lh"), sm.get("rh"), name, thresholds[i]))
         metas.append(write_overlay_arrays(data, meta, P.get_all_buffers(), index=i))
 
     scene = json.loads((data / "scene.json").read_text())
@@ -268,21 +286,23 @@ class RenderSession:
         self.template_dir = template_dir
         self.keep_dirs = keep_dirs
 
-    def render(self, nifti, out_png=None, *, layout, style=None, threshold=2.3, cmap="auto",
+    def render(self, nifti=None, out_png=None, *, layout, style=None, threshold=2.3, cmap="auto",
                width=1600, height=1000, scale=2, include_subcortical=True,
                background="#ffffff", background_alpha=1.0, colorbar=True, colorbar_font=None,
                colorbar_fontsize=None, crop="none", names=None, timeout_ms=90000, return_bytes=False,
-               classify=True):
+               classify=True, surface_maps=None):
         """Render one figure. Writes <out_png> (+ <out_png>_colorbars) when out_png is given;
         returns its Path. With return_bytes=True returns (brain_png_bytes, colorbar_png_bytes|None)
-        — the inline-display path. `nifti` is one path or a list (one overlay each). classify=False
+        — the inline-display path. `nifti` is one path or a list (one overlay each); `surface_maps`
+        is an optional list of {lh, rh, name?} native fsaverage surface overlays. classify=False
         is the no-template / volume-only path (no anatomical shell)."""
         if names is None and style and isinstance(style.get("overlays"), list):
             names = [(o or {}).get("name") for o in style["overlays"]] or None
-        n_overlays = 1 if isinstance(nifti, (str, Path)) else len(nifti)
+        n_vol = 0 if nifti is None else (1 if isinstance(nifti, (str, Path)) else len(nifti))
+        n_overlays = n_vol + len(surface_maps or [])
         out_dir = prepare_render_dir(nifti, threshold, include_subcortical, names=names,
                                      template_dir=self.template_dir, classify=classify,
-                                     surface=_wants_surface(style))
+                                     surface=_wants_surface(style), surface_maps=surface_maps)
         config, transparent = _render_config(
             layout, style, cmap=cmap, width=width, height=height, scale=scale,
             background=background, colorbar=colorbar, colorbar_font=colorbar_font,

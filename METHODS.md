@@ -87,6 +87,28 @@ classified voxels, `maxClusterSize`, `diverging` = data has both signs,
 (positions/faces/values/clusters) are staged in `_BUFFERS`. **No colour is emitted
 — the JS engine is the single colour authority.**
 
+### 5a. Native surface overlays — `pipeline.process_surface`
+
+A per-vertex fsaverage map (a surface analysis, not a volume) skips voxel meshing
+entirely. `load_surface_map(src)` reads one scalar per vertex from a GIFTI (`.gii`),
+FreeSurfer `.mgh`/`.mgz`, or FreeSurfer morphometry/curv file (nibabel). `process_surface(
+lh_src, rh_src, name, threshold)` loads lh/rh, computes the same `maxAbsValue`/`diverging`
+stats from the **supra-threshold** vertices, and stages the baked cortex sheet coloured by
+those RAW values via `_stage_surface` (shared with the M8 volume→surface projection; the
+shader thresholds live). It requires `init_cortex()`. A **lower-resolution** fsaverage map
+(ico1–6, e.g. fsaverage5 = 10242/hemi) is nearest-neighbour **upsampled** to the ico7 template
+(`_upsample_to_template`): FreeSurfer's icosahedra are nested, so the low-res vertices ARE the
+template's first N vertices, and a KDTree over that prefix maps every ico7 vertex to its nearest
+source. A non-icosahedral vertex count raises. (Note: a null hemisphere arrives from Pyodide as
+a `JsNull` proxy, not Python `None`, so it's normalised by type name.) The meta has `surfaceOnly: True`, empty `structures`, and a
+`surface` block. On the engine side that flag forces the overlay's visibility gate to the
+`surface` variant regardless of the panel/global representation (`visibility.js`), so a
+surface overlay **never offers blocky/smooth** — the browser row shows a fixed `surface`
+tag instead of the representation selector, and there is no volume cluster-extent `-k`.
+CLI: `comic render --surface-map lh=lh.gii,rh=rh.gii[,name=Label] -o out.png` (repeatable;
+volume overlays, if any, come first). Not yet wired: the notebook `comic.render` API and
+the browser drag-drop upload (both take volumes today).
+
 ## 6. Geometry handoff — `arrays.py` (CLI/Python) & Pyodide (browser)
 
 - Browser: `get_all_buffers()` returns the staged buffers; JS reconstructs typed

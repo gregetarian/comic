@@ -86,3 +86,24 @@ export async function processNifti(file, threshold = 2.3, onProgress = () => {},
     pipeline.clear_buffers();        // free the WASM-side copies promptly
     return { meta, buffers };
 }
+
+/**
+ * Process a NATIVE fsaverage surface overlay (per-vertex .gii/.mgh/.mgz files) in the browser.
+ * Needs the cortical surface sidecar (loaded on demand, ~11 MB). Either hemisphere may be null.
+ * @returns {{ meta: object, buffers: Uint8Array[] }} — meta.surfaceOnly === true, structures === {}.
+ */
+export async function processSurface(lhFile, rhFile, name, threshold = 2.3, onProgress = () => {}) {
+    const { pipeline } = await ensurePyodide(onProgress);
+    await ensureCortex(onProgress);
+    onProgress('Processing surface ' + name + '…');
+    const lhBytes = lhFile ? new Uint8Array(await lhFile.arrayBuffer()) : null;
+    const rhBytes = rhFile ? new Uint8Array(await rhFile.arrayBuffer()) : null;
+    const metaStr = pipeline.process_surface(lhBytes, rhBytes, name, threshold,
+        lhFile ? lhFile.name : null, rhFile ? rhFile.name : null);
+    const meta = JSON.parse(metaStr);
+    const proxy = pipeline.get_all_buffers();
+    const buffers = proxy.toJs();
+    proxy.destroy();
+    pipeline.clear_buffers();
+    return { meta, buffers };
+}
