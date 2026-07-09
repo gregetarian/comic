@@ -91,6 +91,51 @@ def init_cortex(gz_bytes, meta_json):
                          'faces': arr('faces', np.uint32, 3), 'curv': arr('curv', np.float32, 1)}
 
 
+# fsaverage icosahedral vertex counts (per hemisphere) -> ico order. Lower orders are a strict
+# vertex PREFIX of the ico7 template (FreeSurfer's nested subdivision keeps old indices), so a
+# lower-res map's vertices are exactly the first N template vertices.
+_ICO_NVERTS = {42: 1, 162: 2, 642: 3, 2562: 4, 10242: 5, 40962: 6, 163842: 7}
+
+
+def _upsample_to_template(vals, C):
+    """Nearest-neighbour upsample a lower-res fsaverage map (ico1..6) to the ico7 template
+    vertex count. The low-res vertices ARE the template's first N vertices (nested ordering),
+    so a KDTree over that prefix maps every template vertex to its nearest low-res source."""
+    n, m = len(vals), len(C['verts'])
+    if n == m:
+        return vals
+    if n not in _ICO_NVERTS or n > m:
+        raise ValueError(
+            f"surface map has {n} vertices; expected an fsaverage size "
+            f"({sorted(k for k in _ICO_NVERTS if k <= m)}) matching the ico7 template ({m}).")
+    from scipy.spatial import cKDTree
+    _, idx = cKDTree(C['verts'][:n]).query(C['verts'], k=1)   # each ico7 vertex -> nearest low-res vertex
+    return np.ascontiguousarray(vals[idx], np.float32)
+
+
+def _stage_surface(vals_by_hemi):
+    """Stage the baked cortex sheet per hemisphere, coloured by a caller-supplied per-vertex
+    scalar array (float32, length == that hemi's vertex count). Shared by the volume->surface
+    projection and the native-surface path so both feed the engine identically. Returns
+    {hemi: descriptor} for meta['surface']; staged into _BUFFERS in lh-then-rh order."""
+    out = {}
+    for hemi in ('lh', 'rh'):
+        C = _CORTEX.get(hemi)
+        vals = vals_by_hemi.get(hemi)
+        if C is None or vals is None:
+            continue
+        vals = np.ascontiguousarray(vals, np.float32)
+        if len(vals) != len(C['verts']):
+            raise ValueError(
+                f"{hemi} surface map has {len(vals)} vertices, but the loaded template cortex has "
+                f"{len(C['verts'])} (fsaverage is 163842/hemisphere; resample the map to it first).")
+        clu = np.zeros(len(vals), np.float32)
+        desc = _stage_mesh(C['verts'].astype(np.float32), C['faces'], vals, clu)
+        desc['crv'] = _stage(np.ascontiguousarray(C['curv'], np.float32), np.float32)[0]
+        out[hemi] = desc
+    return out
+
+
 def build_surface_projection(data, overlay_affine, depth=SURFACE_DEPTH):
     """Project the thresholded volume onto each cortical hemisphere's vertices: average K
     trilinear samples taken along the inward normal from pial to white (nilearn vol_to_surf
@@ -98,7 +143,7 @@ def build_surface_projection(data, overlay_affine, depth=SURFACE_DEPTH):
     surface material's curvature fallback); staged into _BUFFERS after the voxel structures."""
     inv = np.linalg.inv(overlay_affine)
     fracs = np.linspace(0.0, 1.0, max(1, depth))
-    out = {}
+    vals_by_hemi = {}
     for hemi, C in _CORTEX.items():
         if C is None:
             continue
@@ -108,12 +153,8 @@ def build_surface_projection(data, overlay_affine, depth=SURFACE_DEPTH):
             world = verts + f * inward
             ijk = (inv @ np.column_stack([world, np.ones(len(world))]).T).T[:, :3]
             acc += ndimage.map_coordinates(data, ijk.T, order=1, mode='constant', cval=0.0).astype(np.float32)
-        vals = (acc / len(fracs)).astype(np.float32)
-        clu = np.zeros(len(vals), np.float32)
-        desc = _stage_mesh(verts.astype(np.float32), C['faces'], vals, clu)
-        desc['crv'] = _stage(np.ascontiguousarray(C['curv'], np.float32), np.float32)[0]
-        out[hemi] = desc
-    return out
+        vals_by_hemi[hemi] = (acc / len(fracs)).astype(np.float32)
+    return _stage_surface(vals_by_hemi)
 
 
 # --- MNI152 sanity envelope (scientific-correctness guard) --------------------------------
@@ -202,6 +243,78 @@ def load_stat_map(src, filename=None, threshold=2.3):
     data[~np.isfinite(data)] = 0.0
     data[np.abs(data) < threshold] = 0.0
     return data, img.affine
+
+
+def load_surface_map(src, filename=None):
+    """Read a per-vertex scalar map (one value per fsaverage vertex) from a path or raw bytes.
+
+    Handles the formats a surface analysis emits: GIFTI (.gii, e.g. func.gii/shape.gii),
+    FreeSurfer volume-encoded scalars (.mgh/.mgz), and FreeSurfer morphometry/curv binary.
+    Returns a 1-D float32 array; the caller checks its length against the template vertex count."""
+    import nibabel as nib
+    name = (filename or (str(src) if isinstance(src, (str, os.PathLike)) else '')).lower()
+    if not isinstance(src, (str, os.PathLike)):
+        b = bytes(src)
+        suffix = ('.gii' if name.endswith('.gii') else '.mgz' if name.endswith('.mgz')
+                  else '.mgh' if name.endswith('.mgh') else '.surfdat')
+        src = '/tmp/gb_surf_upload' + suffix
+        with open(src, 'wb') as f:
+            f.write(b)
+    src = str(src)
+    if src.endswith('.gii'):
+        vals = np.asarray(nib.load(src).agg_data(), dtype=np.float32)
+    elif src.endswith(('.mgh', '.mgz')):
+        vals = np.asarray(nib.load(src).dataobj, dtype=np.float32)
+    else:                                        # FreeSurfer morphometry/curv binary (thickness, curv, ...)
+        import nibabel.freesurfer as fs
+        vals = np.asarray(fs.read_morph_data(src), dtype=np.float32)
+    vals = np.ravel(np.squeeze(vals))
+    vals[~np.isfinite(vals)] = 0.0
+    return vals
+
+
+def process_surface(lh_src, rh_src, name, threshold=2.3, lh_name=None, rh_name=None):
+    """Native fsaverage surface overlay: per-vertex scalars (lh and/or rh) painted directly on the
+    baked cortex sheet — no volume, no aseg classification, no blocky/smooth voxel geometry.
+    Requires init_cortex() to have loaded the template surface. Returns a JSON meta string with
+    surfaceOnly=True (so the engine forces representation='surface'); buffers are staged in
+    _BUFFERS like process_nifti. Values are staged RAW so the shader thresholds live."""
+    _BUFFERS.clear()
+    if _CORTEX.get('lh') is None and _CORTEX.get('rh') is None:
+        raise RuntimeError("process_surface needs the cortical surface loaded — call init_cortex() first.")
+    # A missing hemisphere is None in CPython, but Pyodide hands a JS null across as a JsNull
+    # proxy (not Python None), so normalise by type name — else bytes(JsNull) would blow up.
+    def _present(x):
+        return None if x is None or type(x).__name__ in ('JsNull', 'JsUndefined') else x
+    vals_by_hemi = {}
+    for hemi, src, fn in (('lh', _present(lh_src), lh_name), ('rh', _present(rh_src), rh_name)):
+        if src is not None:
+            vals_by_hemi[hemi] = _upsample_to_template(load_surface_map(src, fn), _CORTEX[hemi])
+    if not vals_by_hemi:
+        raise ValueError("process_surface got no readable hemisphere (both lh and rh were empty).")
+
+    # Colour scale + sign from the SUPRA-threshold vertices only (matches process_nifti, and
+    # ignores the medial-wall zeros / sub-threshold noise).
+    supra = np.concatenate([v[np.abs(v) >= threshold] for v in vals_by_hemi.values()]) \
+        if vals_by_hemi else np.array([], np.float32)
+    diverging = bool(supra.size and supra.min() < 0 and supra.max() > 0)
+    negative_only = bool(supra.size and (supra < 0).any() and not (supra > 0).any())
+    abs_vals = np.abs(supra[supra != 0])
+    max_abs = max(float(np.percentile(abs_vals, 99)), 1e-10) if abs_vals.size else 1.0
+
+    meta = {
+        'name': name,
+        'threshold': float(threshold),
+        'maxAbsValue': max_abs,
+        'maxClusterSize': 0,                # no volume clustering on a surface (M-surface: no -k)
+        'diverging': diverging,
+        'negativeOnly': negative_only,
+        'regionCounts': {},
+        'structures': {},                   # NO blocky/smooth voxel geometry
+        'surfaceOnly': True,                # engine forces representation='surface'; UI hides blocky/smooth
+        'surface': _stage_surface(vals_by_hemi),
+    }
+    return json.dumps(meta)
 
 
 def cluster_sizes(data, connectivity=26):

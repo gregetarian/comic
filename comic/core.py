@@ -125,10 +125,15 @@ def cli():
     bk.add_argument('--space', default='custom', help='template space label (informational)')
 
     r = sub.add_parser('render', help='Render a custom multi-panel figure to PNG (headless)')
-    r.add_argument('nifti', nargs='+',
+    r.add_argument('nifti', nargs='*',
                    help='NIfTI stat map(s). Pass several for a multi-overlay figure (each map '
                         'is one overlay, with its own colormap/colorbar). With --spec, the i-th '
                         'map fills the i-th overlay slot (style.overlays[i]).')
+    r.add_argument('--surface-map', action='append', default=None, metavar='lh=..,rh=..',
+                   help='a NATIVE fsaverage SURFACE overlay (per-vertex .gii/.mgh/.mgz), drawn on '
+                        'the cortex sheet with no blocky/smooth geometry. Format: '
+                        "'lh=lh.gii,rh=rh.gii[,name=Label]' (either hemi optional). Repeat for "
+                        'several surface overlays. Volume overlays (positional) come first.')
     r.add_argument('-o', '--out', required=True, help='output PNG path')
     r.add_argument('--grid', default='2x4', help='grid as RxC, e.g. 2x2')
     r.add_argument('--views',
@@ -245,7 +250,20 @@ def cli():
         from .render import build_layout, render_to_png, load_spec, _deep_merge, to_volume_layout
         from .figure import build_style
 
-        n = len(args.nifti)
+        # Native surface overlays: 'lh=..,rh=..[,name=..]' each -> a dict. They render AFTER the
+        # positional volume overlays, so overlay indices are [volumes..., surfaces...].
+        surface_maps = []
+        for spec in (args.surface_map or []):
+            d = dict(kv.split('=', 1) for kv in spec.split(',') if '=' in kv)
+            if 'lh' not in d and 'rh' not in d:
+                parser.error(f"--surface-map '{spec}' needs at least lh=<file> or rh=<file>")
+            surface_maps.append(d)
+        if not args.nifti and not surface_maps:
+            parser.error("render needs at least one NIfTI (positional) or a --surface-map")
+        if surface_maps and (args.sweep is not None or args.orbit is not None):
+            parser.error("--surface-map is not supported with --sweep/--orbit yet")
+
+        n = len(args.nifti) + len(surface_maps)
         names = [s.strip() for s in args.names.split(',')] if args.names else None
 
         if args.spec:
@@ -357,7 +375,7 @@ def cli():
         else:
             render_to_png(args.nifti, args.out, colorbar=args.colorbar,
                           colorbar_font=args.colorbar_font, colorbar_fontsize=args.colorbar_fontsize,
-                          **common)
+                          surface_maps=surface_maps, **common)
 
         if args.regions:                            # per-region voxel-count CSV (M10)
             import csv

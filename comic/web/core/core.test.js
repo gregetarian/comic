@@ -173,6 +173,17 @@ test('visibility: surface mode shows the surface variant, glass cortex stays', (
     assert.equal(visible(panel, { role: 'voxel', hemisphere: 'lh', variant: 'blocky', category: 'lh_cortex' }, style), false);
 });
 
+// A native surface overlay (surfaceOnly) forces its 'surface' variant to show even when the
+// panel/global representation is a volumetric mode — so no blocky/smooth is ever needed for it.
+test('visibility: a surfaceOnly overlay always shows its surface variant regardless of representation', () => {
+    const panel = { roles: ['cortex', 'voxel'], hemisphere: 'lh' };
+    const volStyle = { voxel: { representation: 'blocky' } };   // global says blocky
+    const surfMesh = { role: 'voxel', hemisphere: 'lh', variant: 'surface', category: 'lh_cortex', surfaceOnly: true };
+    assert.equal(visible(panel, surfMesh, volStyle), true);     // forced on despite representation:blocky
+    // and a NON-surfaceOnly surface mesh still obeys the representation gate (hidden under blocky)
+    assert.equal(visible(panel, { ...surfMesh, surfaceOnly: false }, volStyle), false);
+});
+
 // --- config + presets ---
 test('normalizeConfig fills defaults and validates panels', () => {
     const cfg = resolveConfig('fourPanel');

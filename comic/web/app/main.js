@@ -24,7 +24,8 @@ import { bindGlobalControls, buildOverlayRows } from '../controls/bind.js';
 import { buildRenderText, isFreeFigure, buildSpec } from '../controls/cli-export.js';
 import { createFreeCanvasEditor } from '../controls/freecanvas.js';
 import { exportSpinGif } from '../controls/gif-export.js';
-import { processNifti } from '../pyodide/bootstrap.js';
+import { processNifti, processSurface } from '../pyodide/bootstrap.js';
+import { VOL_RE, isSurfaceFile, groupSurfaceFiles, surfaceOverlayName } from '../core/surface-files.js';
 import { createSessionState } from './state.js';
 
 const DATA = 'data/';
@@ -120,7 +121,7 @@ async function main() {
     viewerEl.addEventListener('dragleave', (e) => { if (e.target === viewerEl) viewerEl.classList.remove('dragging'); });
     viewerEl.addEventListener('drop', (e) => {
         e.preventDefault(); viewerEl.classList.remove('dragging');
-        const files = [...(e.dataTransfer?.files || [])].filter((f) => /\.nii(\.gz)?$|\.gz$/i.test(f.name));
+        const files = [...(e.dataTransfer?.files || [])].filter((f) => VOL_RE.test(f.name) || isSurfaceFile(f.name));
         if (files.length) handleUpload(files);
     });
     // Global Surface toggle: flip ALL loaded overlays to surface projection (and back to smooth).
@@ -297,24 +298,41 @@ async function setOverlaySurface(i, repSel) {
     }
 }
 
-/** Process uploaded NIfTI File(s) entirely in-browser (lazy-loads Pyodide). */
+/** Process uploaded File(s) entirely in-browser (lazy-loads Pyodide). Routes NIfTI volumes and
+ *  native fsaverage surface maps (.gii/.mgh/.mgz, paired by hemisphere) to their own pipelines. */
 async function handleUpload(files) {
+    const surfaceFiles = files.filter((f) => isSurfaceFile(f.name));
+    const volumeFiles = files.filter((f) => !isSurfaceFile(f.name) && VOL_RE.test(f.name));
     // isFinite (not `|| 2.3`): a deliberate threshold of 0 (keep all non-zero voxels)
     // is valid and must not be clobbered to the default.
     const thr = (v => isFinite(v) ? v : 2.3)(parseFloat(document.getElementById('c-threshold').value));
+    const note = 'First upload downloads the ~30 MB scientific stack once.';
     try {
-        for (let k = 0; k < files.length; k++) {
-            const tag = files.length > 1 ? ` (${k + 1}/${files.length})` : '';
-            const note = 'First upload downloads the ~30 MB scientific stack once.';
-            const { meta, buffers } = await processNifti(files[k], thr,
-                (m) => setLoading(m + tag, note));
+        for (let k = 0; k < volumeFiles.length; k++) {
+            const tag = volumeFiles.length > 1 ? ` (${k + 1}/${volumeFiles.length})` : '';
+            const { meta, buffers } = await processNifti(volumeFiles[k], thr, (m) => setLoading(m + tag, note));
             if (!meta.structures || Object.keys(meta.structures).length === 0) {
                 setLoading('No brain voxels classified for ' + meta.name + '.',
                     'Maps must be in MNI152 space and survive the threshold.');
                 await new Promise((r) => setTimeout(r, 2500));
                 continue;
             }
-            addOverlay(meta, buffers, { file: files[k], threshold: thr });
+            addOverlay(meta, buffers, { file: volumeFiles[k], threshold: thr });
+        }
+        // Surface maps: pair lh/rh by filename, one overlay per pair (or per lone hemisphere).
+        const groups = groupSurfaceFiles(surfaceFiles);
+        for (let gi = 0; gi < groups.length; gi++) {
+            const g = groups[gi];
+            const name = surfaceOverlayName(g);
+            const tag = groups.length > 1 ? ` (${gi + 1}/${groups.length})` : '';
+            const { meta, buffers } = await processSurface(g.lh, g.rh, name, thr, (m) => setLoading(m + tag, note));
+            if (!meta.surface || Object.keys(meta.surface).length === 0) {
+                setLoading('No supra-threshold vertices for ' + name + '.',
+                    'Surface maps must be on fsaverage (163842 vertices/hemisphere).');
+                await new Promise((r) => setTimeout(r, 2500));
+                continue;
+            }
+            addOverlay(meta, buffers, { surface: true });
         }
         setLoading(null);
     } catch (err) {
