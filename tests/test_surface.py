@@ -50,8 +50,104 @@ def test_surface_render_is_nonblank_and_differs_from_voxel():
     assert surf.png != vox.png            # surface projection differs from volumetric voxels
 
 
+# --- Native surface overlays (per-vertex .gii/.mgh files, no volume) ------------------------
+import tempfile
+import shutil
+
+
+def _synth_mgh(path, n=163842):
+    """A synthetic per-vertex map: a supra-threshold patch (value 5) on an otherwise-zero sheet."""
+    import nibabel as nib
+    vals = np.zeros(n, np.float32)
+    vals[1000:3000] = 5.0
+    nib.save(nib.MGHImage(vals.reshape(-1, 1, 1), np.eye(4)), str(path))
+    return vals
+
+
+def test_load_surface_map_reads_mgh():
+    d = Path(tempfile.mkdtemp())
+    try:
+        _synth_mgh(d / "lh.mgh")
+        v = P.load_surface_map(str(d / "lh.mgh"))
+        assert v.shape == (163842,) and v.dtype == np.float32
+        assert int(np.count_nonzero(v)) == 2000
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def test_process_surface_is_surface_only():
+    _init()
+    d = Path(tempfile.mkdtemp())
+    try:
+        _synth_mgh(d / "lh.mgh"); _synth_mgh(d / "rh.mgh")
+        meta = json.loads(P.process_surface(str(d / "lh.mgh"), str(d / "rh.mgh"), "synth", threshold=2.3))
+        assert meta["surfaceOnly"] is True
+        assert meta["structures"] == {}                 # NO blocky/smooth voxel geometry
+        assert set(meta["surface"]) == {"lh", "rh"}
+        assert meta["maxClusterSize"] == 0              # no volume clustering on a surface
+        assert meta["maxAbsValue"] >= 4.9               # 99th pct of the value-5 patch
+        bufs = P.get_all_buffers()
+        for h in ("lh", "rh"):
+            assert np.any(np.frombuffer(bufs[meta["surface"][h]["val"]], np.float32) != 0)
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def test_process_surface_upsamples_fsaverage5():
+    _init()
+    d = Path(tempfile.mkdtemp())
+    try:
+        _synth_mgh(d / "lh.mgh", n=10242)               # fsaverage5 -> upsampled to the ico7 template
+        meta = json.loads(P.process_surface(str(d / "lh.mgh"), None, "fs5", threshold=2.3))
+        assert meta["surface"]["lh"]["nverts"] == 163842
+        # upsampling preserves signal (the value-5 patch survives)
+        bufs = P.get_all_buffers()
+        assert np.any(np.frombuffer(bufs[meta["surface"]["lh"]["val"]], np.float32) >= 4.9)
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def test_process_surface_rejects_non_fsaverage_vertex_count():
+    _init()
+    d = Path(tempfile.mkdtemp())
+    try:
+        _synth_mgh(d / "lh.mgh", n=50000)               # not an icosahedral fsaverage size
+        try:
+            P.process_surface(str(d / "lh.mgh"), None, "weird", threshold=2.3)
+            assert False, "expected a vertex-count error"
+        except ValueError as e:
+            assert "50000" in str(e)
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def test_prepare_render_dir_stages_surface_only_overlay():
+    from comic.render import prepare_render_dir
+    d = Path(tempfile.mkdtemp())
+    try:
+        _synth_mgh(d / "lh.mgh"); _synth_mgh(d / "rh.mgh")
+        out = prepare_render_dir(surface_maps=[{"lh": str(d / "lh.mgh"), "rh": str(d / "rh.mgh"),
+                                                "name": "synth"}], threshold=2.3)
+        try:
+            scene = json.loads((out / "data" / "scene.json").read_text())
+            assert len(scene["overlays"]) == 1
+            ov = scene["overlays"][0]
+            assert ov["surfaceOnly"] is True and ov["structures"] == {}
+            assert ov["name"] == "synth"
+            assert (out / "data" / "overlay_0.bin").exists()
+        finally:
+            shutil.rmtree(out, ignore_errors=True)
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
 if __name__ == "__main__":
     test_init_cortex_loads_both_hemis()
     test_surface_projection_samples_cortical_activation()
     test_no_surface_when_not_requested()
-    print("PASS — surface projection sampling")
+    test_load_surface_map_reads_mgh()
+    test_process_surface_is_surface_only()
+    test_process_surface_upsamples_fsaverage5()
+    test_process_surface_rejects_non_fsaverage_vertex_count()
+    test_prepare_render_dir_stages_surface_only_overlay()
+    print("PASS — surface projection sampling + native surface overlays")

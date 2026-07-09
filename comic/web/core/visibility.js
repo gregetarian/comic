@@ -36,7 +36,10 @@ export function visible(panelContent, meshMeta, style = {}) {
     // both variants loaded; only the active one shows.
     if (meshMeta.variant) {
         if (meshMeta.role === 'voxel') {
-            const rep = c.representation || (style.voxel && style.voxel.representation) || 'blocky';
+            // A native surface overlay has no blocky/smooth variant — force its 'surface' gate so it
+            // always shows, regardless of the panel/global representation (which may be blocky/smooth).
+            const rep = meshMeta.surfaceOnly ? 'surface'
+                : (c.representation || (style.voxel && style.voxel.representation) || 'blocky');
             if (meshMeta.variant !== rep) return false;
         } else if (meshMeta.role === 'cortex') {
             const surf = style.cortexSurface || 'pial';

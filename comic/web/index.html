@@ -207,7 +207,7 @@
     <!-- Global surface row -->
     <div class="row">
       <div class="grp">
-        <label class="btn file" title="Load one or more NIfTIs — processed in your browser (no upload to any server)">+ NIfTI<input type="file" id="c-upload" accept=".nii,.nii.gz,.gz" multiple></label>
+        <label class="btn file" title="Load NIfTI volumes or fsaverage surface maps (.gii/.mgh/.mgz; drop lh + rh together) — processed in your browser (no upload to any server)">+ map<input type="file" id="c-upload" accept=".nii,.nii.gz,.gz,.gii,.mgh,.mgz" multiple></label>
         <div class="sw" title="Bake threshold: voxels with |value| below this are dropped when meshing the upload."><span>threshold</span><input type="number" class="thrbox" id="c-threshold" value="2.3" min="0" step="0.1"></div>
         <button class="btn" id="c-demo" title="Demo: load example Neurosynth maps (faces · addiction · default-network · language), meshed in your browser">Demo</button>
         <button class="btn" id="c-save-brain" title="Save the brains at full resolution (no colorbars, never squashed)">Save brain</button>
