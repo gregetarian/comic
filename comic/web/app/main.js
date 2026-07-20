@@ -116,7 +116,9 @@ async function main() {
     document.getElementById('c-cli').addEventListener('click', copyCliCommand);
     document.getElementById('c-slice-anat')?.addEventListener('click', () => setSliceAnatomy(!config.style.sliceAnatomy));
     const cutBtn = document.getElementById('c-cut-overlay');
+    const cutOptions = document.getElementById('c-cut-map-options');
     cutBtn?.classList.toggle('active', !!config.style.cutOverlay?.enabled);
+    cutOptions?.classList.toggle('active', !!config.style.cutOverlay?.enabled);
     cutBtn?.addEventListener('click', () => setCutOverlay(!config.style.cutOverlay?.enabled));
     const slab = document.getElementById('c-cut-slab');
     const interp = document.getElementById('c-cut-interp');
@@ -484,8 +486,12 @@ function setBgAlpha(a) {
     document.body.classList.toggle('fc-transparent', a < 1);
 }
 
+function showCutMapOptions(on) {
+    document.getElementById('c-cut-map-options')?.classList.toggle('active', !!on);
+}
+
 /** Toggle the scissor cut-cap (anatomical T1 cross-section on sliced faces). Loads the volume
- *  asset on first enable (~0.3 MB), then binds it to the engine; disabling just detaches it. */
+ *  asset on first enable (~3 MB compressed), then binds it to the engine; disabling detaches it. */
 async function setSliceAnatomy(on) {
     config.style.sliceAnatomy = on;
     const btn = document.getElementById('c-slice-anat');
@@ -500,6 +506,7 @@ async function setSliceAnatomy(on) {
                 config.style.cutOverlay.enabled = false;
                 if (btn) btn.classList.remove('active');
                 document.getElementById('c-cut-overlay')?.classList.remove('active');
+                showCutMapOptions(false);
                 setLoading('Anatomy asset unavailable.'); setTimeout(() => setLoading(null), 2500);
                 return;
             }
@@ -511,6 +518,7 @@ async function setSliceAnatomy(on) {
         // active after that face is removed.
         config.style.cutOverlay.enabled = false;
         document.getElementById('c-cut-overlay')?.classList.remove('active');
+        showCutMapOptions(false);
         engine.setAnatomyVolume(null);
     }
     engine.renderFrame();
@@ -521,6 +529,7 @@ async function setSliceAnatomy(on) {
 async function setCutOverlay(on) {
     config.style.cutOverlay.enabled = !!on;
     document.getElementById('c-cut-overlay')?.classList.toggle('active', !!on);
+    showCutMapOptions(on);
     if (on && (!config.style.sliceAnatomy || !anatomyVol)) await setSliceAnatomy(true);
     else { engine.applyStyle(); engine.renderFrame(); }
 }

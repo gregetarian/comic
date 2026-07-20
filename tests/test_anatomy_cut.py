@@ -22,7 +22,7 @@ def test_anatomy_asset_present_and_shaped():
     assert meta["surfaceMatched"] is True
     assert meta["hemisphereAware"] is True
     assert meta["footprint"] == "pial-envelope"
-    assert meta["kind"].startswith("fsaverage brain.mgz")
+    assert meta["kind"].startswith("fsaverage T1.mgz")
     raw = gzip.decompress((DATA / "anat_uint8.bin.gz").read_bytes())
     assert len(raw) == dims[0] * dims[1] * dims[2] * 4
     rgba = np.frombuffer(raw, np.uint8).reshape(-1, 4)
@@ -34,6 +34,7 @@ def test_anatomy_asset_present_and_shaped():
     # At least some included cerebral pixels fall below the display window floor: these render as
     # opaque black CSF/ventricles, not transparent holes that expose cortex lines/background.
     assert np.any((vol < round(0.28 * 255)) & (mask == 255))
+    assert len(np.unique(vol[mask == 255])) > 80   # preserve native intensity detail
 
 
 def test_anatomy_affine_is_mm_scale_world():

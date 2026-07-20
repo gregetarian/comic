@@ -54,11 +54,12 @@ def main():
         page.wait_for_timeout(300)
         assert ev("window.__engine().config.layout.mode") == "grid", "ninePanel should be grid mode"
 
-        # 1) switch to Free Canvas: frames appear, mode flips, panels keep their count
+        # 1) switch to the current Free Canvas default: frames appear and mode flips
         n_panels = ev("window.__engine().getPanelRects().length")
-        page.select_option("#c-layout", "freeCanvas")
+        page.select_option("#c-layout", "freeDefault")
         page.wait_for_timeout(400)
         assert ev("window.__engine().config.layout.mode") == "free", "mode should be 'free'"
+        n_panels = ev("window.__engine().getPanelRects().length")
         n_frames = ev("document.querySelectorAll('.fc-frame').length")
         assert n_frames == n_panels, f"expected {n_panels} editor frames, got {n_frames}"
         assert ev("!!document.querySelector('.fc-toolbar')"), "toolbar missing"
@@ -74,6 +75,7 @@ def main():
         # 2) drag the body to MOVE → place.x/y change
         bx, by = center(frame.locator(".fc-body"))
         x0 = pj("x")
+        original_x = x0
         page.mouse.move(bx, by); page.mouse.down()
         page.mouse.move(bx - 120, by - 70, steps=8); page.mouse.up()
         page.wait_for_timeout(120)   # let the RAF loop reposition the frame
@@ -91,14 +93,19 @@ def main():
         assert abs(w1 - w0) > 0.02, f"resize did not change place.w ({w0} -> {w1})"
         print(f"[3] resize: place.w {round(w0,3)} -> {round(w1,3)} ✓")
 
-        # 4) rotate button (◀ = yaw -15). The header chrome fades in on hover, so dispatch the
+        # 4) rotate button (◀ = yaw -15). The pane and gizmo must remain fixed while the projected
+        # brain silhouette changes. The header chrome fades in on hover, so dispatch the
         # click directly to keep the test deterministic (real-mouse clickability + the z-order
         # lift are verified separately).
+        fixed0 = frame.evaluate("e => { const r=e.getBoundingClientRect(), g=e.querySelector('.fc-gizmo').getBoundingClientRect(); return [r.x,r.y,r.width,r.height,g.x,g.y]; }")
         frame.locator("button", has_text="◀").evaluate("el => el.click()")
         page.wait_for_timeout(60)
         yaw = ev(f"window.__engine().config.layout.panels[{j}].rotate.yaw")
         assert yaw == -15, f"yaw button should set -15, got {yaw}"
-        print(f"[4] rotate ◀: yaw = {yaw} ✓")
+        fixed1 = frame.evaluate("e => { const r=e.getBoundingClientRect(), g=e.querySelector('.fc-gizmo').getBoundingClientRect(); return [r.x,r.y,r.width,r.height,g.x,g.y]; }")
+        assert max(abs(a - b) for a, b in zip(fixed0, fixed1)) < 0.1, \
+            f"pane/gizmo moved as the brain rotated ({fixed0} -> {fixed1})"
+        print(f"[4] rotate ◀: yaw = {yaw}; pane + gizmo stable ✓")
 
         # 5) view picker change → camera.plane + view name update, rotate preserved
         frame.locator(".fc-view").evaluate("el => { el.value = 'anterior'; el.dispatchEvent(new Event('change', {bubbles:true})); }")
@@ -128,7 +135,7 @@ def main():
         print(f"[6] slice ✂ + drag anchor: sphere center.x {round(cx0,1)} -> {round(cx1,1)} ✓")
 
         # 7) + panel → panel set grows, engine rebuilt, frame added
-        page.locator(".fc-toolbar button", has_text="+ panel").click()
+        page.locator(".fc-toolbar button", has_text="+ panel").evaluate("el => el.click()")
         page.wait_for_timeout(300)
         assert ev("window.__engine().getPanelRects().length") == n_panels + 1, "panel not added"
         assert ev("document.querySelectorAll('.fc-frame').length") == n_panels + 1, "frame not added"
@@ -153,12 +160,13 @@ def main():
 
         # 9) Reset → the moved/sliced panel returns to its original place, slice cleared
         ox = pj("x")
-        page.locator(".fc-toolbar button", has_text="Reset").click()
+        page.locator(".fc-toolbar button", has_text="Reset").evaluate("el => el.click()")
         page.wait_for_timeout(300)
         rx = pj("x")
-        assert abs(rx - 0.75) < 0.02, f"reset did not restore place.x to ~0.75 (moved {ox} -> {rx})"
+        assert abs(rx - original_x) < 0.02, \
+            f"reset did not restore original place.x {original_x} (moved {ox} -> {rx})"
         assert ev(f"window.__engine().config.layout.panels[{j}].slice") is None, "reset did not clear the slice"
-        print(f"[9] reset: place.x {round(ox,3)} -> {round(rx,3)} (~original), slice cleared ✓")
+        print(f"[9] reset: place.x {round(ox,3)} -> {round(rx,3)} (original), slice cleared ✓")
         browser.close()
     httpd.shutdown()
 

@@ -56,16 +56,33 @@ const FRAG = `
 precision highp float;
 ${SAMPLE_GLSL}
 uniform vec3 uTint;
-uniform float uBright, uLo, uHi, uGamma;
+uniform float uBright, uLo, uHi, uGamma, uSharpen;
 out vec4 fragColor;
 void main() {
     float a;
     if (!gbSampleAnatomy(a)) discard;
+    // Native data are 1 mm. A small six-neighbour unsharp mask restores the edge definition that
+    // trilinear 3-D texture sampling otherwise loses when a slice is enlarged to several screen
+    // pixels per voxel. It adds no invented spatial detail; it simply avoids the old soft upsample.
+    vec3 vox = (uAnatInv * vec4(vWorld, 1.0)).xyz;
+    vec3 tc = (vox + 0.5) / uDims;
+    vec3 d = 1.0 / uDims;
+    float neighbourMean = (
+        texture(uAnat, tc + vec3(d.x, 0.0, 0.0)).r +
+        texture(uAnat, tc - vec3(d.x, 0.0, 0.0)).r +
+        texture(uAnat, tc + vec3(0.0, d.y, 0.0)).r +
+        texture(uAnat, tc - vec3(0.0, d.y, 0.0)).r +
+        texture(uAnat, tc + vec3(0.0, 0.0, d.z)).r +
+        texture(uAnat, tc - vec3(0.0, 0.0, d.z)).r) / 6.0;
+    a = clamp(a + uSharpen * (a - neighbourMean), 0.0, 1.0);
     // Window/level like an MRI viewer: map [uLo..uHi] → [0..1] so CSF/sulci go dark, gray matter
-    // sits mid, white matter goes bright — punchy, legible contrast (a plain stretch left it mush).
+    // sits mid, white matter goes bright. The result is a perceptual/sRGB grey level; convert it to linear
+    // before the renderer's output transform. Treating it as linear was the main source of the
+    // pale, washed-out appearance (a nominal 50% grey displayed at roughly 74%).
     float t = clamp((a - uLo) / max(uHi - uLo, 1e-3), 0.0, 1.0);
     float g = clamp(pow(t, uGamma) * uBright, 0.0, 1.0);
-    fragColor = vec4(uTint * g, 1.0);
+    float linearGrey = g <= 0.04045 ? g / 12.92 : pow((g + 0.055) / 1.055, 2.4);
+    fragColor = vec4(uTint * linearGrey, 1.0);
 }`;
 
 // Negative red marks "this depth came from the opaque cut cap". The shared outline shader takes
@@ -185,10 +202,11 @@ export function createAnatomyCap({ data, dims, affine, channels = 1 }, layer, ov
         uniforms: {
             ...sampleUniforms,
             uTint: { value: new THREE.Color(0xffffff) },
-            uBright: { value: 1.0 },
-            uLo: { value: 0.28 },       // window floor (CSF/sulci → dark) — tuned for fsaverage T1
-            uHi: { value: 0.82 },       // window ceiling (white matter → bright)
-            uGamma: { value: 1.15 },    // >1 darkens midtones → more contrast, less washed
+            uBright: { value: 0.98 },
+            uLo: { value: 0.30 },       // window floor (CSF/sulci → dark)
+            uHi: { value: 0.98 },       // retain highlight detail instead of clipping upper tissue
+            uGamma: { value: 1.08 },
+            uSharpen: { value: 0.45 },
         },
     });
     const depthMaterial = new THREE.RawShaderMaterial({
@@ -377,10 +395,11 @@ export function createAnatomyCap({ data, dims, affine, channels = 1 }, layer, ov
         }
     }
 
-    function setStyle({ tint, brightness, gamma, airEps } = {}) {
+    function setStyle({ tint, brightness, gamma, sharpen, airEps } = {}) {
         if (tint != null) material.uniforms.uTint.value.set(tint);
         if (brightness != null) material.uniforms.uBright.value = brightness;
         if (gamma != null) material.uniforms.uGamma.value = gamma;
+        if (sharpen != null) material.uniforms.uSharpen.value = sharpen;
         if (airEps != null) material.uniforms.uAirEps.value = airEps;
     }
 

@@ -104,9 +104,11 @@
     .fc-frame .fc-head button.on { background: #4a90d9; color: #fff; border-color: #4a90d9; }
     .fc-frame .fc-resize { position: absolute; right: -8px; bottom: -8px; width: 18px; height: 18px; background: #4a90d9;
       border: 2px solid #fff; border-radius: 3px; pointer-events: auto; cursor: nwse-resize; z-index: 16; }
-    /* World/MNI rotation gizmo: fixed coloured axes projected through the live camera basis. */
-    .fc-frame .fc-gizmo { position: absolute; right: 10px; bottom: 12px; width: 76px; height: 76px;
+    /* World/MNI rotation gizmo: fixed to the pane chrome, never the rotating brain silhouette. */
+    .fc-frame .fc-gizmo { position: absolute; right: -84px; bottom: 8px; width: 76px; height: 76px;
       pointer-events: none; z-index: 17; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.22)); }
+    .fc-frame .fc-gizmo.fc-gizmo-left { right: auto; left: -84px; }
+    .fc-frame .fc-gizmo.fc-gizmo-inside { right: 10px; left: auto; }
     .fc-frame.hover .fc-gizmo, .fc-frame.fc-editing .fc-gizmo, .fc-frame.fc-active .fc-gizmo { pointer-events: auto; }
     .fc-gizmo svg { position: absolute; inset: 0; overflow: visible; pointer-events: none; }
     .fc-gizmo-orb { position: absolute; left: 32px; top: 32px; width: 12px; height: 12px; border-radius: 50%;
@@ -200,6 +202,8 @@
     .lab { font-size: 9px; color: #999; text-transform: uppercase; letter-spacing: 0.5px; }
     .sw { display: flex; flex-direction: column; align-items: center; gap: 1px; }
     .sw span { font-size: 8px; color: #999; }
+    .cut-map-options { display: none; align-items: center; gap: 10px; }
+    .cut-map-options.active { display: flex; }
     /* clickable info: parameter labels (above each slider) + a small ⓘ on toggles/selects */
     .sw span.has-info { cursor: help; border-bottom: 1px dotted #bbb; }
     .info { width: 13px; height: 13px; min-width: 13px; padding: 0; margin-left: 4px; font-size: 9px;
@@ -296,9 +300,11 @@
         <button class="btn" id="c-surface-all" title="Project all loaded maps onto the cortical surface (and back) — keeps the cel-shaded glass look. First use loads the cortical surface, then re-meshes.">Surface</button>
         <button class="btn active" id="c-outline">Outline</button>
         <button class="btn" id="c-slice-anat" title="Cut MRI: when a panel is sliced (the ✂ button in Free Canvas), paint the anatomical T1 cross-section — white/gray matter, like a coronal MRI — on the exposed cut face. Loads a small anatomy volume on first use.">Cut MRI</button>
-        <button class="btn" id="c-cut-overlay" title="Composite each thresholded statistical map onto the exposed MRI face. Uses the original NIfTI grid, world affine, live cluster cutoff, and current colormap.">Cut map</button>
-        <div class="sw" title="Thickness of the max-absolute statistical slab sampled around the cut plane, in millimetres."><span>slab mm</span><input type="number" class="thrbox" id="c-cut-slab" value="1" min="0" max="20" step="0.5"></div>
-        <span class="sw" title="How the source statistical grid is sampled on the cut face."><span>cut sample</span><select class="btn" id="c-cut-interp"><option value="linear">linear</option><option value="nearest">nearest</option></select></span>
+        <button class="btn" id="c-cut-overlay" title="Put each thresholded statistical map on the exposed MRI face. These map controls do not change the anatomical MRI.">Cut map</button>
+        <span class="cut-map-options" id="c-cut-map-options">
+          <span class="sw" title="Statistical map only: search this total depth around the cut and show the strongest surviving voxel. Use 0 mm for the exact cut plane."><span>map depth</span><input type="number" class="thrbox" id="c-cut-slab" value="1" min="0" max="20" step="0.5"><span>mm</span></span>
+          <span class="sw" title="Statistical map only: Smooth blends neighbouring source voxels; voxel-sharp preserves their block boundaries."><span>map pixels</span><select class="btn" id="c-cut-interp"><option value="linear">smooth</option><option value="nearest">voxel-sharp</option></select></span>
+        </span>
         <button class="btn" id="c-template-qa" title="Inspect the declared template assets, shared transform, and measured T1↔pial alignment">Template QA</button>
         <div class="sw"><span>cortex α</span><input type="range" id="c-cortex"></div>
         <div class="sw"><span>edge thr</span><input type="range" id="c-outline-thresh"></div>
@@ -358,7 +364,7 @@
           <ul>
             <li><b>Inflate</b> pial↔inflated cortex · <b>Surface</b> project all maps onto the cortex · <b>Outline</b> the cortex lines.</li>
             <li><b>cortex α</b> glass opacity · <b>edge thr</b> / <b>line w</b> cortex-line density &amp; thickness · <b>vox α</b> line strength over voxels.</li>
-            <li><b>Cut MRI</b> — on a sliced panel, reveal the anatomical T1 cross-section on the cut face. <b>Cut map</b> composites thresholded NIfTI values over it; slab thickness and linear/nearest sampling are explicit.</li>
+            <li><b>Cut MRI</b> — on a sliced panel, reveal the native 1 mm anatomical T1 cross-section. <b>Cut map</b> adds thresholded NIfTI values; <b>map depth</b> searches around the plane for activation and <b>map pixels</b> controls only that statistical overlay.</li>
           </ul>
           <h3>Layouts</h3>
           <ul>
@@ -369,7 +375,7 @@
           <h3>Free Canvas</h3>
           <ul>
             <li>Hover a panel for its toolbar: <b>view</b> picker · <b>✂</b> slice (cycles axial/coronal/sagittal cut, then sphere &amp; cube bite) · <b>☰</b> more (rotate steps, cortex lines, bring-to-front, remove).</li>
-            <li>Drag the brain to <b>move</b> · use the bottom-right <b>red X / green Y / blue Z</b> gizmo for precise MNI-axis rotation (click an endpoint to snap) · drag the square corner to <b>resize</b>. Shift-drag remains a free-orbit shortcut.</li>
+            <li>Drag the brain to <b>move</b> · use the stable <b>red X / green Y / blue Z</b> gizmo just outside the pane for precise MNI-axis rotation (click an endpoint to snap) · drag the square corner to <b>resize</b>. Shift-drag remains a free-orbit shortcut.</li>
             <li>With a slice on: drag the orange/teal dots to move/resize the cut, and toggle <b>Cut MRI</b> to see the anatomy inside.</li>
             <li>Toolbar: <b>Seed grid</b> · <b>+ panel</b> · <b>Reset</b> · <b>transparent</b> background. Cmd/Ctrl-Z undoes edits.</li>
           </ul>

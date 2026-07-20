@@ -12,6 +12,8 @@ All items below are implemented, browser-verified, and covered by focused tests.
   keyboard-accessible, and visually distinct from the panel resize and slice handles.
 - [x] Use fixed world/MNI axis semantics and show the choice clearly in
   the gizmo so rotations remain predictable after a panel has already been rolled.
+- [x] Anchor the pane frame and gizmo to the authored panel rectangle, not the changing projected
+  brain silhouette; place the gizmo outside the pane where canvas space permits.
 
 ## Template and surface flexibility
 
