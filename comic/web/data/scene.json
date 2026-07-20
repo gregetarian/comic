@@ -236,16 +236,16 @@
       "method": "pial-to-T1-footprint-boundary",
       "percentile": 95,
       "toleranceMm": 2.5,
-      "worstP95Mm": 1.9945,
+      "worstP95Mm": 2.0,
       "hemispheres": {
         "lh": {
           "sampledVertices": 5121,
-          "p95Mm": 1.7297,
+          "p95Mm": 2.0,
           "outOfBoundsFraction": 0.0
         },
         "rh": {
           "sampledVertices": 5121,
-          "p95Mm": 1.9945,
+          "p95Mm": 2.0,
           "outOfBoundsFraction": 0.0
         }
       }
