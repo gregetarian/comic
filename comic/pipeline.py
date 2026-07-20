@@ -502,6 +502,42 @@ def _stage_mesh(verts, faces, values, clusters):
             'nverts': int(verts.shape[0]), 'ntris': nidx // 3}
 
 
+def _stage_cut_volume(data, cluster_data, affine):
+    """Stage a compact, world-registered statistical grid for the MRI cut face.
+
+    Geometry alone cannot reproduce a value map on an arbitrary cut plane.  Keep the
+    thresholded values plus live cluster sizes in a cropped two-channel float texture.
+    WebGL 3D textures are x-fastest, hence the Fortran-order flattening before the two
+    channels are interleaved.  The cropped affine still maps voxel (0,0,0) exactly into
+    source-world space.
+    """
+    ijk = np.argwhere(data != 0)
+    if not len(ijk):
+        return None
+    lo = np.maximum(ijk.min(axis=0) - 1, 0)
+    hi = np.minimum(ijk.max(axis=0) + 2, data.shape)
+    sl = tuple(slice(int(lo[d]), int(hi[d])) for d in range(3))
+    vals = np.asarray(data[sl], np.float32)
+    clusters = np.asarray(cluster_data[sl], np.float32)
+
+    packed = np.empty(vals.size * 2, np.float32)
+    packed[0::2] = vals.ravel(order='F')
+    packed[1::2] = clusters.ravel(order='F')
+    buf, _ = _stage(packed, np.float32)
+
+    shift = np.eye(4)
+    shift[:3, 3] = lo
+    cropped_affine = np.asarray(affine, dtype=float) @ shift
+    return {
+        'buffer': buf,
+        'dims': [int(x) for x in vals.shape],
+        'affine': cropped_affine.tolist(),
+        'channels': 2,
+        'channelOrder': ['value', 'clusterSize'],
+        'order': 'x-fastest-interleaved',
+    }
+
+
 def process_nifti(src, name, threshold=2.3, classify=True, surface=False):
     """Run the full pipeline on a NIfTI (path or bytes). Returns a JSON meta string;
     geometry arrays are staged in _BUFFERS for retrieval via get_all_buffers().
@@ -557,6 +593,9 @@ def process_nifti(src, name, threshold=2.3, classify=True, surface=False):
         'regionCounts': {cat: int(m.sum()) for cat, m in cats.items()},   # M10: supra-threshold voxels per region
         'structures': structures,
     }
+    cut_volume = _stage_cut_volume(data, cluster_data, affine)
+    if cut_volume is not None:
+        meta['cutVolume'] = cut_volume
     # Surface-projection meshes (M8): the cortex sheet per hemi, sampled from this volume.
     if surface and (_CORTEX['lh'] is not None or _CORTEX['rh'] is not None):
         meta['surface'] = build_surface_projection(data, affine)

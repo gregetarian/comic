@@ -8,8 +8,11 @@ from pathlib import Path
 
 import numpy as np
 import trimesh
+import nibabel as nib
+import pytest
 
 from comic.bake import bake_template
+from comic.template import validate_template_alignment
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "comic" / "web" / "data"
@@ -29,8 +32,44 @@ def test_bake_template_writes_custom_assets(tmp_path):
     assert (data / "cortex_lh.glb").exists() and (data / "cortex_rh.glb").exists()
     scene = json.loads((data / "scene.json").read_text())
     assert scene["space"] == "toy" and scene["templateMode"] == "custom"
+    assert scene["templateBundle"]["surfaces"]["pial"]["lh"] == "cortex_lh.glb"
     aj = json.loads((data / "aseg.json").read_text())
     assert aj["categories"] == {"3": "lh_cortex"} and aj["structureCategories"] == ["lh_cortex"]
+
+
+def test_custom_bundle_carries_surface_variants_t1_and_alignment_qa(tmp_path):
+    left = trimesh.creation.icosphere(subdivisions=2, radius=15.0)
+    right = left.copy()
+    left.apply_translation([-18, 0, 0]); right.apply_translation([18, 0, 0])
+    pial = {"lh": left, "rh": right}
+    white = {h: m.copy() for h, m in pial.items()}
+    for m in white.values():
+        m.apply_scale(0.82)
+    custom = {"veryInflated": {h: m.copy() for h, m in pial.items()}}
+    for m in custom["veryInflated"].values():
+        m.apply_scale(1.08)
+
+    affine = np.eye(4); affine[:3, 3] = -40
+    t1 = nib.Nifti1Image(np.full((80, 80, 80), 180, np.float32), affine)
+    out = bake_template(tmp_path / "bundle", pial, white=white, custom_surfaces=custom,
+                        t1=t1, space="toyRAS", transform_id="toy-world-v2",
+                        alignment_tolerance_mm=3.0)
+    data = Path(out) / "data"
+    scene = json.loads((data / "scene.json").read_text())
+    bundle = scene["templateBundle"]
+    assert set(bundle["surfaces"]) == {"pial", "white", "veryInflated"}
+    assert bundle["anatomy"]["transformId"] == bundle["transformId"] == "toy-world-v2"
+    assert bundle["alignment"]["status"] == "pass"
+    assert (data / "cortex_lh_white.glb").exists()
+    assert (data / "cortex_rh_veryInflated.glb").exists()
+
+    # A shifted anatomy affine must fail loudly, not silently claim the same named space.
+    meta_path = data / "anat.json"
+    meta = json.loads(meta_path.read_text())
+    meta["affine"][0][3] += 25
+    meta_path.write_text(json.dumps(meta))
+    with pytest.raises(ValueError, match="alignment failed"):
+        validate_template_alignment(data, tolerance_mm=3.0, fail=True)
 
 
 def test_render_against_custom_template(tmp_path):

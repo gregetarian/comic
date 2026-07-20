@@ -16,7 +16,7 @@ import { loadColormaps } from '../core/colormap.js';
 import { setOverlayStyle } from '../core/config-schema.js';
 import { createPresetsUI, randomColormapName } from '../controls/style-presets.js';
 import { contentBBoxPx } from '../core/bbox.js';
-import { loadBaseScene, buildOverlayMeshes, loadOverlayArrays, loadAnatomyVolume } from '../scene/asset-loader.js';
+import { loadBaseScene, buildOverlayMeshes, buildCutVolume, loadOverlayArrays, loadAnatomyVolume } from '../scene/asset-loader.js';
 import { createEngine } from '../scene/renderer.js';
 import { createColorbar } from '../controls/colorbar.js';
 import { initKapow } from '../controls/kapow.js';
@@ -29,6 +29,7 @@ import { VOL_RE, isSurfaceFile, groupSurfaceFiles, surfaceOverlayName } from '..
 import { createSessionState } from './state.js';
 
 const DATA = 'data/';
+const DEMO_ASSET_VER = 'cut-volume-v1';
 
 // --- session state ---
 // Session flags + the current preset live in ONE object (see app/state.js): state.isHeadless,
@@ -42,6 +43,10 @@ let anatomyVol = null;   // the cut-cap volume asset {data,dims,affine}, loaded 
 let zoomEls = [];
 let fcEditor = null;   // Free Canvas editor overlay (only in layout.mode === 'free')
 let container, canvas;
+
+function makeOverlay(meta, buffers, oi, src) {
+    return { meta, meshObjs: buildOverlayMeshes(meta, buffers, oi), cutVolume: buildCutVolume(meta, buffers), src };
+}
 
 async function fetchJSON(url, fb) {
     try { const r = await fetch(url); if (!r.ok) throw 0; return await r.json(); }
@@ -110,6 +115,26 @@ async function main() {
     document.getElementById('c-colorbar').addEventListener('click', () => setColorbarVisible(!state.colorbarsVisible));
     document.getElementById('c-cli').addEventListener('click', copyCliCommand);
     document.getElementById('c-slice-anat')?.addEventListener('click', () => setSliceAnatomy(!config.style.sliceAnatomy));
+    const cutBtn = document.getElementById('c-cut-overlay');
+    cutBtn?.classList.toggle('active', !!config.style.cutOverlay?.enabled);
+    cutBtn?.addEventListener('click', () => setCutOverlay(!config.style.cutOverlay?.enabled));
+    const slab = document.getElementById('c-cut-slab');
+    const interp = document.getElementById('c-cut-interp');
+    if (slab) {
+        slab.value = config.style.cutOverlay?.slabMm ?? 1;
+        slab.addEventListener('input', () => {
+            config.style.cutOverlay.slabMm = Math.max(0, Number(slab.value) || 0);
+            engine.applyStyle(); engine.renderFrame();
+        });
+    }
+    if (interp) {
+        interp.value = config.style.cutOverlay?.interpolation || 'linear';
+        interp.addEventListener('change', () => {
+            config.style.cutOverlay.interpolation = interp.value;
+            engine.applyStyle(); engine.renderFrame();
+        });
+    }
+    setupTemplateQA();
     // Help modal: open on ? Help, close on ✕, backdrop click, or Escape.
     const helpModal = document.getElementById('help-modal');
     const closeHelp = () => { if (helpModal) helpModal.hidden = true; };
@@ -172,6 +197,7 @@ async function main() {
 
     rebuild();                 // base glass brain renders immediately (no Pyodide)
     startLoopAndResize();
+    if (config.style.sliceAnatomy || config.style.cutOverlay?.enabled) await setSliceAnatomy(true);
     setLoading(null);
 
     // Boot EMPTY — just the glass brain; the user uploads their own maps or clicks "Demo".
@@ -181,6 +207,31 @@ async function main() {
     const demoParam = params.get('demo');
     (demoParam === '1' ? loadNeurosynthDemo() : params.get('baked') === '1' ? loadBakedFixture() : Promise.resolve())
         .catch((e) => console.warn('demo overlays unavailable:', e));
+}
+
+function setupTemplateQA() {
+    const btn = document.getElementById('c-template-qa');
+    const modal = document.getElementById('template-qa-modal');
+    if (!btn || !modal) return;
+    const bundle = baseScene.templateBundle || {}, qa = bundle.alignment;
+    const pass = qa?.status === 'pass';
+    btn.textContent = qa ? `Template QA ${pass ? '✓' : '!'}` : 'Template QA —';
+    btn.classList.toggle('pass', pass); btn.classList.toggle('fail', !!qa && !pass);
+    const set = (id, text) => { const node = document.getElementById(id); if (node) node.textContent = text; };
+    set('qa-status', qa ? (pass ? 'PASS — registered bundle' : 'FAIL — bundle rejected') : 'not measured');
+    document.getElementById('qa-status')?.classList.toggle('fail', !!qa && !pass);
+    set('qa-summary', `${bundle.id || 'Template'} · ${bundle.space || 'unknown space'} · ${bundle.coordinateSystem || 'unknown axes'}. `
+        + (qa ? `Measured with ${qa.method}.` : 'This legacy bundle has no stored alignment measurement.'));
+    set('qa-lh', qa?.hemispheres?.lh?.p95Mm != null ? `${qa.hemispheres.lh.p95Mm} mm` : '—');
+    set('qa-rh', qa?.hemispheres?.rh?.p95Mm != null ? `${qa.hemispheres.rh.p95Mm} mm` : '—');
+    set('qa-tol', qa?.toleranceMm != null ? `${qa.toleranceMm} mm` : '—');
+    set('qa-surfaces', Object.keys(bundle.surfaces || {}).join(' · ') || 'none');
+    set('qa-contract', `Transform: ${bundle.transformId || 'legacy / undeclared'}. Anatomy, segmentation, and every surface must declare this same world transform; a failed stored alignment prevents the viewer from loading.`);
+    const close = () => { modal.hidden = true; };
+    btn.addEventListener('click', () => { modal.hidden = false; });
+    document.getElementById('c-template-qa-close')?.addEventListener('click', close);
+    modal.addEventListener('click', (e) => { if (e.target === modal) close(); });
+    window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !modal.hidden) close(); });
 }
 
 /** Headless render (comic render): fixed-size figure, overlays from the manifest's
@@ -199,14 +250,14 @@ async function runHeadless() {
     overlays = [];
     for (let oi = 0; oi < metas.length; oi++) {
         const buffers = await loadOverlayArrays(DATA, metas[oi]);
-        overlays.push({ meta: metas[oi], meshObjs: buildOverlayMeshes(metas[oi], buffers, oi) });
+        overlays.push(makeOverlay(metas[oi], buffers, oi));
     }
     rebuild();   // engine + (colorbar, no ✕) for the current overlays
 
     // Scissor cut-cap: if the spec asks for it, load the anatomy volume + attach it BEFORE the
     // screenshot (the load is async; without awaiting it here __GB_DONE__ would fire cap-less).
-    if (config.style.sliceAnatomy) {
-        try { anatomyVol = await loadAnatomyVolume(DATA); engine.setAnatomyVolume(anatomyVol); }
+    if (config.style.sliceAnatomy || config.style.cutOverlay?.enabled) {
+        try { anatomyVol = await loadAnatomyVolume(DATA, baseScene.templateBundle); engine.setAnatomyVolume(anatomyVol); }
         catch (err) { console.warn('slice anatomy asset unavailable:', err); }
     }
 
@@ -246,8 +297,8 @@ async function runHeadless() {
 /** Load the single pre-baked overlay (static files) — identical path to a live upload.
  *  Instant + offline (no Pyodide); the headless tests boot this via ?baked=1. */
 async function loadBakedFixture() {
-    const meta = await fetch(DATA + 'demo/meta.json').then((r) => r.json());
-    const buffers = await loadOverlayArrays(DATA + 'demo/', meta);
+    const meta = await fetch(DATA + 'demo/meta.json?' + DEMO_ASSET_VER).then((r) => r.json());
+    const buffers = await loadOverlayArrays(DATA + 'demo/', meta, DEMO_ASSET_VER);
     addOverlay(meta, buffers);
 }
 
@@ -267,8 +318,8 @@ async function loadNeurosynthDemo() {
             const { meta, buffers } = await processNifti(new File([blob], ov.file), ov.threshold ?? 2.3,
                 (m) => setLoading(m + ' — ' + (ov.name || ov.file), note));
             if (ov.name) meta.name = ov.name;
-            overlays.push({ meta, meshObjs: buildOverlayMeshes(meta, buffers, overlays.length),
-                            src: { file: new File([blob], ov.file), threshold: ov.threshold ?? 2.3 } });
+            overlays.push(makeOverlay(meta, buffers, overlays.length,
+                { file: new File([blob], ov.file), threshold: ov.threshold ?? 2.3 }));
             (config.style.overlays ||= []).push(ov.style || {});
         } catch (e) { console.warn('default overlay failed:', ov.file, e); }
     }
@@ -279,8 +330,7 @@ async function loadNeurosynthDemo() {
 /** Build + register one overlay from a (meta, flat-buffers) pair, then rebuild. `src`
  *  ({file, threshold}) is kept so the overlay can be re-meshed for surface mode. */
 function addOverlay(meta, buffers, src) {
-    const meshObjs = buildOverlayMeshes(meta, buffers, overlays.length);
-    overlays.push({ meta, meshObjs, src });
+    overlays.push(makeOverlay(meta, buffers, overlays.length, src));
     (config.style.overlays ||= []).push({});
     rebuild();
 }
@@ -301,7 +351,8 @@ async function setOverlaySurface(i, repSel) {
             const { meta, buffers } = await processNifti(o.src.file, o.src.threshold,
                 (m) => setLoading(m, 'First use loads the cortical surface (~11 MB), then re-meshes.'), true);
             for (const mo of o.meshObjs) mo.mesh.geometry.dispose();
-            o.meta = meta; o.meshObjs = buildOverlayMeshes(meta, buffers, i); o._surfaced = true;
+            o.meta = meta; o.meshObjs = buildOverlayMeshes(meta, buffers, i);
+            o.cutVolume = buildCutVolume(meta, buffers); o._surfaced = true;
             setLoading(null);
         }
         setOverlayStyle(config, i, { voxel: { representation: 'surface' } });
@@ -443,10 +494,12 @@ async function setSliceAnatomy(on) {
         if (!anatomyVol) {
             try {
                 setLoading('Loading anatomy (T1) for the cut view…');
-                anatomyVol = await loadAnatomyVolume(DATA);
+                anatomyVol = await loadAnatomyVolume(DATA, baseScene.templateBundle);
             } catch (err) {
                 console.error(err); config.style.sliceAnatomy = false;
+                config.style.cutOverlay.enabled = false;
                 if (btn) btn.classList.remove('active');
+                document.getElementById('c-cut-overlay')?.classList.remove('active');
                 setLoading('Anatomy asset unavailable.'); setTimeout(() => setLoading(null), 2500);
                 return;
             }
@@ -454,9 +507,22 @@ async function setSliceAnatomy(on) {
         }
         engine.setAnatomyVolume(anatomyVol);
     } else {
+        // A statistical cut overlay is composited onto the MRI face, so it cannot remain
+        // active after that face is removed.
+        config.style.cutOverlay.enabled = false;
+        document.getElementById('c-cut-overlay')?.classList.remove('active');
         engine.setAnatomyVolume(null);
     }
     engine.renderFrame();
+}
+
+/** Toggle thresholded statistical values on the exposed MRI face. Enabling it also enables
+ *  Cut MRI because the registered, opaque T1 cap is the masking/depth surface it composes on. */
+async function setCutOverlay(on) {
+    config.style.cutOverlay.enabled = !!on;
+    document.getElementById('c-cut-overlay')?.classList.toggle('active', !!on);
+    if (on && (!config.style.sliceAnatomy || !anatomyVol)) await setSliceAnatomy(true);
+    else { engine.applyStyle(); engine.renderFrame(); }
 }
 
 /** Dispose the old engine and recreate it for the current overlay set. */
@@ -471,11 +537,12 @@ function rebuild() {
     const sceneModel = {
         meshes: [...baseScene.meshes, ...overlays.flatMap((o) => o.meshObjs)],
         manifest: { ...baseScene.manifest, overlays: overlays.map((o) => o.meta) },
+        cutVolumes: overlays.map((o) => o.cutVolume || null),
     };
     engine = createEngine({ renderer, width: canvas.clientWidth || 1, height: canvas.clientHeight || 1, sceneModel, colormaps, config });
     // Re-attach the anatomy cut-cap volume after a rebuild (the engine is recreated fresh);
     // the volume asset itself is cached, so this is just a texture rebind, not a re-fetch.
-    if (config.style.sliceAnatomy && anatomyVol) engine.setAnatomyVolume(anatomyVol);
+    if ((config.style.sliceAnatomy || config.style.cutOverlay?.enabled) && anatomyVol) engine.setAnatomyVolume(anatomyVol);
     // Preserve the user's pan/zoom across rebuilds that KEEP the design size (overlay
     // add/remove). When the design size CHANGES (a preset switch), re-fit instead — a
     // carried-over view is centred/scaled for the old size and would overflow. The very

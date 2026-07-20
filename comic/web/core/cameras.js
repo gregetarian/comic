@@ -44,6 +44,23 @@ function orbitRel(rel, up, rotate) {
     return { rel: nrel, up: normalize(nup) };
 }
 
+/** Extrinsic rotations about the fixed RAS/MNI axes. These are deliberately applied after the
+ * legacy view-local yaw/pitch/roll so the coloured gizmo remains world-locked and predictable. */
+function orbitWorld(rel, up, rotate) {
+    const turns = [
+        [[1, 0, 0], deg2rad(rotate.worldX || 0)],
+        [[0, 1, 0], deg2rad(rotate.worldY || 0)],
+        [[0, 0, 1], deg2rad(rotate.worldZ || 0)],
+    ];
+    let nrel = rel, nup = up;
+    for (const [axis, angle] of turns) {
+        if (!angle) continue;
+        nrel = rotateAxis(nrel, axis, angle);
+        nup = rotateAxis(nup, axis, angle);
+    }
+    return { rel: nrel, up: normalize(nup) };
+}
+
 /**
  * Resolve a camera spec to a concrete pose.
  * @param {object} cameraSpec - { plane: 'left_lateral' } OR { pose: {position,up,lookAt} }
@@ -60,6 +77,10 @@ export function resolveCamera(cameraSpec, center = [0, 0, 0], distance = 400, ti
         let position = p.position, up = p.up;
         if (rotate && (rotate.yaw || rotate.pitch || rotate.roll)) {
             const o = orbitRel(sub(position, lookAt), up, rotate);
+            position = add(lookAt, o.rel); up = o.up;
+        }
+        if (rotate && (rotate.worldX || rotate.worldY || rotate.worldZ)) {
+            const o = orbitWorld(sub(position, lookAt), up, rotate);
             position = add(lookAt, o.rel); up = o.up;
         }
         return { position, up, lookAt, hemisphere: cameraSpec.hemisphere ?? 'both' };
@@ -82,6 +103,10 @@ export function resolveCamera(cameraSpec, center = [0, 0, 0], distance = 400, ti
     // per-panel orbit (Free Canvas l/r/u/d/roll), after the global tilt
     if (rotate && (rotate.yaw || rotate.pitch || rotate.roll)) {
         const o = orbitRel(rel, up, rotate);
+        rel = o.rel; up = o.up;
+    }
+    if (rotate && (rotate.worldX || rotate.worldY || rotate.worldZ)) {
+        const o = orbitWorld(rel, up, rotate);
         rel = o.rel; up = o.up;
     }
     return {

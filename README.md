@@ -37,8 +37,8 @@ view pixel-for-pixel.
   (`left_lateral`, `right_medial`, `dorsal`/`axial`, `anterior`/`frontal`,
   subcortical close-ups, …), 2×2 to N×M, from the CLI.
 - **Free Canvas** — a "Canva for brains" mode: drop panels anywhere on a free
-  2D canvas, **move / resize / overlap** them, **rotate** each view (l/r/u/d/roll
-  buttons or shift-drag orbit), **slice** any panel (a plane cut or a sphere/cube
+  2D canvas, **move / resize / overlap** them, **rotate** each view with the hover
+  MNI-axis gizmo (or shift-drag free orbit), **slice** any panel (a plane cut or a sphere/cube
   **"bite"** out of the whole brain), and toggle a **transparent background**. It
   still **Copy-CLI**s to a self-contained `--spec figure.json` that reproduces the
   figure headlessly, pixel-faithful.
@@ -171,8 +171,10 @@ switch is seamless) to turn the figure into a free 2D canvas of brain panels:
 
 - **Move / resize** — drag a panel's brain (or its header bar) to move it; drag the
   bottom-right **corner** to resize. Panels can overlap; **⤒** brings one to the front.
-- **Rotate** — each panel's header has **◀ ▶ ▲ ▼** (yaw/pitch) and **⟲ ⟳** (roll)
-  step buttons; **shift-drag** the brain to free-orbit.
+- **Rotate** — hover the bottom-right of a panel for a Blender-style MNI gizmo:
+  **X red, Y green, Z blue**. Drag an arrow to lock rotation to that fixed world axis;
+  click an endpoint to snap to its orthogonal view. Arrow keys adjust the focused axis
+  by 5° (shift = 15°). **Shift-drag** remains available for free orbit.
 - **View** — the per-panel dropdown picks any named view (lateral/medial, anterior,
   dorsal/axial, ventral, subcortical L/R, …).
 - **Slice (`✂`)** — cycles a cut on that panel: axial / coronal / sagittal plane →
@@ -181,8 +183,13 @@ switch is seamless) to turn the figure into a free 2D canvas of brain panels:
   **orange** dot to move the cut (shift-drag for depth), the **teal** dot to resize it.
 - **Cut MRI** — paints an opaque T1 cross-section on the exposed face. It uses the same
   fsaverage anatomy and coordinate transform as the pial surface, disappears when viewed
-  from behind, and occludes cortex/voxel line-art behind the cut. Statistical meshes are
-  geometrically clipped; sampling a statistical overlay directly onto the 2D face is future work.
+  from behind, and occludes cortex/voxel line-art behind the cut.
+- **Cut map** — samples the original thresholded NIfTI grid in a thin max-absolute slab and
+  composites its current colormap over the T1 face. It honors each map's live threshold,
+  cluster cutoff, sign mode, and draw priority; choose linear/nearest interpolation and slab
+  thickness in millimetres. Ordinary 3D voxel meshes remain geometrically clipped separately.
+- **Panel surface** — the panel menu can independently select pial, inflated, white, any
+  template-provided custom surface, or hide the cortex without changing the map representation.
 - **Toolbar** — seed an *R × C* grid of panels, **+ panel**, or tick **transparent**
   for a transparent figure background (exports a transparent PNG).
 - **Copy CLI** — emits `comic render … --spec figure.json` and downloads the

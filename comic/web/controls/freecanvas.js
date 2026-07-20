@@ -15,12 +15,15 @@
  */
 import { VIEWS, VIEW_ORDER, applyView, panelViewName } from '../core/views.js';
 import { add, sub, dot, scale, normalize } from '../core/units.js';
+import { WORLD_AXES, rotateAroundWorldAxis, snapPlaneForAxis } from '../core/rotation.js';
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 const el = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; };
 
 const ROT_STEP = 15;     // degrees per button press
 const ORBIT_SENS = 0.45; // degrees per pixel of body drag
+const GIZMO_SENS = 0.55; // degrees per pixel along a coloured MNI axis
+const GIZMO_KEY_STEP = 5;
 const MIN_FRAC = 0.06;     // smallest panel (fraction of canvas)
 const SNAP_DEFAULT_PX = 8; // default snap step (CSS px) — fine; user-adjustable
 
@@ -298,7 +301,18 @@ export function createFreeCanvasEditor({ container, canvas, config, getEngine, o
         menuBtn.addEventListener('pointerdown', (e) => e.stopPropagation());
         menuBtn.addEventListener('click', (e) => { e.stopPropagation(); menu.classList.toggle('open'); });
         menu.addEventListener('pointerdown', (e) => e.stopPropagation());
+        const surface = el('select', 'fc-surface');
+        const surfaceChoices = [['', 'surface: global'],
+            ...(getEngine().getSurfaceVariants?.() || ['pial', 'inflated']).map((s) => [s, `surface: ${s}`]),
+            ['hidden', 'surface: hidden']];
+        for (const [value, label] of surfaceChoices) {
+            const o = el('option', null, label); o.value = value; surface.append(o);
+        }
+        surface.value = panel.content?.surface || '';
+        surface.addEventListener('change', () => { (panel.content ||= {}).surface = surface.value || null; });
+        attachTip(surface, 'Cortical shell for this panel only; statistical overlays keep their own representation');
         menu.append(
+            surface,
             mkBtn('◀', 'Turn left (yaw −)', rot('yaw', -ROT_STEP)),
             mkBtn('▶', 'Turn right (yaw +)', rot('yaw', ROT_STEP)),
             mkBtn('▲', 'Tilt up (pitch −)', rot('pitch', -ROT_STEP)),
@@ -317,31 +331,136 @@ export function createFreeCanvasEditor({ container, canvas, config, getEngine, o
         // (in-plane; SHIFT = depth along the view), size = radius/extent.
         const anchorH = el('div', 'fc-slice-handle');
         const sizeH = el('div', 'fc-slice-handle fc-slice-size');
-        // Corner rotate handle: sits just DIAGONALLY OUT from the resize corner (bottom-right).
-        // Hover the corner → resize; hover a touch further out → this → drag to orbit the view.
-        const rotateH = el('div', 'fc-rotate');
-        attachTip(rotateH, 'Drag to rotate this view (yaw + pitch)');
+        const gizmo = makeRotationGizmo(panel, view);
         // Chrome (header, menu, resize, rotate, slice handles) lives INSIDE the body so moving among
         // them never fires the body's mouseleave (no hover flicker). Chrome is hidden until the panel
         // is hovered/edited — see the .hover/.fc-editing CSS.
-        body.append(head, menu, resize, rotateH, anchorH, sizeH);
+        body.append(head, menu, resize, gizmo.el, anchorH, sizeH);
         f.append(body);
         container.appendChild(f);
         body.addEventListener('mouseenter', () => f.classList.add('hover'));
         body.addEventListener('mouseleave', () => { f.classList.remove('hover'); menu.classList.remove('open'); });
 
-        attachTip(body, 'Drag to move · Shift-drag to rotate');
+        attachTip(body, 'Drag to move · Shift-drag for free orbit · coloured MNI gizmo for precise rotation');
         attachTip(resize, 'Drag to resize this panel');
         attachTip(anchorH, 'Drag to move the cut · Shift-drag for depth');
         attachTip(sizeH, 'Drag to resize the cut');
         dragMove(head, panel);        // drag the header bar to move
         dragBody(body, panel);        // drag the brain to move; SHIFT+drag to orbit
         dragResize(resize, panel);
-        dragRotate(rotateH, panel);   // corner handle → orbit the view (yaw + pitch)
         dragSlice(anchorH, panel, 'anchor');
         dragSlice(sizeH, panel, 'size');
         if (panel.id === activeId) f.classList.add('fc-active');   // survive rebuilds (refresh recreates frames)
-        return { el: f, panel, anchorH, sizeH };
+        return { el: f, panel, anchorH, sizeH, gizmo };
+    }
+
+    // Bottom-right world/MNI rotation widget. The coloured axes are projected through the live
+    // camera basis, so the little triad turns with the brain. Drag any endpoint to rotate only about
+    // that fixed world axis; click it to snap the camera to that ±orthogonal direction.
+    function makeRotationGizmo(panel, viewSelect) {
+        const root = el('div', 'fc-gizmo');
+        root.setAttribute('role', 'group');
+        root.setAttribute('aria-label', 'MNI axis rotation: X red, Y green, Z blue');
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('viewBox', '0 0 76 76'); svg.setAttribute('aria-hidden', 'true');
+        const records = {};
+
+        const snapAxis = (axis, sign) => {
+            const hemi = panel.content?.hemisphere || 'both';
+            panel.camera = { plane: snapPlaneForAxis(axis, sign, hemi) };
+            panel.rotate = null; panel.view = null;
+            panel.title = `MNI ${sign > 0 ? '+' : '−'}${axis.toUpperCase()}`;
+            viewSelect.value = panelViewName(panel);
+        };
+        const adjustAxis = (axis, delta) => {
+            panel.rotate = rotateAroundWorldAxis(panel.rotate, axis, delta);
+        };
+
+        for (const [axis, info] of Object.entries(WORLD_AXES)) {
+            const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            line.setAttribute('x1', '38'); line.setAttribute('y1', '38');
+            line.setAttribute('stroke', info.color); line.setAttribute('stroke-width', '2.6');
+            line.setAttribute('stroke-linecap', 'round'); svg.append(line);
+            const ends = {};
+            for (const sign of [-1, 1]) {
+                const b = el('button', `fc-gizmo-axis fc-axis-${axis}`,
+                    sign > 0 ? axis.toUpperCase() : '');
+                b.type = 'button'; b.dataset.axis = axis; b.dataset.sign = String(sign);
+                b.setAttribute('aria-label', `${sign > 0 ? 'Positive' : 'Negative'} MNI ${axis.toUpperCase()} axis: drag to rotate, press to snap view`);
+                b.setAttribute('aria-keyshortcuts', 'ArrowLeft ArrowRight ArrowUp ArrowDown Enter Space');
+                b.style.setProperty('--axis-color', info.color);
+                attachTip(b, `${axis.toUpperCase()} axis (${axis === 'x' ? 'left–right' : axis === 'y' ? 'posterior–anterior' : 'inferior–superior'}): drag to rotate · click to snap ${sign > 0 ? '+' : '−'}${axis.toUpperCase()}`);
+                b.addEventListener('pointerdown', (e) => {
+                    if (e.button !== 0) return;
+                    e.preventDefault(); e.stopPropagation(); hideTip();
+                    b.setPointerCapture(e.pointerId);
+                    const fr = b.closest('.fc-frame');
+                    const rec = frames.find((r) => r.el === fr);
+                    if (rec) setActive(rec.panel.id);
+                    if (fr) fr.classList.add('fc-editing');
+                    const x0 = e.clientX, y0 = e.clientY;
+                    const start = { ...(panel.rotate || {}) };
+                    let moved = false;
+                    const move = (ev) => {
+                        const dx = ev.clientX - x0, dy = ev.clientY - y0;
+                        if (!moved && Math.hypot(dx, dy) < 3) return;
+                        if (!moved) { moved = true; pushHistory(); }
+                        getEngine().setSpinFit?.(true);
+                        panel.rotate = rotateAroundWorldAxis(start, axis,
+                            (dx - dy) * GIZMO_SENS * sign);
+                    };
+                    const up = () => {
+                        if (!moved) { pushHistory(); snapAxis(axis, sign); }
+                        if (fr) fr.classList.remove('fc-editing');
+                        getEngine().setSpinFit?.(false);
+                        b.removeEventListener('pointermove', move);
+                        b.removeEventListener('pointerup', up);
+                        b.removeEventListener('pointercancel', up);
+                    };
+                    b.addEventListener('pointermove', move);
+                    b.addEventListener('pointerup', up);
+                    b.addEventListener('pointercancel', up);
+                });
+                b.addEventListener('keydown', (e) => {
+                    if (['Enter', ' '].includes(e.key)) {
+                        e.preventDefault(); pushHistory(); snapAxis(axis, sign); return;
+                    }
+                    if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return;
+                    e.preventDefault(); pushHistory();
+                    const direction = ['ArrowRight', 'ArrowUp'].includes(e.key) ? 1 : -1;
+                    adjustAxis(axis, direction * (e.shiftKey ? ROT_STEP : GIZMO_KEY_STEP));
+                });
+                root.append(b); ends[sign] = b;
+            }
+            records[axis] = { line, ends };
+        }
+        root.prepend(svg);
+        const orb = el('div', 'fc-gizmo-orb'); orb.setAttribute('aria-hidden', 'true'); root.append(orb);
+        const readout = el('div', 'fc-gizmo-readout'); root.append(readout);
+        return { el: root, records, readout };
+    }
+
+    function updateRotationGizmo(fr) {
+        const g = fr.gizmo, view = getEngine().getPanelView(fr.panel);
+        if (!g || !view) return;
+        const radius = 28, center = 38;
+        for (const [axis, info] of Object.entries(WORLD_AXES)) {
+            const rec = g.records[axis];
+            for (const sign of [-1, 1]) {
+                const v = info.vector.map((x) => x * sign);
+                const x = center + radius * dot(v, view.r);
+                const y = center - radius * dot(v, view.u);
+                const depth = dot(v, view.f); // + points into scene; − points toward the viewer
+                const b = rec.ends[sign];
+                b.style.left = `${x - 8}px`; b.style.top = `${y - 8}px`;
+                b.style.zIndex = depth < 0 ? '5' : '3';
+                b.style.opacity = String(depth < 0 ? 1 : 0.58);
+                b.style.transform = `scale(${depth < 0 ? 1.08 : 0.86})`;
+                if (sign > 0) { rec.line.setAttribute('x2', String(x)); rec.line.setAttribute('y2', String(y)); }
+            }
+        }
+        const r = fr.panel.rotate || {};
+        g.readout.textContent = `MNI  X ${Math.round(r.worldX || 0)}°  Y ${Math.round(r.worldY || 0)}°  Z ${Math.round(r.worldZ || 0)}°`;
     }
 
     // Drag a slice handle: 'anchor' moves the cut (plane→offset; sphere/cube→centre,
@@ -422,19 +541,6 @@ export function createFreeCanvasEditor({ container, canvas, config, getEngine, o
             pl.h = snapF(clamp(c.h + (dy / s) / H, MIN_FRAC, 1), H);
         });
     }
-    // Corner rotate handle: drag to orbit the view (same yaw/pitch as SHIFT+drag on the body).
-    function dragRotate(handle, panel) {
-        startDrag(handle, () => {
-            const r = (panel.rotate ||= { yaw: 0, pitch: 0, roll: 0 });
-            handle.style.cursor = 'grabbing';
-            return { yaw: r.yaw, pitch: r.pitch };
-        }, (c, dx, dy) => {
-            getEngine().setSpinFit?.(true);            // constant-size sphere fit while orbiting
-            const r = panel.rotate;
-            r.yaw = c.yaw + dx * ORBIT_SENS;
-            r.pitch = clamp(c.pitch + dy * ORBIT_SENS, -85, 85);
-        });
-    }
     function dragBody(handle, panel) {
         startDrag(handle, (e) => {
             if (e.shiftKey) {                          // SHIFT+drag = free orbit
@@ -488,6 +594,7 @@ export function createFreeCanvasEditor({ container, canvas, config, getEngine, o
             // active (250) > hover/editing (200) > base (14+z); 250 stays below the toolbar (300).
             fr.el.style.zIndex = active ? 250 : (lifted ? 200 : (14 + z));
             updateSliceHandles(fr);
+            updateRotationGizmo(fr);
         });
     }
     function destroy() {

@@ -88,10 +88,10 @@
       pointer-events: none; transition: border-color 0.12s; }
     .fc-frame.hover, .fc-frame.fc-editing { border-color: rgba(74,144,217,0.85); box-shadow: 0 0 0 1px rgba(255,255,255,0.5); }
     .fc-frame.fc-active { border-color: rgba(74,144,217,0.95); box-shadow: 0 0 0 1px rgba(255,255,255,0.6); }
-    .fc-frame .fc-head, .fc-frame .fc-resize, .fc-frame .fc-rotate, .fc-frame .fc-slice-handle { opacity: 0; transition: opacity 0.12s; }
+    .fc-frame .fc-head, .fc-frame .fc-resize, .fc-frame .fc-gizmo, .fc-frame .fc-slice-handle { opacity: 0; transition: opacity 0.12s; }
     .fc-frame.hover .fc-head, .fc-frame.fc-editing .fc-head, .fc-frame.fc-active .fc-head,
     .fc-frame.hover .fc-resize, .fc-frame.fc-editing .fc-resize, .fc-frame.fc-active .fc-resize,
-    .fc-frame.hover .fc-rotate, .fc-frame.fc-editing .fc-rotate, .fc-frame.fc-active .fc-rotate,
+    .fc-frame.hover .fc-gizmo, .fc-frame.fc-editing .fc-gizmo, .fc-frame.fc-active .fc-gizmo,
     .fc-frame.hover .fc-slice-handle, .fc-frame.fc-editing .fc-slice-handle, .fc-frame.fc-active .fc-slice-handle { opacity: 1; }
     .fc-frame .fc-body { position: absolute; inset: 0; pointer-events: auto; cursor: move; } /* drag=move; shift+drag=orbit */
     .fc-frame .fc-head { position: absolute; left: -1px; top: -1px; display: flex; gap: 2px; align-items: center; padding: 2px 4px;
@@ -104,11 +104,23 @@
     .fc-frame .fc-head button.on { background: #4a90d9; color: #fff; border-color: #4a90d9; }
     .fc-frame .fc-resize { position: absolute; right: -8px; bottom: -8px; width: 18px; height: 18px; background: #4a90d9;
       border: 2px solid #fff; border-radius: 3px; pointer-events: auto; cursor: nwse-resize; z-index: 16; }
-    /* corner rotate handle — sits diagonally beyond the resize corner (bottom-right) */
-    .fc-frame .fc-rotate { position: absolute; right: -26px; bottom: -26px; width: 16px; height: 16px; background: #8e44ad;
-      border: 2px solid #fff; border-radius: 50%; pointer-events: auto; cursor: grab; z-index: 16;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.4); }
-    .fc-frame .fc-rotate::after { content: '↻'; position: absolute; inset: 0; color: #fff; font-size: 11px; line-height: 12px; text-align: center; }
+    /* World/MNI rotation gizmo: fixed coloured axes projected through the live camera basis. */
+    .fc-frame .fc-gizmo { position: absolute; right: 10px; bottom: 12px; width: 76px; height: 76px;
+      pointer-events: none; z-index: 17; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.22)); }
+    .fc-frame.hover .fc-gizmo, .fc-frame.fc-editing .fc-gizmo, .fc-frame.fc-active .fc-gizmo { pointer-events: auto; }
+    .fc-gizmo svg { position: absolute; inset: 0; overflow: visible; pointer-events: none; }
+    .fc-gizmo-orb { position: absolute; left: 32px; top: 32px; width: 12px; height: 12px; border-radius: 50%;
+      background: radial-gradient(circle at 35% 30%, #fff, #a9b0ba 58%, #59616c); border: 1px solid #fff;
+      box-shadow: 0 0 0 1px rgba(50,60,70,0.32); pointer-events: none; z-index: 2; }
+    .fc-gizmo-axis { position: absolute; width: 16px; height: 16px; padding: 0; border: 1.5px solid #fff;
+      border-radius: 50%; background: var(--axis-color); color: #fff; font: 700 9px/13px system-ui, sans-serif;
+      text-align: center; cursor: grab; box-shadow: 0 0 0 1px color-mix(in srgb, var(--axis-color) 72%, #333);
+      transform-origin: center; transition: transform 0.08s, opacity 0.08s; }
+    .fc-gizmo-axis:active { cursor: grabbing; }
+    .fc-gizmo-axis:focus-visible { outline: 2px solid #111; outline-offset: 2px; }
+    .fc-gizmo-readout { position: absolute; right: 0; bottom: -13px; min-width: 76px; color: #48515c;
+      background: rgba(255,255,255,0.9); border-radius: 3px; font: 600 8px/11px ui-monospace, monospace;
+      text-align: right; white-space: nowrap; padding: 0 2px; pointer-events: none; }
     /* collapsible per-panel controls dropdown (toggled by the ☰ button; wraps to several rows) */
     .fc-frame .fc-menu { position: absolute; left: -1px; top: 23px; display: none; flex-wrap: wrap; gap: 2px;
       width: 148px; padding: 4px; background: rgba(255,255,255,0.98); border: 1px solid #cdddee; border-radius: 4px;
@@ -118,6 +130,8 @@
       border: 1px solid #ccc; border-radius: 3px; background: #fff; color: #555; cursor: pointer; }
     .fc-frame .fc-menu button:hover { background: #f0f0f0; border-color: #999; }
     .fc-frame .fc-menu button.on { background: #4a90d9; color: #fff; border-color: #4a90d9; }
+    .fc-frame .fc-menu select.fc-surface { flex: 1 0 138px; min-width: 0; height: 22px; padding: 1px 3px;
+      font-size: 10px; border: 1px solid #ccc; border-radius: 3px; background: #fff; color: #555; }
     /* Help / quick-guide modal */
     #help-modal { position: fixed; inset: 0; z-index: 10000; display: flex; align-items: center; justify-content: center;
       background: rgba(20,28,38,0.45); backdrop-filter: blur(2px); padding: 24px; }
@@ -136,6 +150,24 @@
     #help-modal .help-close { position: absolute; top: 10px; right: 12px; width: 26px; height: 26px; border: none;
       background: #eef1f5; border-radius: 6px; color: #556; font-size: 14px; cursor: pointer; }
     #help-modal .help-close:hover { background: #e0e5ec; }
+    #template-qa-modal { position: fixed; inset: 0; z-index: 10000; display: flex; align-items: center;
+      justify-content: center; background: rgba(20,28,38,0.45); backdrop-filter: blur(2px); padding: 24px; }
+    #template-qa-modal[hidden] { display: none; }
+    .qa-card { position: relative; width: min(560px, 100%); background: #fff; border-radius: 10px;
+      box-shadow: 0 12px 48px rgba(0,0,0,0.35); padding: 22px 26px 24px; color: #27313d; }
+    .qa-card h2 { margin: 0 0 4px; font-size: 19px; }
+    .qa-card p { margin: 7px 0; font-size: 12px; line-height: 1.5; color: #59636f; }
+    .qa-card .qa-close { position: absolute; top: 10px; right: 12px; width: 26px; height: 26px;
+      border: none; background: #eef1f5; border-radius: 6px; color: #556; cursor: pointer; }
+    .qa-status { display: inline-block; border-radius: 999px; padding: 3px 9px; font-size: 11px;
+      font-weight: 700; background: #e5f5e8; color: #24723a; }
+    .qa-status.fail { background: #fde7e5; color: #a52a24; }
+    .qa-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 9px; margin: 14px 0; }
+    .qa-metric { border: 1px solid #dbe1e8; border-radius: 6px; padding: 9px 11px; }
+    .qa-metric b { display: block; font-size: 17px; color: #27313d; }
+    .qa-metric span { font-size: 10px; color: #77818c; }
+    #c-template-qa.pass { border-color: #78b98a; color: #24723a; }
+    #c-template-qa.fail { border-color: #d27a74; color: #a52a24; }
     /* slice handles: anchor (orange) = move the cut · size (teal) = radius/extent.
        margin centres the 13px dot on its world point; display toggled by the editor. */
     .fc-frame .fc-slice-handle { position: absolute; display: none; width: 13px; height: 13px; margin: -7px 0 0 -7px;
@@ -264,6 +296,10 @@
         <button class="btn" id="c-surface-all" title="Project all loaded maps onto the cortical surface (and back) — keeps the cel-shaded glass look. First use loads the cortical surface, then re-meshes.">Surface</button>
         <button class="btn active" id="c-outline">Outline</button>
         <button class="btn" id="c-slice-anat" title="Cut MRI: when a panel is sliced (the ✂ button in Free Canvas), paint the anatomical T1 cross-section — white/gray matter, like a coronal MRI — on the exposed cut face. Loads a small anatomy volume on first use.">Cut MRI</button>
+        <button class="btn" id="c-cut-overlay" title="Composite each thresholded statistical map onto the exposed MRI face. Uses the original NIfTI grid, world affine, live cluster cutoff, and current colormap.">Cut map</button>
+        <div class="sw" title="Thickness of the max-absolute statistical slab sampled around the cut plane, in millimetres."><span>slab mm</span><input type="number" class="thrbox" id="c-cut-slab" value="1" min="0" max="20" step="0.5"></div>
+        <span class="sw" title="How the source statistical grid is sampled on the cut face."><span>cut sample</span><select class="btn" id="c-cut-interp"><option value="linear">linear</option><option value="nearest">nearest</option></select></span>
+        <button class="btn" id="c-template-qa" title="Inspect the declared template assets, shared transform, and measured T1↔pial alignment">Template QA</button>
         <div class="sw"><span>cortex α</span><input type="range" id="c-cortex"></div>
         <div class="sw"><span>edge thr</span><input type="range" id="c-outline-thresh"></div>
         <div class="sw"><span>line w</span><input type="range" id="c-outline-width"></div>
@@ -277,6 +313,22 @@
     </div>
     <!-- One row per overlay, generated by bind.js -->
     <div id="overlay-rows"></div>
+  </div>
+
+  <div id="template-qa-modal" hidden>
+    <div class="qa-card" role="dialog" aria-modal="true" aria-label="Template alignment QA">
+      <button class="qa-close" id="c-template-qa-close" title="Close (Esc)">✕</button>
+      <h2>Template alignment QA</h2>
+      <span class="qa-status" id="qa-status">not measured</span>
+      <p id="qa-summary"></p>
+      <div class="qa-grid">
+        <div class="qa-metric"><b id="qa-lh">—</b><span>left p95 boundary distance</span></div>
+        <div class="qa-metric"><b id="qa-rh">—</b><span>right p95 boundary distance</span></div>
+        <div class="qa-metric"><b id="qa-tol">—</b><span>documented tolerance</span></div>
+        <div class="qa-metric"><b id="qa-surfaces">—</b><span>available cortical surfaces</span></div>
+      </div>
+      <p id="qa-contract"></p>
+    </div>
   </div>
 
   <!-- Help / quick-guide modal (opened by the ? Help button; closed by ✕, the backdrop, or Esc) -->
@@ -306,7 +358,7 @@
           <ul>
             <li><b>Inflate</b> pial↔inflated cortex · <b>Surface</b> project all maps onto the cortex · <b>Outline</b> the cortex lines.</li>
             <li><b>cortex α</b> glass opacity · <b>edge thr</b> / <b>line w</b> cortex-line density &amp; thickness · <b>vox α</b> line strength over voxels.</li>
-            <li><b>Cut MRI</b> — on a sliced panel, reveal the anatomical T1 cross-section on the cut face.</li>
+            <li><b>Cut MRI</b> — on a sliced panel, reveal the anatomical T1 cross-section on the cut face. <b>Cut map</b> composites thresholded NIfTI values over it; slab thickness and linear/nearest sampling are explicit.</li>
           </ul>
           <h3>Layouts</h3>
           <ul>
@@ -317,7 +369,7 @@
           <h3>Free Canvas</h3>
           <ul>
             <li>Hover a panel for its toolbar: <b>view</b> picker · <b>✂</b> slice (cycles axial/coronal/sagittal cut, then sphere &amp; cube bite) · <b>☰</b> more (rotate steps, cortex lines, bring-to-front, remove).</li>
-            <li>Drag the brain to <b>move</b> · drag the <b>↻</b> corner to <b>rotate</b> · drag the bottom-right corner to <b>resize</b>.</li>
+            <li>Drag the brain to <b>move</b> · use the bottom-right <b>red X / green Y / blue Z</b> gizmo for precise MNI-axis rotation (click an endpoint to snap) · drag the square corner to <b>resize</b>. Shift-drag remains a free-orbit shortcut.</li>
             <li>With a slice on: drag the orange/teal dots to move/resize the cut, and toggle <b>Cut MRI</b> to see the anatomy inside.</li>
             <li>Toolbar: <b>Seed grid</b> · <b>+ panel</b> · <b>Reset</b> · <b>transparent</b> background. Cmd/Ctrl-Z undoes edits.</li>
           </ul>

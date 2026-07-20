@@ -26,7 +26,7 @@ DATA = WEB / "data"
 
 def bake(demo_nifti=None):
     from .core import Comic
-    from .surfaces import inflate_surfaces
+    from .surfaces import inflate_surfaces, load_hemisphere, mni305_to_mni152, to_trimesh
     from .export import export_mesh, export_mesh_with_scalars, write_scene_json
     from .colormaps import export_colormaps
     from . import pipeline as P
@@ -40,10 +40,24 @@ def bake(demo_nifti=None):
     # cortex: pial + slightly-inflated, curvature encoded in vertex-colour red
     inflated = inflate_surfaces(gb.surfaces)
     cortex_paths = {}
+    import mne
+    import nibabel as nib
+    fs = Path(mne.datasets.fetch_fsaverage(verbose=False))
+    surf_dir = fs / "surf"
+    if not surf_dir.exists():
+        surf_dir = fs / "fsaverage" / "surf"
     for hemi, mesh in gb.surfaces.items():
         export_mesh_with_scalars(mesh, DATA / f"cortex_{hemi}.glb", scalar_name="curvature")
         export_mesh_with_scalars(inflated[hemi], DATA / f"cortex_{hemi}_inflated.glb", scalar_name="curvature")
-        cortex_paths[hemi] = {"mesh": f"cortex_{hemi}.glb", "meshInflated": f"cortex_{hemi}_inflated.glb"}
+        white_v, white_f = nib.freesurfer.read_geometry(str(surf_dir / f"{hemi}.white"))
+        _, _, curv = load_hemisphere(surf_dir, hemi)
+        white_mesh = to_trimesh(mni305_to_mni152(white_v), white_f, {"curvature": curv})
+        export_mesh_with_scalars(white_mesh, DATA / f"cortex_{hemi}_white.glb", scalar_name="curvature")
+        cortex_paths[hemi] = {
+            "mesh": f"cortex_{hemi}.glb",
+            "meshInflated": f"cortex_{hemi}_inflated.glb",
+            "meshWhite": f"cortex_{hemi}_white.glb",
+        }
 
     # subcortical: one solid-colour GLB each
     subcort_paths = {}
@@ -93,12 +107,21 @@ def bake(demo_nifti=None):
     (DATA / "demo" / "meta.json").write_text(json.dumps(meta))
     (DATA / "demo" / "buffers.bin").write_bytes(bytes(blob))
 
+    # A complete template bundle is atomic: surfaces, cut T1, segmentation, projection sidecar,
+    # transform identity, and measured alignment all ship together.
+    bake_anatomy(DATA)
+    bake_surface_sidecar(DATA)
+    from .template import update_template_bundle_manifest
+    update_template_bundle_manifest(DATA, template_id="fsaverage-mni152-v1",
+                                    transform_id="fsaverage-mni152-v1")
     print(f"Baked template + demo -> {DATA}")
 
 
-def bake_template(out_dir, surfaces, *, inflated=None, aseg=None, aseg_affine=None, labels=None,
+def bake_template(out_dir, surfaces, *, inflated=None, white=None, custom_surfaces=None,
+                  t1=None, aseg=None, aseg_affine=None, labels=None,
                   structure_categories=None, subcortical=None, subcortical_colors=None,
-                  space="custom", has_white_surface=False):
+                  space="custom", has_white_surface=False, transform_id=None,
+                  alignment_tolerance_mm=2.5):
     """Bake a CUSTOM template into <out_dir>/data/ (the shape `render --template DIR` overlays).
 
     `surfaces` is {hemi: trimesh OR (verts, faces[, curv])} — bring-your-own cortical surfaces in
@@ -130,6 +153,16 @@ def bake_template(out_dir, surfaces, *, inflated=None, aseg=None, aseg_affine=No
         if inflated and hemi in inflated:
             export_mesh_with_scalars(_mesh(inflated[hemi]), data / f"cortex_{hemi}_inflated.glb", scalar_name="curvature")
             cortex_paths[hemi]["meshInflated"] = f"cortex_{hemi}_inflated.glb"
+        if white and hemi in white:
+            export_mesh_with_scalars(_mesh(white[hemi]), data / f"cortex_{hemi}_white.glb", scalar_name="curvature")
+            cortex_paths[hemi]["meshWhite"] = f"cortex_{hemi}_white.glb"
+        for variant, by_hemi in (custom_surfaces or {}).items():
+            if hemi not in by_hemi:
+                continue
+            safe = ''.join(c if c.isalnum() or c in '-_' else '_' for c in variant)
+            rel = f"cortex_{hemi}_{safe}.glb"
+            export_mesh_with_scalars(_mesh(by_hemi[hemi]), data / rel, scalar_name="curvature")
+            cortex_paths[hemi].setdefault("surfaces", {})[variant] = rel
 
     subcort_paths = {}
     for nm, m in (subcortical or {}).items():
@@ -143,7 +176,7 @@ def bake_template(out_dir, surfaces, *, inflated=None, aseg=None, aseg_affine=No
 
     write_scene_json(data, cortex_meshes=cortex_paths, subcortical_meshes=subcort_paths or None,
                      subcortical_colors=subcortical_colors, space=space, template_mode="custom",
-                     has_white_surface=has_white_surface)
+                     has_white_surface=has_white_surface or bool(white))
 
     if aseg is not None:
         aseg = np.asarray(aseg)
@@ -154,11 +187,20 @@ def bake_template(out_dir, surfaces, *, inflated=None, aseg=None, aseg_affine=No
             "dims": list(aseg.shape), "dtype": "uint8", "order": "C",
             "affine": (np.asarray(aseg_affine).tolist() if aseg_affine is not None else np.eye(4).tolist()),
             "categories": cats, "structureCategories": structure_categories or sorted(set(cats.values())),
-            "hasWhiteSurface": has_white_surface}))
+            "hasWhiteSurface": has_white_surface or bool(white),
+            "transformId": transform_id or f"{space}-world-v1"}))
+
+    if t1 is not None:
+        bake_anatomy(data, t1, footprint_surfaces={h: _mesh(s) for h, s in surfaces.items()},
+                     transform_id=transform_id or f"{space}-world-v1")
 
     cm = DATA / "colormaps.json"          # self-contained bundle (a browser .zip can ship its own)
     if cm.exists():
         shutil.copy2(cm, data / "colormaps.json")
+    from .template import update_template_bundle_manifest
+    update_template_bundle_manifest(
+        data, template_id=f"custom-{space}", transform_id=transform_id or f"{space}-world-v1",
+        alignment_tolerance_mm=alignment_tolerance_mm, fail_alignment=True)
     print(f"Baked custom template -> {data} (space={space}, {len(cortex_paths)} hemis, "
           f"{'aseg' if aseg is not None else 'no aseg'})")
     return out
@@ -174,6 +216,9 @@ def _find_cut_anatomy(explicit=None):
     uses its own voxel-to-world affine; callers are then responsible for surface registration."""
     import nibabel as nib
     if explicit:
+        if hasattr(explicit, "dataobj") and hasattr(explicit, "affine"):
+            img = explicit
+            return img, np.asarray(img.affine, np.float64), "custom in-memory T1", False, None
         p = Path(explicit)
         if not p.exists():
             raise FileNotFoundError(f"cut anatomy not found: {p}")
@@ -198,7 +243,8 @@ def _find_cut_anatomy(explicit=None):
     raise FileNotFoundError("fsaverage brain.mgz is unavailable; install/fetch the MNE fsaverage data")
 
 
-def bake_anatomy(out_dir=None, t1_path=None, downsample=1):
+def bake_anatomy(out_dir=None, t1_path=None, downsample=1, *, footprint_surfaces=None,
+                 transform_id=None):
     """Bake a surface-matched T1 as a 3D-texture asset for the scissor cut-cap (the anatomical
     cross-section — white/gray matter — shown on a sliced face, like an AFNI/MRIcron slice).
 
@@ -215,6 +261,7 @@ def bake_anatomy(out_dir=None, t1_path=None, downsample=1):
     out = Path(out_dir) if out_dir else DATA
 
     img, aff, kind, surface_matched, surface_dir = _find_cut_anatomy(t1_path)
+    surface_matched = surface_matched or bool(footprint_surfaces)
 
     t1 = np.asarray(img.dataobj)
     if t1.ndim == 4:
@@ -224,15 +271,21 @@ def bake_anatomy(out_dir=None, t1_path=None, downsample=1):
     # outside air. For the bundled template, voxelise the exact pial meshes. brain.mgz contains
     # cerebellum/brainstem too, but those structures are NOT inside the pial cortex; using intensity
     # or an atlas label alone therefore paints a cut slab outside the displayed shell.
-    hemi_aware = surface_dir is not None
+    hemi_aware = surface_dir is not None or bool(footprint_surfaces)
     if hemi_aware:
         import trimesh
         from .surfaces import load_hemisphere, mni305_to_mni152
         world_to_voxel = np.linalg.inv(aff)
         footprints = {}
         for hemi in ("lh", "rh"):
-            verts, faces, _ = load_hemisphere(surface_dir, hemi)
-            pial = trimesh.Trimesh(vertices=mni305_to_mni152(verts), faces=faces, process=False)
+            if footprint_surfaces and hemi in footprint_surfaces:
+                source = footprint_surfaces[hemi]
+                pial = (source if hasattr(source, "vertices") else
+                        trimesh.Trimesh(vertices=np.asarray(source[0]), faces=np.asarray(source[1]),
+                                        process=False))
+            else:
+                verts, faces, _ = load_hemisphere(surface_dir, hemi)
+                pial = trimesh.Trimesh(vertices=mni305_to_mni152(verts), faces=faces, process=False)
             if not pial.is_watertight:
                 raise ValueError(f"{hemi} pial surface is not watertight; cannot bake a cut footprint")
             # A sub-millimetre world grid maps densely into the slightly rotated 1 mm MRI grid.
@@ -298,7 +351,8 @@ def bake_anatomy(out_dir=None, t1_path=None, downsample=1):
          "channelOrder": ["t1", "cerebrum", "leftCerebrum", "rightCerebrum"],
          "order": "F-interleaved", "affine": aff.tolist(), "kind": kind,
          "surfaceMatched": surface_matched, "hemisphereAware": hemi_aware,
-         "footprint": "pial-envelope" if hemi_aware else "intensity-envelope"}))
+         "footprint": "pial-envelope" if hemi_aware else "intensity-envelope",
+         "transformId": transform_id}))
     sp = out / "scene.json"                                      # advertise availability to the viewer/CLI
     sc = json.loads(sp.read_text()); sc["hasAnatomy"] = True; sp.write_text(json.dumps(sc))
     print(f"Baked anatomy [{kind}] -> {out/'anat_uint8.bin.gz'} (dims {dims}, "

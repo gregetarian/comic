@@ -196,6 +196,12 @@ def cli():
     r.add_argument('--slice-anatomy', action='store_true',
                    help='on sliced panels (a --spec with per-panel slices), paint the anatomical T1 '
                         'cross-section (white/gray matter) on the cut face, like a coronal MRI')
+    r.add_argument('--cut-overlay', action='store_true',
+                   help='on sliced panels, composite thresholded statistical values over the T1 cut face')
+    r.add_argument('--cut-slab', type=float, default=None,
+                   help='cut-overlay max-absolute slab thickness in millimetres (default 1)')
+    r.add_argument('--cut-interpolation', choices=['linear', 'nearest'], default=None,
+                   help='statistical-grid sampling on the cut face (default linear)')
     r.add_argument('--lines-over-voxels', action=argparse.BooleanOptionalAction, default=None,
                    help='draw the black cortex outline ON TOP of the voxels instead of letting '
                         'opaque blobs mask the sulcal lines behind them')
@@ -283,6 +289,13 @@ def cli():
             layout, style, spec_render = load_spec(args.spec)
             if args.slice_anatomy:
                 style['sliceAnatomy'] = True
+            if args.cut_overlay:
+                style['sliceAnatomy'] = True
+                style.setdefault('cutOverlay', {})['enabled'] = True
+            if args.cut_slab is not None:
+                style.setdefault('cutOverlay', {})['slabMm'] = args.cut_slab
+            if args.cut_interpolation is not None:
+                style.setdefault('cutOverlay', {})['interpolation'] = args.cut_interpolation
             cmap = style.get('colormap', args.cmap)
             width = args.width if args.width is not None else spec_render.get('width', 1600)
             height = args.height if args.height is not None else spec_render.get('height', 1000)
@@ -344,6 +357,11 @@ def cli():
                 setp('outline.enabled', False)
             if args.slice_anatomy:
                 setp('sliceAnatomy', True)
+            if args.cut_overlay:
+                setp('sliceAnatomy', True)
+                setp('cutOverlay.enabled', True)
+            setp('cutOverlay.slabMm', args.cut_slab)
+            setp('cutOverlay.interpolation', args.cut_interpolation)
             # --overlay-json: lossless per-overlay escape hatch (the i-th binds overlay i).
             if args.overlay_json:
                 ovl = style.setdefault('overlays', [])
