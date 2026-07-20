@@ -16,7 +16,7 @@ import { loadColormaps } from '../core/colormap.js';
 import { setOverlayStyle } from '../core/config-schema.js';
 import { createPresetsUI, randomColormapName } from '../controls/style-presets.js';
 import { contentBBoxPx } from '../core/bbox.js';
-import { loadBaseScene, buildOverlayMeshes, loadOverlayArrays } from '../scene/asset-loader.js';
+import { loadBaseScene, buildOverlayMeshes, loadOverlayArrays, loadAnatomyVolume } from '../scene/asset-loader.js';
 import { createEngine } from '../scene/renderer.js';
 import { createColorbar } from '../controls/colorbar.js';
 import { initKapow } from '../controls/kapow.js';
@@ -38,6 +38,7 @@ const DATA = 'data/';
 const state = createSessionState();
 let renderer, colormaps, baseScene, config, engine, colorbar;
 let overlays = [];   // [{ meta, meshObjs: [{ mesh, meta, values, aabb }, ...] }]
+let anatomyVol = null;   // the cut-cap volume asset {data,dims,affine}, loaded on first use
 let zoomEls = [];
 let fcEditor = null;   // Free Canvas editor overlay (only in layout.mode === 'free')
 let container, canvas;
@@ -108,6 +109,7 @@ async function main() {
     document.getElementById('c-gif')?.addEventListener('click', exportGif);
     document.getElementById('c-colorbar').addEventListener('click', () => setColorbarVisible(!state.colorbarsVisible));
     document.getElementById('c-cli').addEventListener('click', copyCliCommand);
+    document.getElementById('c-slice-anat')?.addEventListener('click', () => setSliceAnatomy(!config.style.sliceAnatomy));
     // Demo: load the example Neurosynth maps on demand. Disable on click; loadNeurosynthDemo is
     // idempotent (demoLoaded guard), so a second click — or ?demo=1 then a click — can't stack dupes.
     const demoBtn = document.getElementById('c-demo');
@@ -193,6 +195,13 @@ async function runHeadless() {
         overlays.push({ meta: metas[oi], meshObjs: buildOverlayMeshes(metas[oi], buffers, oi) });
     }
     rebuild();   // engine + (colorbar, no ✕) for the current overlays
+
+    // Scissor cut-cap: if the spec asks for it, load the anatomy volume + attach it BEFORE the
+    // screenshot (the load is async; without awaiting it here __GB_DONE__ would fire cap-less).
+    if (config.style.sliceAnatomy) {
+        try { anatomyVol = await loadAnatomyVolume(DATA); engine.setAnatomyVolume(anatomyVol); }
+        catch (err) { console.warn('slice anatomy asset unavailable:', err); }
+    }
 
     // Brain fills the full figure (no strip → never squashed); render.py hides/shows the
     // colorbar to screenshot it separately. Wait for the web font so colorbar ticks settle.
@@ -366,7 +375,16 @@ function reorderOverlays(from, to) {
 /** Switch layout preset without a reload: swap only config.layout, keep overlays + style.
  *  'freeCanvas' is special: it bakes the CURRENT panels' on-screen rects into free `place`
  *  fractions (so the switch is visually seamless) and flips mode to 'free'. */
-function setPreset(name) {
+function setPreset(nameOrLayout) {
+    // A saved custom layout (from localStorage) arrives as a raw layout object; a built-in
+    // preset arrives as its string name.
+    if (nameOrLayout && typeof nameOrLayout === 'object') {
+        state.preset = 'custom';
+        config.layout = resolveConfig({ layout: nameOrLayout }).layout;
+        rebuild();
+        return;
+    }
+    const name = nameOrLayout;
     state.preset = name;
     // Bake from DESIGN rects + the design size (view-transform-independent), so switching
     // to Free Canvas preserves the fixed layout regardless of the current zoom/pan.
@@ -408,6 +426,32 @@ function setBgAlpha(a) {
     document.body.classList.toggle('fc-transparent', a < 1);
 }
 
+/** Toggle the scissor cut-cap (anatomical T1 cross-section on sliced faces). Loads the volume
+ *  asset on first enable (~0.3 MB), then binds it to the engine; disabling just detaches it. */
+async function setSliceAnatomy(on) {
+    config.style.sliceAnatomy = on;
+    const btn = document.getElementById('c-slice-anat');
+    if (btn) btn.classList.toggle('active', on);
+    if (on) {
+        if (!anatomyVol) {
+            try {
+                setLoading('Loading anatomy (T1) for the cut view…');
+                anatomyVol = await loadAnatomyVolume(DATA);
+            } catch (err) {
+                console.error(err); config.style.sliceAnatomy = false;
+                if (btn) btn.classList.remove('active');
+                setLoading('Anatomy asset unavailable.'); setTimeout(() => setLoading(null), 2500);
+                return;
+            }
+            setLoading(null);
+        }
+        engine.setAnatomyVolume(anatomyVol);
+    } else {
+        engine.setAnatomyVolume(null);
+    }
+    engine.renderFrame();
+}
+
 /** Dispose the old engine and recreate it for the current overlay set. */
 function rebuild() {
     // Preserve the user's whole-canvas zoom/pan across rebuilds (overlay add/remove,
@@ -422,6 +466,9 @@ function rebuild() {
         manifest: { ...baseScene.manifest, overlays: overlays.map((o) => o.meta) },
     };
     engine = createEngine({ renderer, width: canvas.clientWidth || 1, height: canvas.clientHeight || 1, sceneModel, colormaps, config });
+    // Re-attach the anatomy cut-cap volume after a rebuild (the engine is recreated fresh);
+    // the volume asset itself is cached, so this is just a texture rebind, not a re-fetch.
+    if (config.style.sliceAnatomy && anatomyVol) engine.setAnatomyVolume(anatomyVol);
     // Preserve the user's pan/zoom across rebuilds that KEEP the design size (overlay
     // add/remove). When the design size CHANGES (a preset switch), re-fit instead — a
     // carried-over view is centred/scaled for the old size and would overflow. The very

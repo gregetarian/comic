@@ -11,6 +11,8 @@
 import { resolveColormap } from '../core/colormap.js';
 import { overlayStyle, setOverlayStyle } from '../core/config-schema.js';
 import { createCmapPicker } from './cmap-picker.js';
+import { PRESET_LABELS } from '../core/presets.js';
+import { loadSavedLayouts, saveLayout, deleteLayout } from './layout-presets.js';
 
 const $ = (id) => document.getElementById(id);
 const trimNum = (v) => { const n = parseFloat(v); return Number.isInteger(n) ? String(n) : String(Math.round(n * 1e4) / 1e4); };
@@ -289,15 +291,62 @@ export function buildOverlayRows({ engine, config, colormaps, onRemove, onSurfac
 
 /** Bind the static global surface/light row + upload + layout. Called ONCE; reaches
  *  the live engine through getEngine() since the engine is recreated on rebuild. */
+/** The Layout picker: built-in presets + this browser's saved layouts + save/delete actions.
+ *  Selecting a built-in calls onPreset(name); a saved one calls onPreset(layoutObject);
+ *  Save/Delete edit localStorage and repopulate. `current` is restored after an action so the
+ *  dropdown never sticks on "Save…". */
+function setupLayoutPicker(lay, config, preset, onPreset) {
+    let current = preset || 'freeDefault';
+    const opt = (value, label) => { const o = document.createElement('option'); o.value = value; o.textContent = label; return o; };
+    const group = (label) => { const g = document.createElement('optgroup'); g.label = label; return g; };
+
+    function populate() {
+        lay.innerHTML = '';
+        const builtin = group('Built-in');
+        for (const [name, label] of PRESET_LABELS) builtin.append(opt(name, label));
+        lay.append(builtin);
+        const saved = loadSavedLayouts();
+        const names = Object.keys(saved);
+        if (names.length) {
+            const g = group('Saved (this browser)');
+            for (const n of names) g.append(opt('saved:' + n, n));
+            lay.append(g);
+        }
+        const actions = group('—');
+        actions.append(opt('__save__', '💾 Save current layout…'));
+        if (names.length) actions.append(opt('__delete__', '🗑 Delete a saved layout…'));
+        lay.append(actions);
+        lay.value = current;
+    }
+
+    lay.addEventListener('change', () => {
+        const v = lay.value;
+        if (v === '__save__') {
+            const name = (prompt('Save the current layout as:') || '').trim();
+            if (name) { saveLayout(name, config.layout); current = 'saved:' + name; }
+            populate();
+        } else if (v === '__delete__') {
+            const saved = loadSavedLayouts();
+            const name = (prompt('Delete which saved layout?\n\n' + Object.keys(saved).join('\n')) || '').trim();
+            if (name && saved[name]) { deleteLayout(name); if (current === 'saved:' + name) current = 'freeDefault'; }
+            populate();
+        } else if (v.startsWith('saved:')) {
+            const saved = loadSavedLayouts();
+            const layout = saved[v.slice(6)];
+            if (layout) { current = v; onPreset(layout); } else populate();
+        } else {
+            current = v; onPreset(v);
+        }
+    });
+    populate();
+}
+
 export function bindGlobalControls({ config, colormaps, getEngine, preset, onUpload, onPreset }) {
     const s = config.style;
     const apply = () => getEngine().applyStyle();
 
     const lay = $('c-layout');
-    if (lay) {
-        lay.value = preset || 'freeDefault';
-        lay.addEventListener('change', () => onPreset(lay.value));
-    }
+    if (lay) setupLayoutPicker(lay, config, preset, onPreset);
 
     toggle('c-inflate', s.cortexSurface === 'inflated', (on) => { s.cortexSurface = on ? 'inflated' : 'pial'; });
     toggle('c-outline', s.outline.enabled, (on) => { s.outline.enabled = on; });
