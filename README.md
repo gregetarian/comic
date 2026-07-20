@@ -179,6 +179,10 @@ switch is seamless) to turn the figure into a free 2D canvas of brain panels:
   **sphere bite** → **cube bite**. The cut goes through the *whole* brain (cortex shell
   and overlay together) and the outlines follow it. Two handles appear — drag the
   **orange** dot to move the cut (shift-drag for depth), the **teal** dot to resize it.
+- **Cut MRI** — paints an opaque T1 cross-section on the exposed face. It uses the same
+  fsaverage anatomy and coordinate transform as the pial surface, disappears when viewed
+  from behind, and occludes cortex/voxel line-art behind the cut. Statistical meshes are
+  geometrically clipped; sampling a statistical overlay directly onto the 2D face is future work.
 - **Toolbar** — seed an *R × C* grid of panels, **+ panel**, or tick **transparent**
   for a transparent figure background (exports a transparent PNG).
 - **Copy CLI** — emits `comic render … --spec figure.json` and downloads the

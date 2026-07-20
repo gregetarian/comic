@@ -164,70 +164,98 @@ def bake_template(out_dir, surfaces, *, inflated=None, aseg=None, aseg_affine=No
     return out
 
 
-def _find_mni152_t1(explicit=None):
-    """Locate a sharp MNI152 T1 for the cut-cap anatomy — the space the overlays actually live in.
-    Order: explicit path → AFNI's MNI152_2009_template → FSL MNI152_T1_1mm → nilearn. Returns
-    (nibabel-image, kind) or (None, None) to fall back to the fsaverage average brain."""
+def _find_cut_anatomy(explicit=None):
+    """Return (image, voxel_to_world, kind, surface_matched) for the cut-cap T1.
+
+    The bundled cortex is the fsaverage pial surface transformed from FreeSurfer surface RAS
+    (MNI305) into MNI152. Therefore the only anatomy that can match it exactly is fsaverage's own
+    brain.mgz, transformed by that SAME matrix. A generic MNI152 atlas shares a coordinate label but
+    not the same cortical boundary. An explicit image remains supported for custom/template work and
+    uses its own voxel-to-world affine; callers are then responsible for surface registration."""
     import nibabel as nib
-    cands = [Path(explicit)] if explicit else []
-    cands += [Path.home() / "abin" / "MNI152_2009_template.nii.gz",
-              Path("/usr/local/fsl/data/standard/MNI152_T1_1mm.nii.gz"),
-              Path("/opt/fsl/data/standard/MNI152_T1_1mm.nii.gz")]
-    for p in cands:
-        if p.exists():
-            return nib.load(str(p)), f"MNI152 ({p.name})"
-    try:
-        from nilearn.datasets import load_mni152_template
-        return load_mni152_template(resolution=1), "MNI152 (nilearn)"
-    except Exception:
-        return None, None
+    if explicit:
+        p = Path(explicit)
+        if not p.exists():
+            raise FileNotFoundError(f"cut anatomy not found: {p}")
+        img = nib.load(str(p))
+        return img, img.affine.astype(np.float64), f"custom ({p.name})", False
+
+    import mne
+    from .surfaces import MNI305_TO_MNI152
+    fs = Path(mne.datasets.fetch_fsaverage(verbose=False))
+    for p in [fs / "mri" / "brain.mgz", fs / "fsaverage" / "mri" / "brain.mgz"]:
+        if not p.exists():
+            continue
+        img = nib.load(str(p))
+        # FreeSurfer surface vertices live in tkregister/surface RAS, not arbitrary scanner RAS.
+        # Mapping the volume through vox2ras_tkr and the exact surface MNI305→MNI152 transform
+        # makes the cut image and pial GLBs members of one template, not merely similarly named.
+        vox2surf = np.asarray(img.header.get_vox2ras_tkr(), dtype=np.float64)
+        return img, MNI305_TO_MNI152 @ vox2surf, "fsaverage brain.mgz (surface-matched)", True
+    raise FileNotFoundError("fsaverage brain.mgz is unavailable; install/fetch the MNE fsaverage data")
 
 
 def bake_anatomy(out_dir=None, t1_path=None, downsample=1):
-    """Bake a sharp MNI152 T1 as a 3D-texture asset for the scissor cut-cap (the anatomical
+    """Bake a surface-matched T1 as a 3D-texture asset for the scissor cut-cap (the anatomical
     cross-section — white/gray matter — shown on a sliced face, like an AFNI/MRIcron slice).
 
-    Prefers a real **MNI152 T1** (the space the overlays live in, so the engine samples it EXACTLY
-    at the overlay world positions via voxel = inv(affine) @ world, and it is far sharper than a
-    group-average). Falls back to the fsaverage brain (smoother) only if no MNI152 is found. Uses
-    the template's OWN affine. `downsample` 1 = native 1 mm (crisp). Writes anat_uint8.bin.gz +
-    anat.json. Standalone: other assets untouched."""
-    import nibabel as nib
+    By default this uses **fsaverage brain.mgz**, the anatomy that generated the bundled pial
+    surfaces, and applies the identical surface-RAS→MNI152 transform. This is stricter than choosing
+    an unrelated atlas merely because it is also labelled MNI152. An explicit `t1_path` uses its own
+    affine for custom-template work. Native dark voxels are preserved behind a separate filled brain
+    footprint, so CSF/ventricles render black and opaque instead of becoming holes. `downsample` 1 =
+    native 1 mm. Writes interleaved uint8 RG (T1, mask) + anat.json. Standalone: other assets untouched."""
     from scipy import ndimage
     out = Path(out_dir) if out_dir else DATA
 
-    img, kind = _find_mni152_t1(t1_path)
-    if img is None:
-        import mne
-        fs = Path(mne.datasets.fetch_fsaverage(verbose=False))
-        mri = fs / "mri"
-        if not (mri / "brain.mgz").exists():
-            mri = fs / "fsaverage" / "mri"
-        img, kind = nib.load(str(mri / "brain.mgz")), "fsaverage brain (average, soft)"
+    img, aff, kind, surface_matched = _find_cut_anatomy(t1_path)
 
     t1 = np.asarray(img.dataobj)
     if t1.ndim == 4:
         t1 = t1[..., 0]                                          # AFNI templates can be multi-brick
     t1 = t1.astype(np.float32)
+    # A separate filled footprint is essential: intensity==0 can mean internal CSF/ventricle as
+    # well as outside air. Filling enclosed holes keeps those pixels in the opaque MRI cross-section.
+    mask = ndimage.binary_fill_holes(t1 > 0)
+
+    # Crop empty margins while preserving 1 mm detail. This cuts GPU memory substantially versus a
+    # full 256^3 RG texture; translating the affine keeps voxel centres in the same world positions.
+    nz = np.argwhere(mask)
+    if not len(nz):
+        raise ValueError("cut anatomy contains no non-zero brain voxels")
+    pad = 2
+    lo = np.maximum(nz.min(axis=0) - pad, 0)
+    hi = np.minimum(nz.max(axis=0) + pad + 1, np.asarray(t1.shape))
+    sl = tuple(slice(int(a), int(b)) for a, b in zip(lo, hi))
+    t1, mask = t1[sl], mask[sl]
+    aff = aff.copy()
+    aff[:3, 3] = (aff @ np.r_[lo, 1.0])[:3]
+
     hi = float(np.percentile(t1[t1 > 0], 99.5)) if (t1 > 0).any() else float(t1.max())
     t1 = np.clip(t1 / max(hi, 1.0) * 255.0, 0, 255)              # robust normalise to 0..255
 
-    aff = img.affine.astype(np.float64)                         # the template's own voxel→world
     d = int(downsample)
     if d > 1:
-        dims = [s // d for s in t1.shape]
+        dims = [(s - 1) // d + 1 for s in t1.shape]
         idx = (np.indices(dims).reshape(3, -1) * d).astype(np.float32)
         vol = ndimage.map_coordinates(t1, idx, order=1, mode="constant", cval=0.0).reshape(dims)
+        msk = ndimage.map_coordinates(mask.astype(np.uint8), idx, order=0,
+                                      mode="constant", cval=0).reshape(dims).astype(bool)
         aff = aff.copy(); aff[:3, :3] *= d                       # clean scale, origin unchanged
     else:
-        dims, vol = list(t1.shape), t1
+        dims, vol, msk = list(t1.shape), t1, mask
     vol = vol.astype(np.uint8)
 
-    # Fortran order (i fastest) so a WebGL Data3DTexture(dims[0],dims[1],dims[2]) maps identity:
-    # texcoord.x↔i, .y↔j, .z↔k — the same (i,j,k) the affine addresses. No shader swizzle.
-    (out / "anat_uint8.bin.gz").write_bytes(gzip.compress(vol.tobytes(order="F"), 9))
+    # Interleave RG after Fortran-ravelling each channel: voxel i varies fastest for WebGL, while
+    # the two bytes for each voxel stay adjacent (R=T1 intensity, G=filled footprint).
+    packed = np.empty(vol.size * 2, np.uint8)
+    packed[0::2] = vol.ravel(order="F")
+    packed[1::2] = (msk.astype(np.uint8) * 255).ravel(order="F")
+    (out / "anat_uint8.bin.gz").write_bytes(gzip.compress(packed.tobytes(), 9))
     (out / "anat.json").write_text(json.dumps(
-        {"dims": list(dims), "dtype": "uint8", "order": "F", "affine": aff.tolist(), "kind": kind}))
+        {"dims": list(dims), "dtype": "uint8", "channels": 2, "channelOrder": ["t1", "mask"],
+         "order": "F-interleaved", "affine": aff.tolist(), "kind": kind,
+         "surfaceMatched": surface_matched}))
     sp = out / "scene.json"                                      # advertise availability to the viewer/CLI
     sc = json.loads(sp.read_text()); sc["hasAnatomy"] = True; sp.write_text(json.dumps(sc))
     print(f"Baked anatomy [{kind}] -> {out/'anat_uint8.bin.gz'} (dims {dims}, "
