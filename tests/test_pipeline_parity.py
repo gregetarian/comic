@@ -40,6 +40,10 @@ def test_pipeline_parity():
     assert round(meta['maxAbsValue'], 2) == GT_MAXABS, meta['maxAbsValue']
     assert meta['maxClusterSize'] == GT_MAXCLU
     assert meta['diverging'] is GT_DIVERGING
+    # Arbitrary-plane cut rendering retains a compact, affine-registered value/cluster grid.
+    cv = meta['cutVolume']
+    assert cv['channels'] == 2 and cv['order'] == 'x-fastest-interleaved'
+    assert all(0 < n <= s for n, s in zip(cv['dims'], (21, 21, 21)))
     for cat, want in GT_BLOCKY.items():
         s = meta['structures'][cat]
         assert s['blocky']['nverts'] == want, (cat, 'blocky', s['blocky']['nverts'])
@@ -59,6 +63,10 @@ def test_pipeline_parity():
     pos = np.frombuffer(buffers[b['pos']], np.float32)
     idx = np.frombuffer(buffers[b['idx']], np.uint32)
     assert pos.size == b['nverts'] * 3 and idx.max() < b['nverts']
+    packed = np.frombuffer(buffers[cv['buffer']], np.float32)
+    assert packed.size == int(np.prod(cv['dims'])) * 2
+    assert np.max(np.abs(packed[0::2])) == np.float32(5.0)  # raw peak; maxAbsValue is p99
+    assert np.max(packed[1::2]) == GT_MAXCLU
     print("PASS — CPython pipeline matches browser ground truth; arrays round-trip")
 
 

@@ -47,8 +47,10 @@ export const VIEW_ORDER = [
 export function applyView(panel, name) {
     const v = VIEWS[name];
     if (!v) return panel;
+    const surface = panel.content && panel.content.surface;
     panel.camera = { plane: v.plane };
     panel.content = { ...v.content };
+    if (surface) panel.content.surface = surface;             // view changes never change shell choice
     panel.title = v.title;
     panel.view = name;                                   // remember the picked view (for the picker + CLI)
     panel.anatomyOpacity = v.anatomyOpacity != null ? v.anatomyOpacity : null;

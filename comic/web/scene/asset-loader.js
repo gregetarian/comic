@@ -15,6 +15,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { hemiOfCategory, categoryOfStructure } from '../core/mesh-meta.js';
 import { asF32, asU32, sliceBuffers } from '../core/buffers.js';
+import { validateTemplateBundle } from '../core/template-bundle.js';
 
 const gltfLoader = new GLTFLoader();
 const loadGLB = (url) => new Promise((res, rej) => gltfLoader.load(url, res, undefined, rej));
@@ -56,47 +57,70 @@ let _anatCache = null;
 // Bump when the baked anatomy asset changes (resolution/content) — the query string busts any
 // stale copy in the browser's HTTP cache (e.g. a prior 128^3 bake), independent of server headers.
 const ANAT_VER = 'fsaverage-pial-v5';
-export function loadAnatomyVolume(base = 'data/') {
+export function loadAnatomyVolume(base = 'data/', bundle = null) {
     if (!_anatCache) _anatCache = (async () => {
-        const meta = await fetch(base + 'anat.json?' + ANAT_VER).then((r) => { if (!r.ok) throw new Error('anatomy asset not baked (anat.json missing)'); return r.json(); });
-        const gz = await fetch(base + 'anat_uint8.bin.gz?' + ANAT_VER).then((r) => r.arrayBuffer());
+        const asset = bundle?.anatomy || {};
+        const metaPath = asset.meta || 'anat.json', dataPath = asset.data || 'anat_uint8.bin.gz';
+        const meta = await fetch(base + metaPath + '?' + ANAT_VER).then((r) => { if (!r.ok) throw new Error(`anatomy asset not baked (${metaPath} missing)`); return r.json(); });
+        const gz = await fetch(base + dataPath + '?' + ANAT_VER).then((r) => r.arrayBuffer());
         const stream = new Blob([gz]).stream().pipeThrough(new DecompressionStream('gzip'));
         const buf = await new Response(stream).arrayBuffer();
         return { data: new Uint8Array(buf), dims: meta.dims, affine: meta.affine,
-                 channels: meta.channels || 1 };
+                 channels: meta.channels || 1, transformId: meta.transformId || asset.transformId || null };
     })();
     return _anatCache;
 }
 
 export async function loadBaseScene(base = 'data/') {
     const manifest = await fetch(base + 'scene.json').then((r) => r.json());
+    const checked = validateTemplateBundle(manifest);
+    if (!checked.ok) throw new Error('Invalid template bundle:\n  ' + checked.errors.join('\n  '));
+    const templateBundle = checked.bundle;
     const meshes = [];
     const push = (mesh, meta, values = null) => {
         if (!mesh.geometry.attributes.normal) mesh.geometry.computeVertexNormals();
         meshes.push({ mesh, meta, values, aabb: bboxOf(mesh) });
     };
 
-    for (const [hemi, info] of Object.entries(manifest.cortex || {})) {
-        const hk = hemi === 'lh' ? 'lh' : 'rh';
-        const baseMeta = { role: 'cortex', hemisphere: hk, structure: `cortex_${hemi}`, category: `${hemi}_cortex` };
-        push(firstMesh((await loadGLB(base + info.mesh)).scene), { ...baseMeta, variant: 'pial' });
-        if (info.meshInflated) push(firstMesh((await loadGLB(base + info.meshInflated)).scene), { ...baseMeta, variant: 'inflated' });
+    // Keep the historical pial/inflated, lh/rh creation order exactly: transparent/depth-tied
+    // rendering uses stable object IDs as its final sort key, so changing load order can thicken
+    // thousands of outline pixels even when the added variants are hidden. Extra variants load
+    // afterward and therefore cannot perturb existing unsliced/headless output.
+    const surfaces = templateBundle.surfaces || {};
+    const coreVariants = ['pial', 'inflated'].filter((v) => surfaces[v]);
+    const extraVariants = Object.keys(surfaces).filter((v) => !coreVariants.includes(v));
+    const ordered = [];
+    for (const hemi of ['lh', 'rh']) for (const variant of coreVariants) {
+        const path = surfaces[variant]?.[hemi];
+        if (path) ordered.push([variant, hemi, path]);
+    }
+    for (const variant of extraVariants) for (const hemi of ['lh', 'rh']) {
+        const path = surfaces[variant]?.[hemi];
+        if (path) ordered.push([variant, hemi, path]);
+    }
+    for (const [variant, hemi, path] of ordered) {
+            const hk = hemi === 'lh' ? 'lh' : 'rh';
+            const baseMeta = { role: 'cortex', hemisphere: hk, structure: `cortex_${hemi}`,
+                category: `${hemi}_cortex`, variant };
+            push(firstMesh((await loadGLB(base + path)).scene), baseMeta);
     }
     for (const [name, info] of Object.entries(manifest.subcortical || {})) {
         const m = firstMesh((await loadGLB(base + info.mesh)).scene);
         const cat = categoryOfStructure(name);
         push(m, { role: 'anatomy', hemisphere: hemiOfCategory(cat), structure: name, category: cat, variant: null });
     }
-    return { meshes, manifest };
+    return { meshes, manifest, templateBundle };
 }
 
 /** Fetch a static overlay's `.bin` and slice it back into per-buffer Uint8Arrays via
  *  the meta's `bufferLayout` ([offset,length] per buffer index). Used for the baked
  *  demo (data/demo/) and for the CLI render (one overlay_<i>.bin) — the same arrays a
  *  live Pyodide upload produces, so all three paths feed buildOverlayMeshes() identically. */
-export async function loadOverlayArrays(base, meta) {
+export async function loadOverlayArrays(base, meta, cacheTag = '') {
     const file = meta.buffersFile || 'buffers.bin';
-    const buf = await fetch(base + file).then((r) => r.arrayBuffer());
+    const sep = file.includes('?') ? '&' : '?';
+    const url = base + file + (cacheTag ? `${sep}${cacheTag}` : '');
+    const buf = await fetch(url).then((r) => r.arrayBuffer());
     return sliceBuffers(buf, meta.bufferLayout);
 }
 
@@ -161,4 +185,19 @@ export function buildOverlayMeshes(meta, buffers, oi) {
         });
     }
     return out;
+}
+
+/** Rehydrate the compact two-channel statistical texture retained by process_nifti.
+ *  Channel R is the thresholded value and G is cluster size; the descriptor's affine
+ *  maps texture voxels into the same world space as the cortex and baked T1. */
+export function buildCutVolume(meta, buffers) {
+    const d = meta && meta.cutVolume;
+    if (!d || d.buffer == null || !buffers[d.buffer]) return null;
+    return {
+        data: asF32(buffers[d.buffer]),
+        dims: d.dims,
+        affine: d.affine,
+        channels: d.channels || 2,
+        order: d.order || 'x-fastest-interleaved',
+    };
 }

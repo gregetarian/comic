@@ -82,9 +82,80 @@ void main() {
     fragColor = vec4(-vViewDepth / 500.0, 0.0, 0.0, 1.0);
 }`;
 
+const OVERLAY_FRAG = `
+precision highp float;
+precision highp sampler3D;
+${SAMPLE_GLSL}
+uniform sampler3D uStat;
+uniform sampler2D uLut;
+uniform mat4 uStatInv;
+uniform vec3 uStatDims, uSliceNormal;
+uniform float uSlabMm, uThreshold, uClusterMin, uPositiveOnly;
+uniform float uMode, uGamma, uMaxAbs, uHalfMap, uUseClim, uClimLo, uClimHi, uOpacity;
+out vec4 fragColor;
+
+bool statAt(vec3 world, out vec2 stat) {
+    vec3 vox = (uStatInv * vec4(world, 1.0)).xyz;
+    vec3 tc = (vox + 0.5) / uStatDims;
+    if (any(lessThan(tc, vec3(0.0))) || any(greaterThan(tc, vec3(1.0)))) return false;
+    stat = texture(uStat, tc).rg;
+    return true;
+}
+
+bool passes(vec2 s) {
+    return abs(s.r) >= uThreshold && s.g >= uClusterMin
+        && (uPositiveOnly < 0.5 || s.r > 0.0);
+}
+
+float valueToT(float v) {
+    if (uUseClim > 0.5)
+        return pow(clamp((v - uClimLo) / max(uClimHi - uClimLo, 1e-10), 0.0, 1.0), uGamma);
+    if (uMode > 0.5) {
+        float sn = clamp(abs(v) / max(uMaxAbs, 1e-10), 0.0, 1.0) * sign(v);
+        float amp = sign(sn) * pow(abs(sn), uGamma);
+        return (amp + 1.0) * 0.5;
+    }
+    float amp = pow(clamp(abs(v) / max(uMaxAbs, 1e-10), 0.0, 1.0), uGamma);
+    if (uHalfMap > 0.5) return 0.5 + 0.5 * amp;
+    if (uHalfMap < -0.5) return 0.5 - 0.5 * amp;
+    return pow(clamp(v / max(uMaxAbs, 1e-10), 0.0, 1.0), uGamma);
+}
+
+void main() {
+    float anatomy;
+    if (!gbSampleAnatomy(anatomy)) discard;
+    vec2 best = vec2(0.0);
+    float bestAbs = -1.0;
+    vec3 n = length(uSliceNormal) > 0.5 ? normalize(uSliceNormal) : vec3(0.0);
+    // Nine fixed samples make the shader deterministic while covering a user-selectable
+    // thin slab.  Max-absolute projection preserves compact activation on oblique cuts.
+    for (int j = -4; j <= 4; j++) {
+        vec2 s;
+        vec3 p = vWorld + n * (float(j) / 8.0) * uSlabMm;
+        if (statAt(p, s) && passes(s) && abs(s.r) > bestAbs) {
+            best = s;
+            bestAbs = abs(s.r);
+        }
+    }
+    if (bestAbs < 0.0) discard;
+    fragColor = vec4(texture(uLut, vec2(valueToT(best.r), 0.5)).rgb, uOpacity);
+}`;
+
+function affineInverse(affine) {
+    return new THREE.Matrix4().set(
+        affine[0][0], affine[0][1], affine[0][2], affine[0][3],
+        affine[1][0], affine[1][1], affine[1][2], affine[1][3],
+        affine[2][0], affine[2][1], affine[2][2], affine[2][3],
+        affine[3][0], affine[3][1], affine[3][2], affine[3][3]).invert();
+}
+
+function linearChannel(c) {
+    return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+}
+
 /** Build the cap from {data,dims,affine,channels}. Returns the colour mesh plus its mask-aware
  *  depthMaterial, configuration/style functions, and disposer. `layer` is private to the cap. */
-export function createAnatomyCap({ data, dims, affine, channels = 1 }, layer) {
+export function createAnatomyCap({ data, dims, affine, channels = 1 }, layer, overlayLayer = layer) {
     const tex = new THREE.Data3DTexture(data, dims[0], dims[1], dims[2]);
     tex.format = channels >= 4 ? THREE.RGBAFormat : (channels > 1 ? THREE.RGFormat : THREE.RedFormat);
     tex.type = THREE.UnsignedByteType;
@@ -94,13 +165,7 @@ export function createAnatomyCap({ data, dims, affine, channels = 1 }, layer) {
     tex.unpackAlignment = 1;
     tex.needsUpdate = true;
 
-    const a = affine;
-    const A = new THREE.Matrix4().set(
-        a[0][0], a[0][1], a[0][2], a[0][3],
-        a[1][0], a[1][1], a[1][2], a[1][3],
-        a[2][0], a[2][1], a[2][2], a[2][3],
-        a[3][0], a[3][1], a[3][2], a[3][3]);
-    const uAnatInv = A.clone().invert();
+    const uAnatInv = affineInverse(affine);
 
     const sampleUniforms = {
         uAnat: { value: tex },
@@ -145,8 +210,14 @@ export function createAnatomyCap({ data, dims, affine, channels = 1 }, layer) {
     mesh.matrixAutoUpdate = false;
     mesh.renderOrder = 6;        // after cortex(1)/anatomy(5), before voxels(15) → depth-sorts right
     mesh.layers.set(layer);
-    mesh.visible = false;
+    mesh.visible = true;
     mesh.frustumCulled = false;
+    // T1 and statistical faces are siblings under an identity group. Parenting the statistical
+    // mesh to the scaled/rotated T1 mesh looks convenient, but Three.js then recomputes the child
+    // modelMatrix during traversal; explicit sibling matrices are deterministic in every pass.
+    const root = new THREE.Group();
+    root.visible = false;
+    root.add(mesh);
 
     const _pos = new THREE.Vector3();
     const _normal = new THREE.Vector3();
@@ -155,6 +226,7 @@ export function createAnatomyCap({ data, dims, affine, channels = 1 }, layer) {
     const _q = new THREE.Quaternion();
     const Z = new THREE.Vector3(0, 0, 1);
     const PLANE_SPAN = 320;      // mm — big enough to overshoot the brain on any cut plane
+    const overlayRecords = [];
 
     const setSide = (side) => { material.side = side; depthMaterial.side = side; };
 
@@ -172,15 +244,19 @@ export function createAnatomyCap({ data, dims, affine, channels = 1 }, layer) {
             _q.setFromUnitVectors(Z, _faceNormal);
             mesh.geometry = quad;
             setSide(THREE.FrontSide);
+            for (const r of overlayRecords) { r.mesh.geometry = quad; r.material.side = THREE.FrontSide; }
             mesh.matrix.compose(_pos.copy(n).multiplyScalar(off), _q, _scl.set(PLANE_SPAN, PLANE_SPAN, 1));
+            for (const r of overlayRecords) r.material.uniforms.uSliceNormal.value.copy(_faceNormal);
         } else if (slice.shape === 'sphere') {
             mesh.geometry = sphere;
             setSide(THREE.BackSide);            // inner wall of the removed sphere → a cavity, not a plug
+            for (const r of overlayRecords) { r.mesh.geometry = sphere; r.material.side = THREE.BackSide; r.material.uniforms.uSliceNormal.value.set(0, 0, 0); }
             _q.identity();
             mesh.matrix.compose(_pos.set(...slice.center), _q, _scl.setScalar(slice.radius));
         } else if (slice.shape === 'cube') {
             mesh.geometry = box;
             setSide(THREE.BackSide);            // inward-facing walls of the removed box
+            for (const r of overlayRecords) { r.mesh.geometry = box; r.material.side = THREE.BackSide; r.material.uniforms.uSliceNormal.value.set(0, 0, 0); }
             _q.identity();
             const c = [(slice.min[0] + slice.max[0]) / 2, (slice.min[1] + slice.max[1]) / 2, (slice.min[2] + slice.max[2]) / 2];
             const s = [slice.max[0] - slice.min[0], slice.max[1] - slice.min[1], slice.max[2] - slice.min[2]];
@@ -189,7 +265,116 @@ export function createAnatomyCap({ data, dims, affine, channels = 1 }, layer) {
             return false;
         }
         mesh.matrixWorld.copy(mesh.matrix);
+        for (const r of overlayRecords) {
+            r.mesh.matrix.copy(mesh.matrix);
+            r.mesh.matrixWorld.copy(mesh.matrixWorld);
+        }
         return true;
+    }
+
+    /** Attach one compact statistical texture per uploaded NIfTI.  These are children of the
+     *  T1 mesh so they inherit the exact cut geometry/transform, but live on a separate layer:
+     *  the T1 alone remains the opaque depth authority that suppresses buried line art. */
+    function setOverlayVolumes(volumes = []) {
+        for (const r of overlayRecords.splice(0)) {
+            root.remove(r.mesh);
+            r.texture.dispose(); r.lut?.dispose(); r.material.dispose();
+        }
+        volumes.forEach((vol, overlayIndex) => {
+            if (!vol || !vol.data || !vol.dims || !vol.affine) return;
+            const st = new THREE.Data3DTexture(vol.data, vol.dims[0], vol.dims[1], vol.dims[2]);
+            st.format = (vol.channels || 2) > 1 ? THREE.RGFormat : THREE.RedFormat;
+            st.type = THREE.FloatType;
+            st.minFilter = st.magFilter = THREE.LinearFilter;
+            st.wrapS = st.wrapT = st.wrapR = THREE.ClampToEdgeWrapping;
+            st.unpackAlignment = 1;
+            st.needsUpdate = true;
+            const mat = new THREE.RawShaderMaterial({
+                glslVersion: THREE.GLSL3,
+                vertexShader: VERT,
+                fragmentShader: OVERLAY_FRAG,
+                side: THREE.FrontSide,
+                transparent: true,
+                depthTest: true,
+                depthWrite: false,
+                polygonOffset: true,
+                polygonOffsetFactor: -1,
+                polygonOffsetUnits: -1,
+                uniforms: {
+                    ...sampleUniforms,
+                    uStat: { value: st },
+                    uLut: { value: null },
+                    uStatInv: { value: affineInverse(vol.affine) },
+                    uStatDims: { value: new THREE.Vector3(...vol.dims) },
+                    uSliceNormal: { value: new THREE.Vector3() },
+                    uSlabMm: { value: 1 }, uThreshold: { value: 0 }, uClusterMin: { value: 0 },
+                    uPositiveOnly: { value: 0 }, uMode: { value: 0 }, uGamma: { value: 0.5 },
+                    uMaxAbs: { value: 1 }, uHalfMap: { value: 0 }, uUseClim: { value: 0 },
+                    uClimLo: { value: 0 }, uClimHi: { value: 1 }, uOpacity: { value: 0.88 },
+                },
+            });
+            const child = new THREE.Mesh(quad, mat);
+            child.matrixAutoUpdate = false;
+            child.matrix.copy(mesh.matrix);
+            child.layers.set(overlayLayer);
+            // Row 0 has display priority in the 3D renderer; draw it last on a depth-tied cap too.
+            child.renderOrder = 7 + volumes.length - overlayIndex;
+            child.frustumCulled = false;
+            child.visible = false;
+            root.add(child);
+            overlayRecords.push({ overlayIndex, mesh: child, material: mat, texture: st,
+                lut: null, cmap: null, styleVisible: false, panelVisible: true });
+        });
+    }
+
+    function setOverlayStyles(specs = []) {
+        for (const r of overlayRecords) {
+            const s = specs[r.overlayIndex] || {};
+            const u = r.material.uniforms;
+            const cut = s.cut || {};
+            u.uSlabMm.value = Math.max(0, cut.slabMm ?? 1);
+            u.uThreshold.value = Math.max(0, s.threshold ?? 0);
+            u.uClusterMin.value = Math.max(0, s.clusterMin ?? 0);
+            u.uPositiveOnly.value = s.positiveOnly ? 1 : 0;
+            u.uMode.value = s.mode === 'diverging' ? 1 : 0;
+            u.uGamma.value = Math.max(0.01, s.gamma ?? 0.5);
+            u.uMaxAbs.value = Math.max(1e-10, s.maxAbs ?? 1);
+            u.uHalfMap.value = s.divergingMapOnPositive ? 1 : (s.divergingMapOnNegative ? -1 : 0);
+            const clim = Array.isArray(s.clim) ? s.clim : null;
+            u.uUseClim.value = clim ? 1 : 0;
+            if (clim) { u.uClimLo.value = clim[0]; u.uClimHi.value = clim[1]; }
+            u.uOpacity.value = Math.max(0, Math.min(1, cut.opacity ?? 0.88));
+            const filter = cut.interpolation === 'nearest' ? THREE.NearestFilter : THREE.LinearFilter;
+            if (r.texture.minFilter !== filter || r.texture.magFilter !== filter) {
+                r.texture.minFilter = r.texture.magFilter = filter;
+                r.texture.needsUpdate = true;
+            }
+            if (s.cmap && s.cmap !== r.cmap) {
+                r.lut?.dispose();
+                const px = new Float32Array(s.cmap.n * 4);
+                for (let i = 0; i < s.cmap.n; i++) {
+                    px[i * 4] = linearChannel(s.cmap.lut[i * 3]);
+                    px[i * 4 + 1] = linearChannel(s.cmap.lut[i * 3 + 1]);
+                    px[i * 4 + 2] = linearChannel(s.cmap.lut[i * 3 + 2]);
+                    px[i * 4 + 3] = 1;
+                }
+                r.lut = new THREE.DataTexture(px, s.cmap.n, 1, THREE.RGBAFormat, THREE.FloatType);
+                r.lut.minFilter = r.lut.magFilter = THREE.LinearFilter;
+                r.lut.wrapS = THREE.ClampToEdgeWrapping;
+                r.lut.needsUpdate = true;
+                u.uLut.value = r.lut;
+                r.cmap = s.cmap;
+            }
+            r.styleVisible = !!cut.enabled && !s.hidden && !!u.uLut.value;
+            r.mesh.visible = r.styleVisible && r.panelVisible;
+        }
+    }
+
+    function setOverlayVisibility(predicate) {
+        for (const r of overlayRecords) {
+            r.panelVisible = !predicate || !!predicate(r.overlayIndex);
+            r.mesh.visible = r.styleVisible && r.panelVisible;
+        }
     }
 
     function setStyle({ tint, brightness, gamma, airEps } = {}) {
@@ -200,9 +385,11 @@ export function createAnatomyCap({ data, dims, affine, channels = 1 }, layer) {
     }
 
     function dispose() {
+        setOverlayVolumes([]);
         tex.dispose(); material.dispose(); depthMaterial.dispose();
         quad.dispose(); sphere.dispose(); box.dispose();
     }
 
-    return { mesh, layer, depthMaterial, configureForSlice, setStyle, dispose };
+    return { root, mesh, layer, depthMaterial, configureForSlice, setStyle,
+        setOverlayVolumes, setOverlayStyles, setOverlayVisibility, dispose };
 }

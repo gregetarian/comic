@@ -42,7 +42,8 @@ export function visible(panelContent, meshMeta, style = {}) {
                 : (c.representation || (style.voxel && style.voxel.representation) || 'blocky');
             if (meshMeta.variant !== rep) return false;
         } else if (meshMeta.role === 'cortex') {
-            const surf = style.cortexSurface || 'pial';
+            const surf = c.surface || style.cortexSurface || 'pial';
+            if (surf === 'hidden') return false;
             if (meshMeta.variant !== surf) return false;
         }
     }

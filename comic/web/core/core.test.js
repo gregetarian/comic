@@ -15,6 +15,8 @@ import { normalizeConfig, validateConfig, overlayStyle, DEFAULTS } from './confi
 import { applyView, VIEWS } from './views.js';
 import { resolveConfig } from './presets.js';
 import { isFreeFigure, buildSpec, buildRenderText } from '../controls/cli-export.js';
+import { rotateAroundWorldAxis, snapPlaneForAxis, wrapDegrees } from './rotation.js';
+import { normalizeTemplateBundle, validateTemplateBundle } from './template-bundle.js';
 
 // --- cameras: every plane yields a right-handed (positive-determinant) basis ---
 test('camera bases are right-handed (no mirror → medials light correctly)', () => {
@@ -59,6 +61,28 @@ test('resolveCamera orbit keeps distance-from-centre and a right-handed basis', 
         assert.ok(det3(rr, u, f) > 0.9, `basis must stay right-handed (rot ${JSON.stringify(rot)})`);
         assert.ok(r.position.every(Number.isFinite) && r.up.every(Number.isFinite), 'no NaN at extreme pitch');
     }
+});
+
+test('MNI-axis gizmo rotations preserve radius and camera handedness', () => {
+    const center = [4, -12, 7];
+    const base = resolveCamera({ plane: 'right_medial' }, center, 400);
+    for (const rot of [{ worldX: 40 }, { worldY: -35 }, { worldZ: 95 },
+        { yaw: 10, pitch: -20, worldX: 15, worldY: 25, worldZ: -30 }]) {
+        const pose = resolveCamera({ plane: 'right_medial' }, center, 400, null, rot);
+        assert.ok(Math.abs(Math.hypot(...sub(pose.position, center))
+            - Math.hypot(...sub(base.position, center))) < 1e-6);
+        const { r, u, f } = cameraBasis(pose);
+        assert.ok(det3(r, u, f) > 0.9);
+    }
+});
+
+test('MNI gizmo helpers wrap angles and snap without changing hemisphere intent', () => {
+    assert.equal(wrapDegrees(190), -170);
+    assert.equal(rotateAroundWorldAxis({ worldX: 175 }, 'x', 15).worldX, -170);
+    assert.equal(snapPlaneForAxis('x', 1, 'lh'), 'left_medial');
+    assert.equal(snapPlaneForAxis('x', -1, 'rh'), 'right_medial');
+    assert.equal(snapPlaneForAxis('y', -1, 'both'), 'posterior');
+    assert.equal(snapPlaneForAxis('z', 1, 'both'), 'dorsal');
 });
 
 // --- framing: extent fits a known AABB; brain is centred ---
@@ -171,6 +195,44 @@ test('visibility: surface mode shows the surface variant, glass cortex stays', (
     assert.equal(visible(panel, { role: 'cortex', hemisphere: 'lh', variant: 'pial' }, style), true);   // glass cortex KEPT (signature look)
     assert.equal(visible(panel, { role: 'voxel', hemisphere: 'lh', variant: 'surface', category: 'lh_cortex' }, style), true);
     assert.equal(visible(panel, { role: 'voxel', hemisphere: 'lh', variant: 'blocky', category: 'lh_cortex' }, style), false);
+});
+
+test('per-panel cortical surface selection is independent of overlay representation', () => {
+    const style = { cortexSurface: 'inflated', voxel: { representation: 'smooth' } };
+    const panel = { roles: ['cortex', 'voxel'], hemisphere: 'lh', surface: 'white' };
+    assert.equal(visible(panel, { role: 'cortex', hemisphere: 'lh', variant: 'white' }, style), true);
+    assert.equal(visible(panel, { role: 'cortex', hemisphere: 'lh', variant: 'inflated' }, style), false);
+    assert.equal(visible(panel, { role: 'voxel', hemisphere: 'lh', variant: 'smooth' }, style), true);
+    assert.equal(visible({ ...panel, surface: 'hidden' },
+        { role: 'cortex', hemisphere: 'lh', variant: 'white' }, style), false);
+});
+
+test('view changes preserve an explicit per-panel surface', () => {
+    const panel = { content: { surface: 'white' } };
+    applyView(panel, 'dorsal');
+    assert.equal(panel.content.surface, 'white');
+    assert.equal(panel.camera.plane, 'dorsal');
+});
+
+test('template bundles expose arbitrary surface variants and reject failed alignment', () => {
+    const manifest = { space: 'toy', templateMode: 'custom', templateBundle: {
+        id: 'toy-v1', space: 'toy', coordinateSystem: 'RAS', transformId: 'toy-world-v1',
+        surfaces: { pial: { lh: 'lh.glb', rh: 'rh.glb' }, white: { lh: 'lhw.glb', rh: 'rhw.glb' },
+            customHull: { lh: 'lhc.glb' } },
+        anatomy: { meta: 'anat.json', data: 'anat.bin.gz', transformId: 'toy-world-v1' },
+        alignment: { status: 'pass', worstP95Mm: 1.2 },
+    } };
+    const ok = validateTemplateBundle(manifest);
+    assert.equal(ok.ok, true);
+    assert.deepEqual(Object.keys(ok.bundle.surfaces), ['pial', 'white', 'customHull']);
+    manifest.templateBundle.alignment.status = 'fail';
+    assert.equal(validateTemplateBundle(manifest).ok, false);
+    // Old scene.json remains readable through normalization.
+    const legacy = normalizeTemplateBundle({ space: 'MNI152', cortex: {
+        lh: { mesh: 'lh.glb', meshInflated: 'lhi.glb' }, rh: { mesh: 'rh.glb' },
+    } });
+    assert.equal(legacy.surfaces.pial.rh, 'rh.glb');
+    assert.equal(legacy.surfaces.inflated.lh, 'lhi.glb');
 });
 
 // A native surface overlay (surfaceOnly) forces its 'surface' variant to show even when the
@@ -303,14 +365,24 @@ test('DEFAULTS carry the M2 additions with backward-compatible identities', () =
 test('overlayStyle resolves clim/units/surfaceDepth with per-overlay override', () => {
     const cfg = { style: { clim: null, units: { value: 'stat', cluster: 'voxels' },
         voxel: { surfaceDepth: 6, representation: 'smooth' },
-        overlays: [{ clim: [0, 8], units: { value: 'z' }, voxel: { representation: 'surface' } }] } };
+        cutOverlay: { enabled: false, slabMm: 1, interpolation: 'linear', opacity: 0.88 },
+        overlays: [{ clim: [0, 8], units: { value: 'z' }, voxel: { representation: 'surface' },
+            cutOverlay: { enabled: true, slabMm: 3, interpolation: 'nearest' } }] } };
     const os = overlayStyle(cfg, 0);
     assert.deepEqual(os.clim, [0, 8]);                       // per-overlay clim wins
     assert.equal(os.units.value, 'z');                       // overridden
     assert.equal(os.units.cluster, 'voxels');                // inherited
     assert.equal(os.representation, 'surface');
     assert.equal(os.surfaceDepth, 6);                        // inherited from global voxel
+    assert.deepEqual(os.cutOverlay, { enabled: true, slabMm: 3, interpolation: 'nearest', opacity: 0.88 });
     assert.equal(overlayStyle(cfg, 1).clim, null);           // absent overlay → global (null)
+});
+
+test('cut-overlay sampling config validates interpolation, slab thickness, and opacity', () => {
+    const panel = { id: 'a', camera: { plane: 'dorsal' }, cell: { row: 0, col: 0 } };
+    assert.doesNotThrow(() => normalizeConfig({ style: { cutOverlay: { enabled: true, slabMm: 2, interpolation: 'nearest', opacity: 0.7 } }, layout: { panels: [panel] } }));
+    assert.throws(() => normalizeConfig({ style: { cutOverlay: { slabMm: -1 } }, layout: { panels: [panel] } }), /style.cutOverlay/);
+    assert.throws(() => normalizeConfig({ style: { cutOverlay: { interpolation: 'cubic' } }, layout: { panels: [panel] } }), /style.cutOverlay/);
 });
 
 test('normalizeConfig promotes per-panel zoom/rotate/slice to declared fields', () => {
