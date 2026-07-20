@@ -165,7 +165,7 @@ def bake_template(out_dir, surfaces, *, inflated=None, aseg=None, aseg_affine=No
 
 
 def _find_cut_anatomy(explicit=None):
-    """Return (image, voxel_to_world, kind, surface_matched) for the cut-cap T1.
+    """Return (image, voxel_to_world, kind, surface_matched, surface_dir) for the cut-cap T1.
 
     The bundled cortex is the fsaverage pial surface transformed from FreeSurfer surface RAS
     (MNI305) into MNI152. Therefore the only anatomy that can match it exactly is fsaverage's own
@@ -178,7 +178,7 @@ def _find_cut_anatomy(explicit=None):
         if not p.exists():
             raise FileNotFoundError(f"cut anatomy not found: {p}")
         img = nib.load(str(p))
-        return img, img.affine.astype(np.float64), f"custom ({p.name})", False
+        return img, img.affine.astype(np.float64), f"custom ({p.name})", False, None
 
     import mne
     from .surfaces import MNI305_TO_MNI152
@@ -191,7 +191,10 @@ def _find_cut_anatomy(explicit=None):
         # Mapping the volume through vox2ras_tkr and the exact surface MNI305→MNI152 transform
         # makes the cut image and pial GLBs members of one template, not merely similarly named.
         vox2surf = np.asarray(img.header.get_vox2ras_tkr(), dtype=np.float64)
-        return img, MNI305_TO_MNI152 @ vox2surf, "fsaverage brain.mgz (surface-matched)", True
+        surf_dir = p.parent.parent / "surf"
+        return (img, MNI305_TO_MNI152 @ vox2surf,
+                "fsaverage brain.mgz (surface-matched)", True,
+                surf_dir if surf_dir.exists() else None)
     raise FileNotFoundError("fsaverage brain.mgz is unavailable; install/fetch the MNE fsaverage data")
 
 
@@ -203,20 +206,52 @@ def bake_anatomy(out_dir=None, t1_path=None, downsample=1):
     surfaces, and applies the identical surface-RAS→MNI152 transform. This is stricter than choosing
     an unrelated atlas merely because it is also labelled MNI152. An explicit `t1_path` uses its own
     affine for custom-template work. Native dark voxels are preserved behind a separate filled brain
-    footprint, so CSF/ventricles render black and opaque instead of becoming holes. `downsample` 1 =
-    native 1 mm. Writes interleaved uint8 RG (T1, mask) + anat.json. Standalone: other assets untouched."""
+    footprint, so CSF/ventricles render black and opaque instead of becoming holes. The bundled
+    fsaverage asset also carries separate left/right cerebral masks voxelised from the exact pial
+    meshes: this excludes cerebellum/brainstem that are not enclosed by the rendered shell, and lets
+    a one-hemisphere panel reveal only its own cut face. `downsample` 1 = native 1 mm. Writes RGBA
+    (T1, both-cerebra, left, right) + anat.json. Standalone: other assets untouched."""
     from scipy import ndimage
     out = Path(out_dir) if out_dir else DATA
 
-    img, aff, kind, surface_matched = _find_cut_anatomy(t1_path)
+    img, aff, kind, surface_matched, surface_dir = _find_cut_anatomy(t1_path)
 
     t1 = np.asarray(img.dataobj)
     if t1.ndim == 4:
         t1 = t1[..., 0]                                          # AFNI templates can be multi-brick
     t1 = t1.astype(np.float32)
-    # A separate filled footprint is essential: intensity==0 can mean internal CSF/ventricle as
-    # well as outside air. Filling enclosed holes keeps those pixels in the opaque MRI cross-section.
-    mask = ndimage.binary_fill_holes(t1 > 0)
+    # A separate footprint is essential: intensity==0 can mean internal CSF/ventricle as well as
+    # outside air. For the bundled template, voxelise the exact pial meshes. brain.mgz contains
+    # cerebellum/brainstem too, but those structures are NOT inside the pial cortex; using intensity
+    # or an atlas label alone therefore paints a cut slab outside the displayed shell.
+    hemi_aware = surface_dir is not None
+    if hemi_aware:
+        import trimesh
+        from .surfaces import load_hemisphere, mni305_to_mni152
+        world_to_voxel = np.linalg.inv(aff)
+        footprints = {}
+        for hemi in ("lh", "rh"):
+            verts, faces, _ = load_hemisphere(surface_dir, hemi)
+            pial = trimesh.Trimesh(vertices=mni305_to_mni152(verts), faces=faces, process=False)
+            if not pial.is_watertight:
+                raise ValueError(f"{hemi} pial surface is not watertight; cannot bake a cut footprint")
+            # A sub-millimetre world grid maps densely into the slightly rotated 1 mm MRI grid.
+            # Fill in pial space first, then close one-voxel sampling seams after the affine mapping.
+            points = pial.voxelized(pitch=0.85).fill().points
+            ijk = np.rint((world_to_voxel @ np.column_stack(
+                [points, np.ones(len(points))]).T).T[:, :3]).astype(int)
+            in_bounds = np.all((ijk >= 0) & (ijk < np.asarray(t1.shape)), axis=1)
+            hemi_mask = np.zeros(t1.shape, dtype=bool)
+            hemi_mask[tuple(ijk[in_bounds].T)] = True
+            hemi_mask = ndimage.binary_closing(hemi_mask, iterations=1)
+            footprints[hemi] = ndimage.binary_fill_holes(hemi_mask)
+        left, right = footprints["lh"], footprints["rh"]
+        mask = left | right
+    else:
+        # A custom T1 without a supplied segmentation can still render a reliable whole footprint,
+        # but cannot claim hemisphere-aware clipping. Both panel masks therefore equal the whole.
+        mask = ndimage.binary_fill_holes(t1 > 0)
+        left = right = mask
 
     # Crop empty margins while preserving 1 mm detail. This cuts GPU memory substantially versus a
     # full 256^3 RG texture; translating the affine keeps voxel centres in the same world positions.
@@ -227,7 +262,7 @@ def bake_anatomy(out_dir=None, t1_path=None, downsample=1):
     lo = np.maximum(nz.min(axis=0) - pad, 0)
     hi = np.minimum(nz.max(axis=0) + pad + 1, np.asarray(t1.shape))
     sl = tuple(slice(int(a), int(b)) for a, b in zip(lo, hi))
-    t1, mask = t1[sl], mask[sl]
+    t1, mask, left, right = t1[sl], mask[sl], left[sl], right[sl]
     aff = aff.copy()
     aff[:3, 3] = (aff @ np.r_[lo, 1.0])[:3]
 
@@ -241,21 +276,29 @@ def bake_anatomy(out_dir=None, t1_path=None, downsample=1):
         vol = ndimage.map_coordinates(t1, idx, order=1, mode="constant", cval=0.0).reshape(dims)
         msk = ndimage.map_coordinates(mask.astype(np.uint8), idx, order=0,
                                       mode="constant", cval=0).reshape(dims).astype(bool)
+        lhs = ndimage.map_coordinates(left.astype(np.uint8), idx, order=0,
+                                      mode="constant", cval=0).reshape(dims).astype(bool)
+        rhs = ndimage.map_coordinates(right.astype(np.uint8), idx, order=0,
+                                      mode="constant", cval=0).reshape(dims).astype(bool)
         aff = aff.copy(); aff[:3, :3] *= d                       # clean scale, origin unchanged
     else:
-        dims, vol, msk = list(t1.shape), t1, mask
+        dims, vol, msk, lhs, rhs = list(t1.shape), t1, mask, left, right
     vol = vol.astype(np.uint8)
 
-    # Interleave RG after Fortran-ravelling each channel: voxel i varies fastest for WebGL, while
-    # the two bytes for each voxel stay adjacent (R=T1 intensity, G=filled footprint).
-    packed = np.empty(vol.size * 2, np.uint8)
-    packed[0::2] = vol.ravel(order="F")
-    packed[1::2] = (msk.astype(np.uint8) * 255).ravel(order="F")
+    # Interleave RGBA after Fortran-ravelling each channel: voxel i varies fastest for WebGL, while
+    # the four bytes for each voxel stay adjacent (R=T1, G=both, B=left, A=right).
+    packed = np.empty(vol.size * 4, np.uint8)
+    packed[0::4] = vol.ravel(order="F")
+    packed[1::4] = (msk.astype(np.uint8) * 255).ravel(order="F")
+    packed[2::4] = (lhs.astype(np.uint8) * 255).ravel(order="F")
+    packed[3::4] = (rhs.astype(np.uint8) * 255).ravel(order="F")
     (out / "anat_uint8.bin.gz").write_bytes(gzip.compress(packed.tobytes(), 9))
     (out / "anat.json").write_text(json.dumps(
-        {"dims": list(dims), "dtype": "uint8", "channels": 2, "channelOrder": ["t1", "mask"],
+        {"dims": list(dims), "dtype": "uint8", "channels": 4,
+         "channelOrder": ["t1", "cerebrum", "leftCerebrum", "rightCerebrum"],
          "order": "F-interleaved", "affine": aff.tolist(), "kind": kind,
-         "surfaceMatched": surface_matched}))
+         "surfaceMatched": surface_matched, "hemisphereAware": hemi_aware,
+         "footprint": "pial-envelope" if hemi_aware else "intensity-envelope"}))
     sp = out / "scene.json"                                      # advertise availability to the viewer/CLI
     sc = json.loads(sp.read_text()); sc["hasAnatomy"] = True; sp.write_text(json.dumps(sc))
     print(f"Baked anatomy [{kind}] -> {out/'anat_uint8.bin.gz'} (dims {dims}, "

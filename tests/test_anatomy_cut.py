@@ -17,18 +17,23 @@ def test_anatomy_asset_present_and_shaped():
     dims = meta["dims"]
     assert len(dims) == 3 and all(80 < n <= 256 for n in dims)   # a brain-sized 3D grid
     assert meta["order"] == "F-interleaved"  # i-fastest voxels, adjacent RG channels
-    assert meta["channels"] == 2 and meta["channelOrder"] == ["t1", "mask"]
+    assert meta["channels"] == 4
+    assert meta["channelOrder"] == ["t1", "cerebrum", "leftCerebrum", "rightCerebrum"]
     assert meta["surfaceMatched"] is True
+    assert meta["hemisphereAware"] is True
+    assert meta["footprint"] == "pial-envelope"
     assert meta["kind"].startswith("fsaverage brain.mgz")
     raw = gzip.decompress((DATA / "anat_uint8.bin.gz").read_bytes())
-    assert len(raw) == dims[0] * dims[1] * dims[2] * 2
-    rg = np.frombuffer(raw, np.uint8).reshape(-1, 2)
-    vol, mask = rg[:, 0], rg[:, 1]
+    assert len(raw) == dims[0] * dims[1] * dims[2] * 4
+    rgba = np.frombuffer(raw, np.uint8).reshape(-1, 4)
+    vol, mask, left, right = rgba[:, 0], rgba[:, 1], rgba[:, 2], rgba[:, 3]
     assert vol.max() > 0 and vol.min() == 0    # real tissue + air background
     assert set(np.unique(mask)).issubset({0, 255}) and mask.max() == 255 and mask.min() == 0
-    # At least some filled internal pixels are truly dark: these must render as opaque black MRI,
-    # not become transparent holes that expose cortex lines/background.
-    assert np.any((vol == 0) & (mask == 255))
+    assert np.array_equal(mask > 0, (left > 0) | (right > 0))
+    assert np.any(left > 0) and np.any(right > 0)
+    # At least some included cerebral pixels fall below the display window floor: these render as
+    # opaque black CSF/ventricles, not transparent holes that expose cortex lines/background.
+    assert np.any((vol < round(0.28 * 255)) & (mask == 255))
 
 
 def test_anatomy_affine_is_mm_scale_world():
