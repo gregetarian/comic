@@ -211,9 +211,12 @@ def _find_cut_anatomy(explicit=None):
 
     The bundled cortex is the fsaverage pial surface transformed from FreeSurfer surface RAS
     (MNI305) into MNI152. Therefore the only anatomy that can match it exactly is fsaverage's own
-    brain.mgz, transformed by that SAME matrix. A generic MNI152 atlas shares a coordinate label but
-    not the same cortical boundary. An explicit image remains supported for custom/template work and
-    uses its own voxel-to-world affine; callers are then responsible for surface registration."""
+    native MRI grid, transformed by that SAME matrix. Prefer T1.mgz: it is the higher-dynamic-range
+    source image on that grid, while brain.mgz is an already intensity-normalised/skull-stripped
+    derivative that looks noticeably softer when enlarged on a cut face. The exact pial footprint
+    still supplies the brain mask. A generic MNI152 atlas shares a coordinate label but not the same
+    cortical boundary. An explicit image remains supported for custom/template work and uses its own
+    voxel-to-world affine; callers are then responsible for surface registration."""
     import nibabel as nib
     if explicit:
         if hasattr(explicit, "dataobj") and hasattr(explicit, "affine"):
@@ -228,7 +231,11 @@ def _find_cut_anatomy(explicit=None):
     import mne
     from .surfaces import MNI305_TO_MNI152
     fs = Path(mne.datasets.fetch_fsaverage(verbose=False))
-    for p in [fs / "mri" / "brain.mgz", fs / "fsaverage" / "mri" / "brain.mgz"]:
+    candidates = [
+        fs / "mri" / "T1.mgz", fs / "fsaverage" / "mri" / "T1.mgz",
+        fs / "mri" / "brain.mgz", fs / "fsaverage" / "mri" / "brain.mgz",
+    ]
+    for p in candidates:
         if not p.exists():
             continue
         img = nib.load(str(p))
@@ -238,9 +245,9 @@ def _find_cut_anatomy(explicit=None):
         vox2surf = np.asarray(img.header.get_vox2ras_tkr(), dtype=np.float64)
         surf_dir = p.parent.parent / "surf"
         return (img, MNI305_TO_MNI152 @ vox2surf,
-                "fsaverage brain.mgz (surface-matched)", True,
+                f"fsaverage {p.name} (surface-matched)", True,
                 surf_dir if surf_dir.exists() else None)
-    raise FileNotFoundError("fsaverage brain.mgz is unavailable; install/fetch the MNE fsaverage data")
+    raise FileNotFoundError("fsaverage T1/brain MRI is unavailable; install/fetch the MNE fsaverage data")
 
 
 def bake_anatomy(out_dir=None, t1_path=None, downsample=1, *, footprint_surfaces=None,
@@ -248,8 +255,8 @@ def bake_anatomy(out_dir=None, t1_path=None, downsample=1, *, footprint_surfaces
     """Bake a surface-matched T1 as a 3D-texture asset for the scissor cut-cap (the anatomical
     cross-section — white/gray matter — shown on a sliced face, like an AFNI/MRIcron slice).
 
-    By default this uses **fsaverage brain.mgz**, the anatomy that generated the bundled pial
-    surfaces, and applies the identical surface-RAS→MNI152 transform. This is stricter than choosing
+    By default this uses **fsaverage T1.mgz**, the native anatomy on the grid that generated the
+    bundled pial surfaces, and applies the identical surface-RAS→MNI152 transform. This is stricter than choosing
     an unrelated atlas merely because it is also labelled MNI152. An explicit `t1_path` uses its own
     affine for custom-template work. Native dark voxels are preserved behind a separate filled brain
     footprint, so CSF/ventricles render black and opaque instead of becoming holes. The bundled
@@ -262,14 +269,16 @@ def bake_anatomy(out_dir=None, t1_path=None, downsample=1, *, footprint_surfaces
 
     img, aff, kind, surface_matched, surface_dir = _find_cut_anatomy(t1_path)
     surface_matched = surface_matched or bool(footprint_surfaces)
+    if transform_id is None and surface_dir is not None:
+        transform_id = "fsaverage-mni152-v1"
 
     t1 = np.asarray(img.dataobj)
     if t1.ndim == 4:
         t1 = t1[..., 0]                                          # AFNI templates can be multi-brick
     t1 = t1.astype(np.float32)
     # A separate footprint is essential: intensity==0 can mean internal CSF/ventricle as well as
-    # outside air. For the bundled template, voxelise the exact pial meshes. brain.mgz contains
-    # cerebellum/brainstem too, but those structures are NOT inside the pial cortex; using intensity
+    # outside air. For the bundled template, voxelise the exact pial meshes. The MRI contains
+    # scalp/cerebellum/brainstem too, but those structures are NOT inside the pial cortex; using intensity
     # or an atlas label alone therefore paints a cut slab outside the displayed shell.
     hemi_aware = surface_dir is not None or bool(footprint_surfaces)
     if hemi_aware:
@@ -319,7 +328,10 @@ def bake_anatomy(out_dir=None, t1_path=None, downsample=1, *, footprint_surfaces
     aff = aff.copy()
     aff[:3, 3] = (aff @ np.r_[lo, 1.0])[:3]
 
-    hi = float(np.percentile(t1[t1 > 0], 99.5)) if (t1 > 0).any() else float(t1.max())
+    # Window against the cerebral footprint, not the whole T1. In particular T1.mgz retains scalp;
+    # letting those bright non-brain voxels set the scale makes the exposed cortex pale and flat.
+    tissue = t1[mask & (t1 > 0)]
+    hi = float(np.percentile(tissue, 99.5)) if tissue.size else float(t1.max())
     t1 = np.clip(t1 / max(hi, 1.0) * 255.0, 0, 255)              # robust normalise to 0..255
 
     d = int(downsample)
@@ -354,7 +366,10 @@ def bake_anatomy(out_dir=None, t1_path=None, downsample=1, *, footprint_surfaces
          "footprint": "pial-envelope" if hemi_aware else "intensity-envelope",
          "transformId": transform_id}))
     sp = out / "scene.json"                                      # advertise availability to the viewer/CLI
-    sc = json.loads(sp.read_text()); sc["hasAnatomy"] = True; sp.write_text(json.dumps(sc))
+    sc = json.loads(sp.read_text())
+    if not sc.get("hasAnatomy"):
+        sc["hasAnatomy"] = True
+        sp.write_text(json.dumps(sc))
     print(f"Baked anatomy [{kind}] -> {out/'anat_uint8.bin.gz'} (dims {dims}, "
           f"{(out/'anat_uint8.bin.gz').stat().st_size/1e6:.2f} MB)")
     return out / "anat_uint8.bin.gz"

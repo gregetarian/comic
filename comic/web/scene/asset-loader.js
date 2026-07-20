@@ -56,7 +56,7 @@ function attachClusters(geometry, clusters) {
 let _anatCache = null;
 // Bump when the baked anatomy asset changes (resolution/content) — the query string busts any
 // stale copy in the browser's HTTP cache (e.g. a prior 128^3 bake), independent of server headers.
-const ANAT_VER = 'fsaverage-pial-v5';
+const ANAT_VER = 'fsaverage-t1-sharp-v6';
 export function loadAnatomyVolume(base = 'data/', bundle = null) {
     if (!_anatCache) _anatCache = (async () => {
         const asset = bundle?.anatomy || {};
