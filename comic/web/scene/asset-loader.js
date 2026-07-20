@@ -49,6 +49,24 @@ function attachClusters(geometry, clusters) {
 }
 
 /** Load the fixed cortex + subcortical template from baked GLBs under `base`. */
+// Anatomy volume for the scissor cut-cap (bake_anatomy): fetch the gzipped uint8 3D texture +
+// its sidecar, gunzip in-browser (DecompressionStream), and hand back {data,dims,affine}. Memoised
+// so it's fetched once per session and survives engine rebuilds. Throws if the asset isn't baked.
+let _anatCache = null;
+// Bump when the baked anatomy asset changes (resolution/content) — the query string busts any
+// stale copy in the browser's HTTP cache (e.g. a prior 128^3 bake), independent of server headers.
+const ANAT_VER = 'mni152v1';
+export function loadAnatomyVolume(base = 'data/') {
+    if (!_anatCache) _anatCache = (async () => {
+        const meta = await fetch(base + 'anat.json?' + ANAT_VER).then((r) => { if (!r.ok) throw new Error('anatomy asset not baked (anat.json missing)'); return r.json(); });
+        const gz = await fetch(base + 'anat_uint8.bin.gz?' + ANAT_VER).then((r) => r.arrayBuffer());
+        const stream = new Blob([gz]).stream().pipeThrough(new DecompressionStream('gzip'));
+        const buf = await new Response(stream).arrayBuffer();
+        return { data: new Uint8Array(buf), dims: meta.dims, affine: meta.affine };
+    })();
+    return _anatCache;
+}
+
 export async function loadBaseScene(base = 'data/') {
     const manifest = await fetch(base + 'scene.json').then((r) => r.json());
     const meshes = [];

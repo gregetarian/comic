@@ -164,6 +164,77 @@ def bake_template(out_dir, surfaces, *, inflated=None, aseg=None, aseg_affine=No
     return out
 
 
+def _find_mni152_t1(explicit=None):
+    """Locate a sharp MNI152 T1 for the cut-cap anatomy — the space the overlays actually live in.
+    Order: explicit path → AFNI's MNI152_2009_template → FSL MNI152_T1_1mm → nilearn. Returns
+    (nibabel-image, kind) or (None, None) to fall back to the fsaverage average brain."""
+    import nibabel as nib
+    cands = [Path(explicit)] if explicit else []
+    cands += [Path.home() / "abin" / "MNI152_2009_template.nii.gz",
+              Path("/usr/local/fsl/data/standard/MNI152_T1_1mm.nii.gz"),
+              Path("/opt/fsl/data/standard/MNI152_T1_1mm.nii.gz")]
+    for p in cands:
+        if p.exists():
+            return nib.load(str(p)), f"MNI152 ({p.name})"
+    try:
+        from nilearn.datasets import load_mni152_template
+        return load_mni152_template(resolution=1), "MNI152 (nilearn)"
+    except Exception:
+        return None, None
+
+
+def bake_anatomy(out_dir=None, t1_path=None, downsample=1):
+    """Bake a sharp MNI152 T1 as a 3D-texture asset for the scissor cut-cap (the anatomical
+    cross-section — white/gray matter — shown on a sliced face, like an AFNI/MRIcron slice).
+
+    Prefers a real **MNI152 T1** (the space the overlays live in, so the engine samples it EXACTLY
+    at the overlay world positions via voxel = inv(affine) @ world, and it is far sharper than a
+    group-average). Falls back to the fsaverage brain (smoother) only if no MNI152 is found. Uses
+    the template's OWN affine. `downsample` 1 = native 1 mm (crisp). Writes anat_uint8.bin.gz +
+    anat.json. Standalone: other assets untouched."""
+    import nibabel as nib
+    from scipy import ndimage
+    out = Path(out_dir) if out_dir else DATA
+
+    img, kind = _find_mni152_t1(t1_path)
+    if img is None:
+        import mne
+        fs = Path(mne.datasets.fetch_fsaverage(verbose=False))
+        mri = fs / "mri"
+        if not (mri / "brain.mgz").exists():
+            mri = fs / "fsaverage" / "mri"
+        img, kind = nib.load(str(mri / "brain.mgz")), "fsaverage brain (average, soft)"
+
+    t1 = np.asarray(img.dataobj)
+    if t1.ndim == 4:
+        t1 = t1[..., 0]                                          # AFNI templates can be multi-brick
+    t1 = t1.astype(np.float32)
+    hi = float(np.percentile(t1[t1 > 0], 99.5)) if (t1 > 0).any() else float(t1.max())
+    t1 = np.clip(t1 / max(hi, 1.0) * 255.0, 0, 255)              # robust normalise to 0..255
+
+    aff = img.affine.astype(np.float64)                         # the template's own voxel→world
+    d = int(downsample)
+    if d > 1:
+        dims = [s // d for s in t1.shape]
+        idx = (np.indices(dims).reshape(3, -1) * d).astype(np.float32)
+        vol = ndimage.map_coordinates(t1, idx, order=1, mode="constant", cval=0.0).reshape(dims)
+        aff = aff.copy(); aff[:3, :3] *= d                       # clean scale, origin unchanged
+    else:
+        dims, vol = list(t1.shape), t1
+    vol = vol.astype(np.uint8)
+
+    # Fortran order (i fastest) so a WebGL Data3DTexture(dims[0],dims[1],dims[2]) maps identity:
+    # texcoord.x↔i, .y↔j, .z↔k — the same (i,j,k) the affine addresses. No shader swizzle.
+    (out / "anat_uint8.bin.gz").write_bytes(gzip.compress(vol.tobytes(order="F"), 9))
+    (out / "anat.json").write_text(json.dumps(
+        {"dims": list(dims), "dtype": "uint8", "order": "F", "affine": aff.tolist(), "kind": kind}))
+    sp = out / "scene.json"                                      # advertise availability to the viewer/CLI
+    sc = json.loads(sp.read_text()); sc["hasAnatomy"] = True; sp.write_text(json.dumps(sc))
+    print(f"Baked anatomy [{kind}] -> {out/'anat_uint8.bin.gz'} (dims {dims}, "
+          f"{(out/'anat_uint8.bin.gz').stat().st_size/1e6:.2f} MB)")
+    return out / "anat_uint8.bin.gz"
+
+
 def bake_surface_sidecar(out_dir=None):
     """Bake the cortical-surface sidecar for surface-projection mode (M8): per hemisphere, the
     pial vertices (MNI152) + faces + curvature + the inward offset to the white surface (so the

@@ -209,6 +209,18 @@ test('ninePanel and fourPanel both normalize', () => {
     assert.equal(resolveConfig('fourPanel').layout.panels.length, 4);
 });
 
+test('the montage presets (5-view, 6-view) normalize with the right panel counts', () => {
+    assert.equal(resolveConfig('fiveView').layout.panels.length, 5);
+    assert.equal(resolveConfig('sixView').layout.panels.length, 6);
+    // every montage panel has a valid camera plane + a grid cell
+    for (const name of ['fiveView', 'sixView']) {
+        for (const p of resolveConfig(name).layout.panels) {
+            assert.ok(p.camera && p.camera.plane, `${name} panel ${p.id} has a plane`);
+            assert.ok(p.cell && p.cell.row != null && p.cell.col != null, `${name} panel ${p.id} has a cell`);
+        }
+    }
+});
+
 // --- Free Canvas: free-rect placement + cell-XOR-place schema ---
 test('freeRect maps place fractions to a GL bottom-left rect', () => {
     const r = freeRect({ x: 0.25, y: 0.1, w: 0.5, h: 0.5 }, 1000, 600);

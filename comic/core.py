@@ -49,10 +49,18 @@ def open_viewer(port=8421):
     """Serve the static viewer locally and open it in the browser. Uploads are processed
     in-browser via Pyodide — identical to the GitHub Pages site; no Python backend."""
     import http.server
-    import functools
     import threading
     import webbrowser
-    handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(WEB_DIR))
+
+    class Handler(http.server.SimpleHTTPRequestHandler):
+        def __init__(self, *a, **k):
+            super().__init__(*a, directory=str(WEB_DIR), **k)
+
+        def end_headers(self):   # never serve a stale asset after a re-bake / code edit
+            self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+            super().end_headers()
+
+    handler = Handler
     for p in range(port, port + 100):
         try:
             httpd = http.server.ThreadingHTTPServer(("", p), handler)
@@ -185,6 +193,9 @@ def cli():
     r.add_argument('--positive-only', action='store_true')
     r.add_argument('--no-edges', action='store_true')
     r.add_argument('--no-outline', action='store_true')
+    r.add_argument('--slice-anatomy', action='store_true',
+                   help='on sliced panels (a --spec with per-panel slices), paint the anatomical T1 '
+                        'cross-section (white/gray matter) on the cut face, like a coronal MRI')
     r.add_argument('--lines-over-voxels', action=argparse.BooleanOptionalAction, default=None,
                    help='draw the black cortex outline ON TOP of the voxels instead of letting '
                         'opaque blobs mask the sulcal lines behind them')
@@ -270,6 +281,8 @@ def cli():
             # --spec is self-contained (layout + style + size): reproduce it verbatim.
             # CLI style flags are ignored here; --width/--height/--bg-alpha still override.
             layout, style, spec_render = load_spec(args.spec)
+            if args.slice_anatomy:
+                style['sliceAnatomy'] = True
             cmap = style.get('colormap', args.cmap)
             width = args.width if args.width is not None else spec_render.get('width', 1600)
             height = args.height if args.height is not None else spec_render.get('height', 1000)
@@ -329,6 +342,8 @@ def cli():
                 setp('voxel.edges.enabled', False)
             if args.no_outline:
                 setp('outline.enabled', False)
+            if args.slice_anatomy:
+                setp('sliceAnatomy', True)
             # --overlay-json: lossless per-overlay escape hatch (the i-th binds overlay i).
             if args.overlay_json:
                 ovl = style.setdefault('overlays', [])

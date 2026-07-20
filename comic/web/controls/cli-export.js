@@ -17,6 +17,8 @@ import { resolveColormap } from '../core/colormap.js';
 // Browser layout preset -> CLI --grid / --views (view names match render.py VIEWS).
 const PRESET_VIEWS = {
     fourPanel: { grid: '2x2', views: 'left_lateral,right_lateral,left_medial,right_medial' },
+    fiveView:  { grid: '2x3', views: 'left_lateral,dorsal,right_lateral,left_medial,_,right_medial' },
+    sixView:   { grid: '2x3', views: 'left_lateral,dorsal,right_lateral,left_medial,ventral,right_medial' },
     ninePanel: { grid: '2x4', views: 'left_lateral,right_lateral,left_medial,right_medial,anterior,dorsal,subcortical_l,subcortical_r' },
     overview:  { grid: '2x2', views: 'left_lateral,anterior,dorsal,right_medial' },
 };

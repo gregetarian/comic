@@ -69,6 +69,10 @@ export const DEFAULTS = {
         // Slight oblique tilt of every view (degrees) — a depth cue without full
         // perspective; keeps a right-handed basis so lighting stays correct.
         tilt: { azimuth: 8, elevation: 6 },
+        // Scissor cut-cap: when true, a panel with a slice paints the anatomical (T1) cross-section
+        // on the exposed cut face — white/gray matter, like a coronal MRI. Loads a small volume
+        // asset (bake_anatomy) on demand. Off by default (unsliced/most figures are unaffected).
+        sliceAnatomy: false,
         // Inter-voxel shadows (clusters casting onto each other). Off by default —
         // the depth veil + voxel edges carry the depth cue without darkening
         // clusters where they overlap. Re-enable with --shadows.
