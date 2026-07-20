@@ -57,7 +57,24 @@ const SLICE_CYCLE = [
     { label: 'sphere bite',  shape: 'sphere', mode: 'bite', center: [0, -18, 22], radius: 45 },
     { label: 'cube bite',    shape: 'cube',   mode: 'bite', min: [-5, -15, 0], max: [75, 80, 85] },
 ];
-const materializeSlice = (p) => { if (!p) return null; const { label, ...s } = p; return s; };
+function materializeSlice(p, panel = null) {
+    if (!p) return null;
+    const { label, ...raw } = p;
+    const s = JSON.parse(JSON.stringify(raw));
+    // A sagittal cut at x=0 lands in the inter-hemispheric fissure and exposes almost no tissue.
+    // Start 15 mm inside the panel's displayed hemisphere, with the face pointing toward that
+    // named camera. The handle can then move it anywhere. Whole-brain/unknown views keep x=0.
+    if (label === 'sagittal cut' && panel) {
+        const hemi = panel.content?.hemisphere;
+        const planeX = hemi === 'lh' ? -15 : (hemi === 'rh' ? 15 : 0);
+        const plane = panel.camera?.plane || '';
+        const cameraX = ['right_lateral', 'left_medial'].includes(plane) ? 1
+            : (['left_lateral', 'right_medial'].includes(plane) ? -1 : 0);
+        if (cameraX) s.normal = [-cameraX, 0, 0];
+        s.offset = s.normal[0] * planeX;
+    }
+    return s;
+}
 const sliceCycleIndex = (slice) => {
     if (!slice) return 0;
     const i = SLICE_CYCLE.findIndex((p) => p && p.shape === slice.shape && p.mode === slice.mode);
@@ -269,7 +286,7 @@ export function createFreeCanvasEditor({ container, canvas, config, getEngine, o
         sliceBtn.addEventListener('click', (e) => {
             e.stopPropagation();
             sliceIdx = (sliceIdx + 1) % SLICE_CYCLE.length;
-            panel.slice = materializeSlice(SLICE_CYCLE[sliceIdx]);
+            panel.slice = materializeSlice(SLICE_CYCLE[sliceIdx], panel);
             sliceBtn.classList.toggle('on', !!panel.slice);
         });
         // The header stays compact — view picker, the quick ✂ slice toggle, and a ☰ menu button —

@@ -542,7 +542,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
             // behind it — the glass cortex stays drawn (sliced by the same cut), giving the "glass
             // brain cut open with the MRI core exposed" look, not a bare floating slice.
             const capActive = !!(config.style.sliceAnatomy && def.slice) && !!anatomyCap
-                && anatomyCap.configureForSlice(def.slice, fr.position);
+                && anatomyCap.configureForSlice(def.slice, def.content?.hemisphere || 'both');
             if (anatomyCap) anatomyCap.mesh.visible = capActive;
             if (def.anatomyOpacity != null) { anatomyMat.opacity = def.anatomyOpacity; anatomyMat.transparent = def.anatomyOpacity < 1; }
             else { anatomyMat.opacity = config.style.anatomy.opacity; anatomyMat.transparent = anatomyMat.opacity < 1; }
