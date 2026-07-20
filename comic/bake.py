@@ -14,6 +14,7 @@ Run:  comic bake     (or  python -m comic.bake)
 
 import gzip
 import json
+import os
 import shutil
 from pathlib import Path
 
@@ -210,13 +211,13 @@ def _find_cut_anatomy(explicit=None):
     """Return (image, voxel_to_world, kind, surface_matched, surface_dir) for the cut-cap T1.
 
     The bundled cortex is the fsaverage pial surface transformed from FreeSurfer surface RAS
-    (MNI305) into MNI152. Therefore the only anatomy that can match it exactly is fsaverage's own
-    native MRI grid, transformed by that SAME matrix. Prefer T1.mgz: it is the higher-dynamic-range
-    source image on that grid, while brain.mgz is an already intensity-normalised/skull-stripped
-    derivative that looks noticeably softer when enlarged on a cut face. The exact pial footprint
-    still supplies the brain mask. A generic MNI152 atlas shares a coordinate label but not the same
-    cortical boundary. An explicit image remains supported for custom/template work and uses its own
-    voxel-to-world affine; callers are then responsible for surface registration."""
+    (MNI305) into MNI152. AFNI's 1 mm MNI152 2009c T1 has substantially more anatomical detail
+    than fsaverage's population-average T1, and already occupies the MNI world used by the viewer.
+    When it is installed, keep it on its native 1 mm grid and clip it with masks voxelised from the
+    exact pial meshes. That gives the cut surface crisp internal anatomy and an exact displayed
+    footprint; fsaverage T1 remains the reproducible fallback. An explicit image remains supported
+    for custom/template work and uses its own voxel-to-world affine; callers are then responsible
+    for supplying registered footprint surfaces."""
     import nibabel as nib
     if explicit:
         if hasattr(explicit, "dataobj") and hasattr(explicit, "affine"):
@@ -231,6 +232,29 @@ def _find_cut_anatomy(explicit=None):
     import mne
     from .surfaces import MNI305_TO_MNI152
     fs = Path(mne.datasets.fetch_fsaverage(verbose=False))
+    surface_dirs = [fs / "surf", fs / "fsaverage" / "surf"]
+    surface_dir = next((p for p in surface_dirs if p.exists()), None)
+
+    # AFNI distributes the sharper skull-stripped 1 mm 2009c T1 beside its executables. Honour an
+    # explicit AFNI_HOME first, then an AFNI found on PATH, then the conventional ~/abin install.
+    # Do not download during a bake: an offline build must still succeed with the fsaverage fallback.
+    afni_roots = []
+    if os.environ.get("AFNI_HOME"):
+        afni_roots.append(Path(os.environ["AFNI_HOME"]))
+    afni_info = shutil.which("3dinfo")
+    if afni_info:
+        afni_roots.append(Path(afni_info).resolve().parent)
+    afni_roots.append(Path.home() / "abin")
+    seen = set()
+    for root in afni_roots:
+        p = root / "MNI152_2009_template.nii.gz"
+        if p in seen or not p.exists():
+            continue
+        seen.add(p)
+        img = nib.load(str(p))
+        return (img, img.affine.astype(np.float64),
+                "AFNI MNI152 2009c T1 (native 1 mm, pial-masked)", True, surface_dir)
+
     candidates = [
         fs / "mri" / "T1.mgz", fs / "fsaverage" / "mri" / "T1.mgz",
         fs / "mri" / "brain.mgz", fs / "fsaverage" / "mri" / "brain.mgz",
@@ -255,10 +279,10 @@ def bake_anatomy(out_dir=None, t1_path=None, downsample=1, *, footprint_surfaces
     """Bake a surface-matched T1 as a 3D-texture asset for the scissor cut-cap (the anatomical
     cross-section — white/gray matter — shown on a sliced face, like an AFNI/MRIcron slice).
 
-    By default this uses **fsaverage T1.mgz**, the native anatomy on the grid that generated the
-    bundled pial surfaces, and applies the identical surface-RAS→MNI152 transform. This is stricter than choosing
-    an unrelated atlas merely because it is also labelled MNI152. An explicit `t1_path` uses its own
-    affine for custom-template work. Native dark voxels are preserved behind a separate filled brain
+    By default this uses AFNI's sharper **MNI152 2009c 1 mm T1** when installed, retaining its native
+    grid and using the exact fsaverage pial meshes for the visible footprint. It falls back to
+    fsaverage T1.mgz with the identical surface-RAS→MNI152 transform. An explicit `t1_path` uses its
+    own affine for custom-template work. Native dark voxels are preserved behind a separate filled brain
     footprint, so CSF/ventricles render black and opaque instead of becoming holes. The bundled
     fsaverage asset also carries separate left/right cerebral masks voxelised from the exact pial
     meshes: this excludes cerebellum/brainstem that are not enclosed by the rendered shell, and lets
@@ -273,7 +297,7 @@ def bake_anatomy(out_dir=None, t1_path=None, downsample=1, *, footprint_surfaces
         transform_id = "fsaverage-mni152-v1"
 
     t1 = np.asarray(img.dataobj)
-    if t1.ndim == 4:
+    while t1.ndim > 3:
         t1 = t1[..., 0]                                          # AFNI templates can be multi-brick
     t1 = t1.astype(np.float32)
     # A separate footprint is essential: intensity==0 can mean internal CSF/ventricle as well as
@@ -364,6 +388,9 @@ def bake_anatomy(out_dir=None, t1_path=None, downsample=1, *, footprint_surfaces
          "order": "F-interleaved", "affine": aff.tolist(), "kind": kind,
          "surfaceMatched": surface_matched, "hemisphereAware": hemi_aware,
          "footprint": "pial-envelope" if hemi_aware else "intensity-envelope",
+         "nativeResolutionMm": np.linalg.norm(aff[:3, :3], axis=0).round(4).tolist(),
+         "intensityRegistration": ("MNI coordinate alignment; exact pial display mask"
+                                   if kind.startswith("AFNI MNI152 2009c") else None),
          "transformId": transform_id}))
     sp = out / "scene.json"                                      # advertise availability to the viewer/CLI
     sc = json.loads(sp.read_text())

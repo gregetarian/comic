@@ -2,9 +2,10 @@
  * anatomy-cap.js — the scissor cut "cap": the anatomical (T1) cross-section drawn on a
  * sliced face, so cutting into the brain reveals white/gray matter like a coronal MRI.
  *
- * The anatomy volume ships as a compact RGBA 3D texture (T1 + whole/left/right cerebral masks)
- * baked from the SAME fsaverage anatomy as the cortical surface. A cap fragment maps its world
- * position back to anatomy voxels and samples the T1. Separate masks keep genuinely dark
+ * The anatomy volume ships as a compact RGBA 3D texture (T1 + whole/left/right cerebral masks).
+ * Its sharper 1 mm MNI2009c intensities are clipped by masks voxelised from the exact fsaverage
+ * pial surfaces. A cap fragment maps its world position back to anatomy voxels and samples the T1.
+ * Separate masks keep genuinely dark
  * CSF/ventricle pixels opaque, exclude cerebellum/brainstem from cortex-only panels, and ensure a
  * one-hemisphere view exposes only that hemisphere's cut face.
  *
@@ -202,11 +203,13 @@ export function createAnatomyCap({ data, dims, affine, channels = 1 }, layer, ov
         uniforms: {
             ...sampleUniforms,
             uTint: { value: new THREE.Color(0xffffff) },
-            uBright: { value: 0.98 },
-            uLo: { value: 0.30 },       // window floor (CSF/sulci → dark)
-            uHi: { value: 0.98 },       // retain highlight detail instead of clipping upper tissue
-            uGamma: { value: 1.08 },
-            uSharpen: { value: 0.45 },
+            // AFNI-like T1 window: keep CSF black while lifting mid-grey nuclei and cortex. The
+            // source is already sharp, so use only enough unsharp masking to offset trilinear display.
+            uBright: { value: 0.99 },
+            uLo: { value: 0.04 },
+            uHi: { value: 0.95 },
+            uGamma: { value: 0.85 },
+            uSharpen: { value: 0.18 },
         },
     });
     const depthMaterial = new THREE.RawShaderMaterial({

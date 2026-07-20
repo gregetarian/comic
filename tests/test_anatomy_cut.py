@@ -1,7 +1,5 @@
-"""The scissor cut-cap anatomy asset (bake_anatomy): a sharp MNI152 T1 volume shipped for the
-engine to paint on sliced faces. The bundled asset is baked from the same fsaverage anatomy as the
-cortex, carries the same surface-RAS→MNI152 transform, and interleaves a filled footprint so dark
-CSF/ventricle pixels remain opaque."""
+"""The scissor cut-cap anatomy asset (bake_anatomy): a sharp 1 mm MNI2009c T1 clipped by the
+exact fsaverage pial footprint, with dark CSF/ventricle pixels kept opaque."""
 import gzip
 import json
 from pathlib import Path
@@ -22,7 +20,8 @@ def test_anatomy_asset_present_and_shaped():
     assert meta["surfaceMatched"] is True
     assert meta["hemisphereAware"] is True
     assert meta["footprint"] == "pial-envelope"
-    assert meta["kind"].startswith("fsaverage T1.mgz")
+    assert meta["kind"].startswith("AFNI MNI152 2009c T1")
+    assert np.allclose(meta["nativeResolutionMm"], [1, 1, 1], atol=0.02)
     raw = gzip.decompress((DATA / "anat_uint8.bin.gz").read_bytes())
     assert len(raw) == dims[0] * dims[1] * dims[2] * 4
     rgba = np.frombuffer(raw, np.uint8).reshape(-1, 4)
@@ -35,6 +34,18 @@ def test_anatomy_asset_present_and_shaped():
     # opaque black CSF/ventricles, not transparent holes that expose cortex lines/background.
     assert np.any((vol < round(0.28 * 255)) & (mask == 255))
     assert len(np.unique(vol[mask == 255])) > 80   # preserve native intensity detail
+
+    # The replacement must retain genuinely crisp 1 mm boundaries, not regress to the smooth
+    # fsaverage population mean. Mean adjacent-voxel contrast is a compact source-level guard.
+    v = vol.reshape(dims, order="F").astype(np.int16)
+    m = mask.reshape(dims, order="F") > 0
+    contrasts = []
+    for axis in range(3):
+        a = [slice(None)] * 3; b = [slice(None)] * 3
+        a[axis] = slice(1, None); b[axis] = slice(None, -1)
+        valid = m[tuple(a)] & m[tuple(b)]
+        contrasts.append(np.abs(v[tuple(a)] - v[tuple(b)])[valid])
+    assert np.mean(np.concatenate(contrasts)) > 8.0
 
 
 def test_anatomy_affine_is_mm_scale_world():
