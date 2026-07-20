@@ -578,14 +578,22 @@ export function createFreeCanvasEditor({ container, canvas, config, getEngine, o
         gridOverlay.style.left = '0px'; gridOverlay.style.top = '0px';
         gridOverlay.style.width = canvas.clientWidth + 'px'; gridOverlay.style.height = canvas.clientHeight + 'px';
         gridOverlay.style.backgroundSize = snapPx + 'px ' + snapPx + 'px';
-        // Hug the rendered brain (content bbox), not the looser panel cell, so the frame fits tight.
-        const rects = getEngine().getPanelContentRects();
+        // The editor frame is the panel's authored pane, not the brain's projected silhouette.
+        // A silhouette bbox changes width/height as the brain rotates, which made the frame and its
+        // gizmo visibly jump. The pane rect is stable throughout rotation and is also the true move /
+        // resize target stored in panel.place.
+        const rects = getEngine().getPanelRects();
         frames.forEach((fr, i) => {
             const r = rects[i]; if (!r) return;
             fr.el.style.left = r.cssLeft + 'px';
             fr.el.style.top = r.cssTop + 'px';
             fr.el.style.width = r.w + 'px';
             fr.el.style.height = r.h + 'px';
+            // Prefer the open side just outside the fixed pane. At a canvas edge, flip to the left;
+            // when neither side has room (a nearly full-width pane), keep it inside the fixed pane.
+            const room = 88;
+            fr.gizmo.el.classList.toggle('fc-gizmo-left', r.cssLeft + r.w + room > canvas.clientWidth && r.cssLeft >= room);
+            fr.gizmo.el.classList.toggle('fc-gizmo-inside', r.cssLeft + r.w + room > canvas.clientWidth && r.cssLeft < room);
             // Stack frames by paint order (place.z); LIFT the hovered/editing one well above
             // the rest so its header/handles stay clickable even where panels overlap.
             const z = (fr.panel.place && fr.panel.place.z != null) ? fr.panel.place.z : i;
