@@ -62,6 +62,9 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
     const anatomyClipDepthMat = makePlainDepthMaterial(THREE.BackSide);
     const anatomyMeshes = sceneModel.meshes.filter((tm) => tm.meta.role === 'anatomy').map((tm) => tm.mesh);
     const cortexMeshes = sceneModel.meshes.filter((tm) => tm.meta.role === 'cortex').map((tm) => tm.mesh);
+    const surfaceVariants = [...new Set(sceneModel.meshes
+        .filter((tm) => tm.meta.role === 'cortex' && tm.meta.variant)
+        .map((tm) => tm.meta.variant))];
     // Subcortex gets its OWN layer (past the N overlay layers) so it can carry a SEPARATE outline
     // pass: the cortex stays the sole occupant of layer 0's pass (its line-art unchanged), while the
     // subcortical structures are stroked on their own layer at anatomyWidthMul × the cortex width
@@ -70,7 +73,9 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
     // The scissor cut-cap (T1 cross-section on a sliced face) lives on its OWN layer, past the
     // subcortex layer, so the main camera draws it but the outline/edge depth passes never do.
     const CAP_LAYER = N + 2;
+    const CUT_OVERLAY_LAYER = N + 3;
     let anatomyCap = null;   // set by setAnatomyVolume() once the volume asset is loaded
+    const cutVolumes = sceneModel.cutVolumes || [];
 
     // --- per-overlay voxel materials + uniforms (overlay i → layer 1+i) ---
     const uniforms = [], voxelMats = [], surfaceMats = [];
@@ -91,6 +96,27 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         mat.polygonOffset = true; mat.polygonOffsetFactor = 0; mat.polygonOffsetUnits = i * 6;
         voxelMats.push(mat);
         surfaceMats.push(makeSurfaceMaterial({}, u));   // variant:'surface' meshes (M8) share the uniforms
+    }
+
+    function resolvedCutOverlaySpecs() {
+        return overlays.map((meta, i) => {
+            const os = overlayStyle(config, i);
+            const resolved = resolveColormap(os, !!meta.diverging, colormaps, !!meta.negativeOnly);
+            return {
+                cut: os.cutOverlay,
+                threshold: os.threshold ?? meta.threshold ?? 0,
+                clusterMin: os.clusterMin ?? 0,
+                positiveOnly: os.positiveOnly,
+                gamma: os.gamma,
+                clim: os.clim,
+                maxAbs: deriveMaxAbs(os.clim, meta.maxAbsValue ?? 1),
+                mode: resolved.mode,
+                divergingMapOnPositive: resolved.divergingMapOnPositive,
+                divergingMapOnNegative: resolved.divergingMapOnNegative,
+                cmap: colormaps.get(resolved.name) || colormaps.values().next().value,
+                hidden: !!config.style.overlays?.[i]?.hidden,
+            };
+        });
     }
 
     // --- place meshes, assign materials + layers + shadows ---
@@ -149,6 +175,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
                 tm.mesh.geometry.attributes.color.needsUpdate = true;
             }
         }
+        if (anatomyCap) anatomyCap.setOverlayStyles(resolvedCutOverlaySpecs());
     }
     recolor();
 
@@ -250,6 +277,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         for (let i = 0; i < N; i++) cam.layers.enable(1 + i);
         cam.layers.enable(ANATOMY_LAYER);                    // draw the subcortex shell (own layer)
         cam.layers.enable(CAP_LAYER);                        // draw the anatomy cut-cap (own layer)
+        cam.layers.enable(CUT_OVERLAY_LAYER);                // thresholded maps composited on that cap
         return { def: p, camera: cam, zoom: p.zoom || 1 };   // zoom: live per-panel rescale
     });
 
@@ -434,8 +462,13 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
     // asset, or null to remove. Idempotent-ish: disposes any previous cap first. The cap only
     // actually draws on panels that have a slice AND with config.style.sliceAnatomy on (renderFrame).
     function setAnatomyVolume(vol) {
-        if (anatomyCap) { scene.remove(anatomyCap.mesh); anatomyCap.dispose(); anatomyCap = null; }
-        if (vol) { anatomyCap = createAnatomyCap(vol, CAP_LAYER); scene.add(anatomyCap.mesh); }
+        if (anatomyCap) { scene.remove(anatomyCap.root); anatomyCap.dispose(); anatomyCap = null; }
+        if (vol) {
+            anatomyCap = createAnatomyCap(vol, CAP_LAYER, CUT_OVERLAY_LAYER);
+            anatomyCap.setOverlayVolumes(cutVolumes);
+            anatomyCap.setOverlayStyles(resolvedCutOverlaySpecs());
+            scene.add(anatomyCap.root);
+        }
     }
 
     function renderFrame() {
@@ -541,9 +574,14 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
             // The cut-cap is OPAQUE and sits at the cut plane, so it naturally occludes whatever is
             // behind it — the glass cortex stays drawn (sliced by the same cut), giving the "glass
             // brain cut open with the MRI core exposed" look, not a bare floating slice.
-            const capActive = !!(config.style.sliceAnatomy && def.slice) && !!anatomyCap
+            const wantsCap = !!config.style.sliceAnatomy || !!config.style.cutOverlay?.enabled;
+            const capActive = !!(wantsCap && def.slice) && !!anatomyCap
                 && anatomyCap.configureForSlice(def.slice, def.content?.hemisphere || 'both');
-            if (anatomyCap) anatomyCap.mesh.visible = capActive;
+            if (anatomyCap) {
+                anatomyCap.root.visible = capActive;
+                const showsVoxels = (def.content?.roles || []).includes('voxel');
+                anatomyCap.setOverlayVisibility((i) => showsVoxels && !config.style.overlays?.[i]?.hidden);
+            }
             if (def.anatomyOpacity != null) { anatomyMat.opacity = def.anatomyOpacity; anatomyMat.transparent = def.anatomyOpacity < 1; }
             else { anatomyMat.opacity = config.style.anatomy.opacity; anatomyMat.transparent = anatomyMat.opacity < 1; }
             // Per-panel subcortical style: opaque shell (occludes cortex lines + overlays
@@ -672,6 +710,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
             em.uOpacity.value = os.edges.opacity;
             em.uLineWidth.value = os.edges.width;
         }
+        if (anatomyCap) anatomyCap.setOverlayStyles(resolvedCutOverlaySpecs());
     }
 
     function setColormap(name, i = 0) {
@@ -772,6 +811,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
     return {
         scene, renderFrame, resize, setPixelRatio, getPanelRects, getPanelContentRects, getPanelDesignRects, getPanelContentAABB, getPanelView, zoomPanel, scaleOutlines, recolor, applyStyle, applySmoothing, setColormap, dispose,
         setView, getView, panView, zoomViewAt, resetView, fitView, setAnatomyVolume,
+        getSurfaceVariants: () => surfaceVariants.slice(),
         setSpinFit: (v) => { spinFit = !!v; },   // sphere-fit (constant size) only while spinning
         overlays, config, renderer, THREE, sceneModel,
         _internals: { uniforms, glassMat, anatomyMat, voxelMats, dir, amb },

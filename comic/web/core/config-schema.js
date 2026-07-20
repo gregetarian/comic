@@ -73,6 +73,10 @@ export const DEFAULTS = {
         // on the exposed cut face — white/gray matter, like a coronal MRI. Loads a small volume
         // asset (bake_anatomy) on demand. Off by default (unsliced/most figures are unaffected).
         sliceAnatomy: false,
+        // Statistical values on that same exposed face. The source NIfTI grid is retained in a
+        // compact world-registered texture; a thin max-absolute slab makes oblique cuts legible.
+        // This is deliberately independent of the ordinary blocky/smooth/surface representation.
+        cutOverlay: { enabled: false, slabMm: 1, interpolation: 'linear', opacity: 0.88 },
         // Inter-voxel shadows (clusters casting onto each other). Off by default —
         // the depth veil + voxel edges carry the depth cue without darkening
         // clusters where they overlap. Re-enable with --shadows.
@@ -123,6 +127,7 @@ export function overlayStyle(config, i = 0) {
         surfaceDepth: ov.surfaceDepth ?? v.surfaceDepth,
         veil: { ...(v.veil || {}), ...(ov.veil || {}) },
         edges: { ...(v.edges || {}), ...(ov.edges || {}) },
+        cutOverlay: { ...(s.cutOverlay || {}), ...(o.cutOverlay || {}) },
     };
 }
 
@@ -153,6 +158,9 @@ const TEMPLATE_KINDS = new Set(['mni', 'custom', 'none']);          // M2
 const climOk = (c) => c == null || typeof c === 'number'
     || (Array.isArray(c) && c.length === 2 && typeof c[0] === 'number' && typeof c[1] === 'number' && c[0] < c[1]);
 const repOk = (r) => r == null || REPRESENTATIONS.has(r);
+const cutOk = (c) => !c || ((c.interpolation == null || c.interpolation === 'linear' || c.interpolation === 'nearest')
+    && (c.slabMm == null || (typeof c.slabMm === 'number' && c.slabMm >= 0))
+    && (c.opacity == null || (typeof c.opacity === 'number' && c.opacity >= 0 && c.opacity <= 1)));
 
 export function validateConfig(cfg) {
     const errors = [];
@@ -161,10 +169,12 @@ export function validateConfig(cfg) {
     const noTemplate = kind === 'none';
     if (!climOk(cfg.style?.clim)) errors.push('style.clim must be null, a number, or [vmin, vmax] with vmin < vmax');
     if (!repOk(cfg.style?.voxel?.representation)) errors.push(`style.voxel.representation must be one of ${[...REPRESENTATIONS].join('/')}`);
+    if (!cutOk(cfg.style?.cutOverlay)) errors.push('style.cutOverlay needs interpolation linear/nearest, slabMm >= 0, and opacity 0..1');
     (cfg.style?.overlays || []).forEach((o, i) => {
         if (!o) return;
         if (!climOk(o.clim)) errors.push(`style.overlays[${i}].clim invalid (null | number | [vmin<vmax])`);
         if (!repOk(o.voxel?.representation)) errors.push(`style.overlays[${i}].voxel.representation invalid`);
+        if (!cutOk(o.cutOverlay)) errors.push(`style.overlays[${i}].cutOverlay invalid`);
     });
     const panels = cfg.layout?.panels || [];
     if (!Array.isArray(panels) || panels.length === 0) errors.push('layout.panels must be a non-empty array');
@@ -202,7 +212,8 @@ export function normalizeConfig(raw = {}) {
         zoom: 1, rotate: null, slice: null, outline: null,
         framing: { margin: 1.06, fit: 'auto' },
         ...p,
-        content: { roles: ['cortex', 'voxel'], hemisphere: 'both', categories: null, representation: null, anatomyStyle: 'glass', anatomyHemisphere: null, ...(p.content || {}) },
+        content: { roles: ['cortex', 'voxel'], hemisphere: 'both', categories: null, representation: null,
+            surface: null, anatomyStyle: 'glass', anatomyHemisphere: null, ...(p.content || {}) },
         framing: { margin: 1.06, fit: 'auto', ...(p.framing || {}) },
     }));
     const { ok, errors } = validateConfig(cfg);
