@@ -88,9 +88,10 @@
       pointer-events: none; transition: border-color 0.12s; }
     .fc-frame.hover, .fc-frame.fc-editing { border-color: rgba(74,144,217,0.85); box-shadow: 0 0 0 1px rgba(255,255,255,0.5); }
     .fc-frame.fc-active { border-color: rgba(74,144,217,0.95); box-shadow: 0 0 0 1px rgba(255,255,255,0.6); }
-    .fc-frame .fc-head, .fc-frame .fc-resize, .fc-frame .fc-slice-handle { opacity: 0; transition: opacity 0.12s; }
+    .fc-frame .fc-head, .fc-frame .fc-resize, .fc-frame .fc-rotate, .fc-frame .fc-slice-handle { opacity: 0; transition: opacity 0.12s; }
     .fc-frame.hover .fc-head, .fc-frame.fc-editing .fc-head, .fc-frame.fc-active .fc-head,
     .fc-frame.hover .fc-resize, .fc-frame.fc-editing .fc-resize, .fc-frame.fc-active .fc-resize,
+    .fc-frame.hover .fc-rotate, .fc-frame.fc-editing .fc-rotate, .fc-frame.fc-active .fc-rotate,
     .fc-frame.hover .fc-slice-handle, .fc-frame.fc-editing .fc-slice-handle, .fc-frame.fc-active .fc-slice-handle { opacity: 1; }
     .fc-frame .fc-body { position: absolute; inset: 0; pointer-events: auto; cursor: move; } /* drag=move; shift+drag=orbit */
     .fc-frame .fc-head { position: absolute; left: -1px; top: -1px; display: flex; gap: 2px; align-items: center; padding: 2px 4px;
@@ -102,7 +103,21 @@
     .fc-frame .fc-head button:hover { background: #f0f0f0; border-color: #999; }
     .fc-frame .fc-head button.on { background: #4a90d9; color: #fff; border-color: #4a90d9; }
     .fc-frame .fc-resize { position: absolute; right: -8px; bottom: -8px; width: 18px; height: 18px; background: #4a90d9;
-      border: 2px solid #fff; border-radius: 3px; pointer-events: auto; cursor: nwse-resize; }
+      border: 2px solid #fff; border-radius: 3px; pointer-events: auto; cursor: nwse-resize; z-index: 16; }
+    /* corner rotate handle — sits diagonally beyond the resize corner (bottom-right) */
+    .fc-frame .fc-rotate { position: absolute; right: -26px; bottom: -26px; width: 16px; height: 16px; background: #8e44ad;
+      border: 2px solid #fff; border-radius: 50%; pointer-events: auto; cursor: grab; z-index: 16;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.4); }
+    .fc-frame .fc-rotate::after { content: '↻'; position: absolute; inset: 0; color: #fff; font-size: 11px; line-height: 12px; text-align: center; }
+    /* collapsible per-panel controls dropdown (toggled by the ☰ button; wraps to several rows) */
+    .fc-frame .fc-menu { position: absolute; left: -1px; top: 23px; display: none; flex-wrap: wrap; gap: 2px;
+      width: 148px; padding: 4px; background: rgba(255,255,255,0.98); border: 1px solid #cdddee; border-radius: 4px;
+      pointer-events: auto; z-index: 18; box-shadow: 0 3px 10px rgba(0,0,0,0.18); }
+    .fc-frame .fc-menu.open { display: flex; }
+    .fc-frame .fc-menu button { min-width: 21px; height: 21px; padding: 0 4px; font-size: 11px; line-height: 1;
+      border: 1px solid #ccc; border-radius: 3px; background: #fff; color: #555; cursor: pointer; }
+    .fc-frame .fc-menu button:hover { background: #f0f0f0; border-color: #999; }
+    .fc-frame .fc-menu button.on { background: #4a90d9; color: #fff; border-color: #4a90d9; }
     /* slice handles: anchor (orange) = move the cut · size (teal) = radius/extent.
        margin centres the 13px dot on its world point; display toggled by the editor. */
     .fc-frame .fc-slice-handle { position: absolute; display: none; width: 13px; height: 13px; margin: -7px 0 0 -7px;
@@ -215,6 +230,7 @@
         <button class="btn" id="c-gif" title="Render a spinning turntable GIF of the current view — in your browser, nothing uploaded">GIF</button>
         <button class="btn" id="c-colorbar" title="Show/hide the colorbars in the live view (off by default; showing reclaims/squashes the canvas accordingly)">Colorbar</button>
         <button class="btn" id="c-random" title="Randomise: give every loaded volume a different random colormap">Randomise</button>
+        <span class="sw" title="Layout: pick a built-in panel arrangement, or save/load your own to this browser"><span>layout</span><select class="btn" id="c-layout"></select></span>
         <button class="btn" id="c-presets" title="Style presets: save the current colormaps + parameters to your browser or a JSON file, and load them back onto the visible brains">Presets</button>
         <button class="btn" id="c-cli" title="Copy a comic render CLI command that reproduces this view to the clipboard (falls back to a .txt download)">Copy CLI</button>
         <span class="zoomcluster" title="Zoom / pan the whole canvas — the brain size is fixed; scroll to zoom, drag empty space to pan">
@@ -228,6 +244,7 @@
         <button class="btn" id="c-inflate">Inflate</button>
         <button class="btn" id="c-surface-all" title="Project all loaded maps onto the cortical surface (and back) — keeps the cel-shaded glass look. First use loads the cortical surface, then re-meshes.">Surface</button>
         <button class="btn active" id="c-outline">Outline</button>
+        <button class="btn" id="c-slice-anat" title="Cut MRI: when a panel is sliced (the ✂ button in Free Canvas), paint the anatomical T1 cross-section — white/gray matter, like a coronal MRI — on the exposed cut face. Loads a small anatomy volume on first use.">Cut MRI</button>
         <div class="sw"><span>cortex α</span><input type="range" id="c-cortex"></div>
         <div class="sw"><span>edge thr</span><input type="range" id="c-outline-thresh"></div>
         <div class="sw"><span>line w</span><input type="range" id="c-outline-width"></div>

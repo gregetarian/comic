@@ -272,33 +272,46 @@ export function createFreeCanvasEditor({ container, canvas, config, getEngine, o
             panel.slice = materializeSlice(SLICE_CYCLE[sliceIdx]);
             sliceBtn.classList.toggle('on', !!panel.slice);
         });
-        head.append(view,
+        // The header stays compact — view picker, the quick ✂ slice toggle, and a ☰ menu button —
+        // so it never overflows a small panel. Everything else lives in a collapsible dropdown that
+        // wraps to as many rows as it needs (no more zooming in just to reach a button).
+        const menuBtn = el('button', 'fc-menu-btn', '☰'); menuBtn.type = 'button';
+        attachTip(menuBtn, 'Panel controls (rotate, cortex lines, reorder, remove)');
+        const menu = el('div', 'fc-menu');
+        menuBtn.addEventListener('pointerdown', (e) => e.stopPropagation());
+        menuBtn.addEventListener('click', (e) => { e.stopPropagation(); menu.classList.toggle('open'); });
+        menu.addEventListener('pointerdown', (e) => e.stopPropagation());
+        menu.append(
             mkBtn('◀', 'Turn left (yaw −)', rot('yaw', -ROT_STEP)),
             mkBtn('▶', 'Turn right (yaw +)', rot('yaw', ROT_STEP)),
             mkBtn('▲', 'Tilt up (pitch −)', rot('pitch', -ROT_STEP)),
             mkBtn('▼', 'Tilt down (pitch +)', rot('pitch', ROT_STEP)),
             mkBtn('⟲', 'Roll left', rot('roll', -ROT_STEP)),
             mkBtn('⟳', 'Roll right', rot('roll', ROT_STEP)),
-            sliceBtn,
             mkBtn('╌', 'Thinner cortex outline', outlineAdj('widthMul', 1 / 1.18)),
             mkBtn('━', 'Thicker cortex outline', outlineAdj('widthMul', 1.18)),
             mkBtn('░', 'Fewer cortex lines (sparser folds)', outlineAdj('thresholdMul', 1.25)),
             mkBtn('▓', 'More cortex lines (denser folds)', outlineAdj('thresholdMul', 1 / 1.25)),
             mkBtn('⤒', 'Bring to front', () => bringToFront(panel)),
             mkBtn('✕', 'Remove panel', () => removePanel(idx)));
+        head.append(view, sliceBtn, menuBtn);
 
         // Slice handles (shown only when this panel has a slice): anchor = move the cut
         // (in-plane; SHIFT = depth along the view), size = radius/extent.
         const anchorH = el('div', 'fc-slice-handle');
         const sizeH = el('div', 'fc-slice-handle fc-slice-size');
-        // Chrome (header, resize, slice handles) lives INSIDE the body so moving among them
-        // never fires the body's mouseleave (no hover flicker). The frame border + chrome are
-        // hidden until the panel is hovered (or being edited) — see the .hover/.fc-editing CSS.
-        body.append(head, resize, anchorH, sizeH);
+        // Corner rotate handle: sits just DIAGONALLY OUT from the resize corner (bottom-right).
+        // Hover the corner → resize; hover a touch further out → this → drag to orbit the view.
+        const rotateH = el('div', 'fc-rotate');
+        attachTip(rotateH, 'Drag to rotate this view (yaw + pitch)');
+        // Chrome (header, menu, resize, rotate, slice handles) lives INSIDE the body so moving among
+        // them never fires the body's mouseleave (no hover flicker). Chrome is hidden until the panel
+        // is hovered/edited — see the .hover/.fc-editing CSS.
+        body.append(head, menu, resize, rotateH, anchorH, sizeH);
         f.append(body);
         container.appendChild(f);
         body.addEventListener('mouseenter', () => f.classList.add('hover'));
-        body.addEventListener('mouseleave', () => f.classList.remove('hover'));
+        body.addEventListener('mouseleave', () => { f.classList.remove('hover'); menu.classList.remove('open'); });
 
         attachTip(body, 'Drag to move · Shift-drag to rotate');
         attachTip(resize, 'Drag to resize this panel');
@@ -307,6 +320,7 @@ export function createFreeCanvasEditor({ container, canvas, config, getEngine, o
         dragMove(head, panel);        // drag the header bar to move
         dragBody(body, panel);        // drag the brain to move; SHIFT+drag to orbit
         dragResize(resize, panel);
+        dragRotate(rotateH, panel);   // corner handle → orbit the view (yaw + pitch)
         dragSlice(anchorH, panel, 'anchor');
         dragSlice(sizeH, panel, 'size');
         if (panel.id === activeId) f.classList.add('fc-active');   // survive rebuilds (refresh recreates frames)
@@ -389,6 +403,19 @@ export function createFreeCanvasEditor({ container, canvas, config, getEngine, o
             const v = getEngine().getView(), W = v.W0, H = v.H0, s = v.s || 1, pl = panel.place;
             pl.w = snapF(clamp(c.w + (dx / s) / W, MIN_FRAC, 1), W);
             pl.h = snapF(clamp(c.h + (dy / s) / H, MIN_FRAC, 1), H);
+        });
+    }
+    // Corner rotate handle: drag to orbit the view (same yaw/pitch as SHIFT+drag on the body).
+    function dragRotate(handle, panel) {
+        startDrag(handle, () => {
+            const r = (panel.rotate ||= { yaw: 0, pitch: 0, roll: 0 });
+            handle.style.cursor = 'grabbing';
+            return { yaw: r.yaw, pitch: r.pitch };
+        }, (c, dx, dy) => {
+            getEngine().setSpinFit?.(true);            // constant-size sphere fit while orbiting
+            const r = panel.rotate;
+            r.yaw = c.yaw + dx * ORBIT_SENS;
+            r.pitch = clamp(c.pitch + dy * ORBIT_SENS, -85, 85);
         });
     }
     function dragBody(handle, panel) {

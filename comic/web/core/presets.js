@@ -46,6 +46,37 @@ export const NINE_PANEL = {
     },
 };
 
+// 6-view montage (2×3): the canonical surface figure — lateral + medial of each
+// hemisphere with the axial pair (dorsal/ventral) down the centre column.
+export const SIX_VIEW = {
+    layout: {
+        grid: { rows: 2, cols: 3, rowWeights: [1, 1], colWeights: [1, 1, 1] },
+        panels: [
+            { id: 'L_lat', title: 'L Lateral', cell: { row: 0, col: 0 }, camera: { plane: 'left_lateral' },  content: cortexVoxel('lh'),   framing: SHARED },
+            { id: 'dor',   title: 'Dorsal',    cell: { row: 0, col: 1 }, camera: { plane: 'dorsal' },        content: cortexVoxel('both'), framing: SHARED },
+            { id: 'R_lat', title: 'R Lateral', cell: { row: 0, col: 2 }, camera: { plane: 'right_lateral' }, content: cortexVoxel('rh'),   framing: SHARED },
+            { id: 'L_med', title: 'L Medial',  cell: { row: 1, col: 0 }, camera: { plane: 'left_medial' },   content: cortexVoxel('lh'),   framing: SHARED },
+            { id: 'ven',   title: 'Ventral',   cell: { row: 1, col: 1 }, camera: { plane: 'ventral' },       content: cortexVoxel('both'), framing: SHARED },
+            { id: 'R_med', title: 'R Medial',  cell: { row: 1, col: 2 }, camera: { plane: 'right_medial' },  content: cortexVoxel('rh'),   framing: SHARED },
+        ],
+    },
+};
+
+// 5-view (2×3 with the centre-bottom cell left empty): the surface montage crowned by
+// a single Dorsal view — symmetric L/R, one axial. Cleaner than 6 when Ventral isn't needed.
+export const FIVE_VIEW = {
+    layout: {
+        grid: { rows: 2, cols: 3, rowWeights: [1, 1], colWeights: [1, 1, 1] },
+        panels: [
+            { id: 'L_lat', title: 'L Lateral', cell: { row: 0, col: 0 }, camera: { plane: 'left_lateral' },  content: cortexVoxel('lh'),   framing: SHARED },
+            { id: 'dor',   title: 'Dorsal',    cell: { row: 0, col: 1 }, camera: { plane: 'dorsal' },        content: cortexVoxel('both'), framing: SHARED },
+            { id: 'R_lat', title: 'R Lateral', cell: { row: 0, col: 2 }, camera: { plane: 'right_lateral' }, content: cortexVoxel('rh'),   framing: SHARED },
+            { id: 'L_med', title: 'L Medial',  cell: { row: 1, col: 0 }, camera: { plane: 'left_medial' },   content: cortexVoxel('lh'),   framing: SHARED },
+            { id: 'R_med', title: 'R Medial',  cell: { row: 1, col: 2 }, camera: { plane: 'right_medial' },  content: cortexVoxel('rh'),   framing: SHARED },
+        ],
+    },
+};
+
 // Overview: one of each canonical view — a lateral, anterior, dorsal, and medial.
 export const OVERVIEW = {
     layout: {
@@ -78,7 +109,17 @@ export const FREE_DEFAULT = {
     style: { cortexSurface: 'pial', margin: 0.95, glass: { maxOpacity: 0.09 }, outline: { width: 3.5 } },
 };
 
-export const PRESETS = { freeDefault: FREE_DEFAULT, fourPanel: FOUR_PANEL, ninePanel: NINE_PANEL, overview: OVERVIEW };
+export const PRESETS = { freeDefault: FREE_DEFAULT, fourPanel: FOUR_PANEL, fiveView: FIVE_VIEW, sixView: SIX_VIEW, ninePanel: NINE_PANEL, overview: OVERVIEW };
+
+// Display order + friendly labels for the in-app Layout picker (built-in presets).
+export const PRESET_LABELS = [
+    ['freeDefault', 'Free canvas (default)'],
+    ['fourPanel', 'Lateral · Medial (4)'],
+    ['fiveView', '5-view montage'],
+    ['sixView', '6-view montage'],
+    ['ninePanel', '8-panel + subcortex'],
+    ['overview', 'Overview (4)'],
+];
 
 /** Resolve a preset name or a raw config object → a normalized config. */
 export function resolveConfig(nameOrConfig, overrides = {}) {
