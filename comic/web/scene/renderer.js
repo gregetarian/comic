@@ -309,7 +309,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
     // occluded where a closer overlay's volume covers them (no longer see-through).
     for (const ep of edgePasses) ep.outlineMaterial.uniforms.uClipDepth.value = clipTarget.texture;
 
-    function renderClipDepth(camera, opaqueAnat, anyEdges) {
+    function renderClipDepth(camera, opaqueAnat, anyEdges, capActive) {
         const prev = scene.overrideMaterial;
         renderer.setRenderTarget(clipTarget);
         renderer.setScissorTest(false);
@@ -329,6 +329,14 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         if (opaqueAnat) {
             clipCam.copy(camera); clipCam.layers.set(ANATOMY_LAYER);
             scene.overrideMaterial = anatomyClipDepthMat;
+            renderer.render(scene, clipCam);
+        }
+        // The cap's mask-aware depth material writes NEGATIVE view depth. That lets the outline
+        // shader distinguish an opaque MRI face (line must disappear completely) from an ordinary
+        // voxel (which may retain outline.overVoxelOpacity).
+        if (capActive && anatomyCap) {
+            clipCam.copy(camera); clipCam.layers.set(CAP_LAYER);
+            scene.overrideMaterial = anatomyCap.depthMaterial;
             renderer.render(scene, clipCam);
         }
         scene.overrideMaterial = prev;
@@ -577,8 +585,8 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
             for (let i = 0; i < N; i++) if (osR[i].edges.enabled) anyEdges = true;
             // Clip when there are voxel edges OR an opaque subcortex (so edges + cortex lines
             // behind the shell are occluded). Opaque-anatomy folds its depth into the target.
-            const clip = anyEdges || opaqueAnat;
-            if (clip) renderClipDepth(camera, opaqueAnat, anyEdges);
+            const clip = anyEdges || opaqueAnat || capActive;
+            if (clip) renderClipDepth(camera, opaqueAnat, anyEdges, capActive);
             // Per-overlay voxel edges first (underneath), depth-clipped against the others.
             for (let i = 0; i < N; i++) {
                 if (!osR[i].edges.enabled) continue;
