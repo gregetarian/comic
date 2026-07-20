@@ -52,8 +52,14 @@ void main(){
     // (so the buried line reads as a muted/greyed version of the blob it crosses).
     if (uClipApply > 0.5 && s > 0.0) {
         float surfNear = min(min(min(c,l),min(r,u)),d);   // closest surface sample (depth/500)
-        float vd = texture2D(uClipDepth, vUv).r;          // voxel depth/500 (1.0 = none)
-        if (vd < surfNear - 0.0008 && vd < 0.999) s *= uOverVoxelAlpha;
+        float rawClip = texture2D(uClipDepth, vUv).r;     // +depth=voxel; −depth=opaque MRI cap
+        float vd = abs(rawClip);
+        if (vd < surfNear - 0.0008 && vd < 0.999) {
+            // The MRI face is an opaque one-way wall: never draw a post-process line through it.
+            // Ordinary voxels still honour the configured over-voxel stroke strength.
+            if (rawClip < 0.0) s = 0.0;
+            else s *= uOverVoxelAlpha;
+        }
     }
     vec3 col = uColor;
     // Voxel edges fade with the same depth veil as the voxels (scales with the

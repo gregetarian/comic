@@ -1,6 +1,7 @@
 """The scissor cut-cap anatomy asset (bake_anatomy): a sharp MNI152 T1 volume shipped for the
-engine to paint on sliced faces. It carries its own voxel→MNI152-world affine (the space the
-overlays live in) and is Fortran-ordered so the WebGL Data3DTexture maps identity."""
+engine to paint on sliced faces. The bundled asset is baked from the same fsaverage anatomy as the
+cortex, carries the same surface-RAS→MNI152 transform, and interleaves a filled footprint so dark
+CSF/ventricle pixels remain opaque."""
 import gzip
 import json
 from pathlib import Path
@@ -15,11 +16,19 @@ def test_anatomy_asset_present_and_shaped():
     meta = json.loads((DATA / "anat.json").read_text())
     dims = meta["dims"]
     assert len(dims) == 3 and all(80 < n <= 256 for n in dims)   # a brain-sized 3D grid
-    assert meta["order"] == "F"            # i-fastest → WebGL Data3DTexture maps identity
+    assert meta["order"] == "F-interleaved"  # i-fastest voxels, adjacent RG channels
+    assert meta["channels"] == 2 and meta["channelOrder"] == ["t1", "mask"]
+    assert meta["surfaceMatched"] is True
+    assert meta["kind"].startswith("fsaverage brain.mgz")
     raw = gzip.decompress((DATA / "anat_uint8.bin.gz").read_bytes())
-    assert len(raw) == dims[0] * dims[1] * dims[2]   # uint8, one byte per voxel
-    vol = np.frombuffer(raw, np.uint8)
+    assert len(raw) == dims[0] * dims[1] * dims[2] * 2
+    rg = np.frombuffer(raw, np.uint8).reshape(-1, 2)
+    vol, mask = rg[:, 0], rg[:, 1]
     assert vol.max() > 0 and vol.min() == 0    # real tissue + air background
+    assert set(np.unique(mask)).issubset({0, 255}) and mask.max() == 255 and mask.min() == 0
+    # At least some filled internal pixels are truly dark: these must render as opaque black MRI,
+    # not become transparent holes that expose cortex lines/background.
+    assert np.any((vol == 0) & (mask == 255))
 
 
 def test_anatomy_affine_is_mm_scale_world():
