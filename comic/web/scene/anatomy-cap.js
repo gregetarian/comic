@@ -2,10 +2,11 @@
  * anatomy-cap.js — the scissor cut "cap": the anatomical (T1) cross-section drawn on a
  * sliced face, so cutting into the brain reveals white/gray matter like a coronal MRI.
  *
- * The anatomy volume ships as a compact two-channel 3D texture (T1 intensity + a filled brain
- * footprint) baked from the SAME fsaverage anatomy as the cortical surface. A cap fragment maps its
- * world position back to anatomy voxels and samples the T1. The separate footprint keeps genuinely
- * dark CSF/ventricle pixels opaque instead of mistaking them for transparent air.
+ * The anatomy volume ships as a compact RGBA 3D texture (T1 + whole/left/right cerebral masks)
+ * baked from the SAME fsaverage anatomy as the cortical surface. A cap fragment maps its world
+ * position back to anatomy voxels and samples the T1. Separate masks keep genuinely dark
+ * CSF/ventricle pixels opaque, exclude cerebellum/brainstem from cortex-only panels, and ensure a
+ * one-hemisphere view exposes only that hemisphere's cut face.
  *
  * One mesh is re-used per panel: a one-sided plane for plane cuts, or the inward-facing wall of a
  * sphere/box bite. The colour material writes normal scene depth; the paired depth material writes a
@@ -32,18 +33,23 @@ precision highp sampler3D;
 uniform sampler3D uAnat;
 uniform mat4 uAnatInv;
 uniform vec3 uDims;
-uniform float uHasMask, uAirEps;
+uniform float uMaskMode, uHemisphere, uAirEps;
 in vec3 vWorld;
 
 bool gbSampleAnatomy(out float intensity) {
     vec3 vox = (uAnatInv * vec4(vWorld, 1.0)).xyz;  // world → (i,j,k)
     vec3 tc = (vox + 0.5) / uDims;                  // voxel-centre texcoord
     if (any(lessThan(tc, vec3(0.0))) || any(greaterThan(tc, vec3(1.0)))) return false;
-    vec2 sampleRG = texture(uAnat, tc).rg;
-    intensity = sampleRG.r;
-    // New assets carry a filled footprint in G. uAirEps remains as a compatibility fallback for
-    // older one-channel assets, whose dark pixels could still be mistaken for air.
-    return (uHasMask > 0.5) ? (sampleRG.g > 0.5) : (intensity >= uAirEps);
+    vec4 sampleRGBA = texture(uAnat, tc);
+    intensity = sampleRGBA.r;
+    // RGBA: G=both cerebra, B=left, A=right. RG legacy assets have just one whole-brain mask;
+    // R legacy assets fall back to intensity. This keeps old saved bundles readable.
+    if (uMaskMode > 1.5) {
+        float mask = uHemisphere < 0.5 ? sampleRGBA.g
+                   : (uHemisphere < 1.5 ? sampleRGBA.b : sampleRGBA.a);
+        return mask > 0.5;
+    }
+    return (uMaskMode > 0.5) ? (sampleRGBA.g > 0.5) : (intensity >= uAirEps);
 }`;
 
 const FRAG = `
@@ -80,7 +86,7 @@ void main() {
  *  depthMaterial, configuration/style functions, and disposer. `layer` is private to the cap. */
 export function createAnatomyCap({ data, dims, affine, channels = 1 }, layer) {
     const tex = new THREE.Data3DTexture(data, dims[0], dims[1], dims[2]);
-    tex.format = channels > 1 ? THREE.RGFormat : THREE.RedFormat;
+    tex.format = channels >= 4 ? THREE.RGBAFormat : (channels > 1 ? THREE.RGFormat : THREE.RedFormat);
     tex.type = THREE.UnsignedByteType;
     tex.minFilter = THREE.LinearFilter;
     tex.magFilter = THREE.LinearFilter;
@@ -100,7 +106,8 @@ export function createAnatomyCap({ data, dims, affine, channels = 1 }, layer) {
         uAnat: { value: tex },
         uAnatInv: { value: uAnatInv },
         uDims: { value: new THREE.Vector3(dims[0], dims[1], dims[2]) },
-        uHasMask: { value: channels > 1 ? 1.0 : 0.0 },
+        uMaskMode: { value: channels >= 4 ? 2.0 : (channels > 1 ? 1.0 : 0.0) },
+        uHemisphere: { value: 0.0 },
         uAirEps: { value: 0.06 },
     };
     const material = new THREE.RawShaderMaterial({
@@ -154,8 +161,9 @@ export function createAnatomyCap({ data, dims, affine, channels = 1 }, layer) {
     /** Point the cap at `slice`. The exposed surface is genuinely one-sided: front-face culling,
      *  rather than an approximate camera-position margin, makes the plane disappear at the exact
      *  instant the viewer crosses behind it. */
-    function configureForSlice(slice) {
+    function configureForSlice(slice, hemisphere = 'both') {
         if (!slice) return false;
+        sampleUniforms.uHemisphere.value = hemisphere === 'lh' ? 1.0 : (hemisphere === 'rh' ? 2.0 : 0.0);
         if (slice.shape === 'plane') {
             const n = _normal.set(slice.normal[0], slice.normal[1], slice.normal[2]).normalize();
             const off = slice.offset || 0;
