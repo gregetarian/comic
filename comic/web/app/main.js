@@ -110,6 +110,13 @@ async function main() {
     document.getElementById('c-colorbar').addEventListener('click', () => setColorbarVisible(!state.colorbarsVisible));
     document.getElementById('c-cli').addEventListener('click', copyCliCommand);
     document.getElementById('c-slice-anat')?.addEventListener('click', () => setSliceAnatomy(!config.style.sliceAnatomy));
+    // Help modal: open on ? Help, close on ✕, backdrop click, or Escape.
+    const helpModal = document.getElementById('help-modal');
+    const closeHelp = () => { if (helpModal) helpModal.hidden = true; };
+    document.getElementById('c-help')?.addEventListener('click', () => { if (helpModal) helpModal.hidden = false; });
+    document.getElementById('c-help-close')?.addEventListener('click', closeHelp);
+    helpModal?.addEventListener('click', (e) => { if (e.target === helpModal) closeHelp(); });
+    window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && helpModal && !helpModal.hidden) closeHelp(); });
     // Demo: load the example Neurosynth maps on demand. Disable on click; loadNeurosynthDemo is
     // idempotent (demoLoaded guard), so a second click — or ?demo=1 then a click — can't stack dupes.
     const demoBtn = document.getElementById('c-demo');
