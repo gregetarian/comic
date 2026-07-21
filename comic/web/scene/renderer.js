@@ -379,7 +379,11 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
     function visStyleFor(meta) {
         if (meta.role === 'voxel') {
             const os = osR[meta.overlay ?? 0];
-            return { cortexSurface: config.style.cortexSurface, voxel: { representation: os ? os.representation : config.style.voxel.representation } };
+            return { cortexSurface: config.style.cortexSurface, voxel: {
+                representation: os ? os.representation : config.style.voxel.representation,
+                subcortexRepresentation: os ? os.subcortexRepresentation
+                    : config.style.voxel.subcortexRepresentation,
+            } };
         }
         return globalVis();
     }

@@ -216,12 +216,29 @@ export function buildOverlayRows({ engine, config, colormaps, onRemove, onSurfac
                 const o = document.createElement('option'); o.value = r; o.textContent = r; repSel.append(o);
             }
             repSel.value = os.representation || 'smooth';
-            repSel.addEventListener('change', () => {
-                if (repSel.value === 'surface') { if (onSurface) onSurface(i, repSel); else repSel.value = 'smooth'; }
-                else { set({ voxel: { representation: repSel.value } }); engine.applyStyle(); engine.recolor(); }
+            const subcortWrap = document.createElement('span'); subcortWrap.className = 'surface-subcort-control';
+            const subcortSel = document.createElement('select'); subcortSel.className = 'btn';
+            for (const r of ['smooth', 'blocky']) {
+                const o = document.createElement('option'); o.value = r; o.textContent = `subcort: ${r}`; subcortSel.append(o);
+            }
+            subcortSel.value = os.subcortexRepresentation || 'smooth';
+            subcortWrap.hidden = repSel.value !== 'surface';
+            subcortSel.addEventListener('change', () => {
+                set({ voxel: { subcortexRepresentation: subcortSel.value } });
+                engine.applyStyle(); engine.recolor();
             });
-            g.append(repSel);
+            subcortWrap.append(subcortSel);
+            repSel.addEventListener('change', async () => {
+                subcortWrap.hidden = repSel.value !== 'surface';
+                if (repSel.value === 'surface') {
+                    if (onSurface) await onSurface(i, repSel);
+                    else repSel.value = 'smooth';
+                    subcortWrap.hidden = repSel.value !== 'surface';
+                } else { set({ voxel: { representation: repSel.value } }); engine.applyStyle(); engine.recolor(); }
+            });
+            g.append(repSel, subcortWrap);
             infoIcon(repSel, 'Voxel representation: blocky, smooth (marching cubes), or surface (project onto the cortex — keeps the glass-brain look).');
+            infoIcon(subcortSel, 'Subcortical voxels cannot project onto the cortical surface. Keep them as a smooth volume (default), or show their original blocky voxel shape.');
         }
 
         const thr = sw('thr');

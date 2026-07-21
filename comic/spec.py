@@ -8,6 +8,7 @@ before handing it to the engine, so the three front-ends agree on what a valid f
 
 TEMPLATE_KINDS = {"mni", "custom", "none"}
 REPRESENTATIONS = {"blocky", "smooth", "surface", None}
+VOLUME_REPRESENTATIONS = {"blocky", "smooth", None}
 ROLES = {"cortex", "anatomy", "voxel"}
 HEMI = {"lh", "rh", "both"}
 
@@ -36,6 +37,9 @@ def validate(spec):
     rep = (style.get("voxel") or {}).get("representation")
     if rep not in REPRESENTATIONS:
         errs.append(f"style.voxel.representation invalid: {rep!r}")
+    subrep = (style.get("voxel") or {}).get("subcortexRepresentation")
+    if subrep not in VOLUME_REPRESENTATIONS:
+        errs.append(f"style.voxel.subcortexRepresentation invalid: {subrep!r}")
     for i, o in enumerate(style.get("overlays") or []):
         if not o:
             continue
@@ -44,6 +48,9 @@ def validate(spec):
         orep = (o.get("voxel") or {}).get("representation")
         if orep not in REPRESENTATIONS:
             errs.append(f"style.overlays[{i}].voxel.representation invalid: {orep!r}")
+        osubrep = (o.get("voxel") or {}).get("subcortexRepresentation")
+        if osubrep not in VOLUME_REPRESENTATIONS:
+            errs.append(f"style.overlays[{i}].voxel.subcortexRepresentation invalid: {osubrep!r}")
 
     panels = (cfg.get("layout") or {}).get("panels")
     if not isinstance(panels, list) or not panels:
