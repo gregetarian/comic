@@ -17,8 +17,8 @@ GOOD = {
     "template": {"kind": "mni", "dir": None, "space": "MNI152"},
     "style": {
         "clim": [0, 8], "units": {"value": "z", "cluster": "voxels"},
-        "voxel": {"representation": "surface", "surfaceDepth": 6},
-        "overlays": [{"clim": 5, "voxel": {"representation": "smooth"}}],
+        "voxel": {"representation": "surface", "subcortexRepresentation": "smooth", "surfaceDepth": 6},
+        "overlays": [{"clim": 5, "voxel": {"representation": "smooth", "subcortexRepresentation": "blocky"}}],
     },
     "layout": {
         "mode": "free",
@@ -53,6 +53,7 @@ def test_existing_copycli_spec_still_validates():
     (lambda s: {**s, "template": {"kind": "bogus"}}, "template.kind"),
     (lambda s: {**s, "style": {**s["style"], "clim": [8, 1]}}, "clim"),
     (lambda s: {**s, "style": {**s["style"], "voxel": {"representation": "blobby"}}}, "representation"),
+    (lambda s: {**s, "style": {**s["style"], "voxel": {"subcortexRepresentation": "surface"}}}, "subcortexRepresentation"),
 ])
 def test_bad_specs_fail_loudly(mutate, frag):
     bad = mutate(json.loads(json.dumps(GOOD)))

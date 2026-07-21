@@ -182,9 +182,9 @@ switch is seamless) to turn the figure into a free 2D canvas of brain panels:
   **sphere bite** → **cube bite**. The cut goes through the *whole* brain (cortex shell
   and overlay together) and the outlines follow it. Two handles appear — drag the
   **orange** dot to move the cut (shift-drag for depth), the **teal** dot to resize it.
-- **Cut MRI** — paints an opaque, sharpened native-1-mm T1 cross-section on the exposed
-  face. It uses the same fsaverage MRI grid and coordinate transform as the pial surface,
-  disappears when viewed from behind, and occludes cortex/voxel line-art behind the cut.
+- **Cut MRI** — paints an opaque, sharpened native-1-mm AFNI MNI2009c T1 cross-section on
+  the exposed face, clipped to the exact pial footprint. It disappears when viewed from
+  behind and occludes cortex/voxel line-art behind the cut.
 - **Cut map** — samples the original thresholded NIfTI grid in a thin max-absolute slab and
   composites its current colormap over the T1 face. It honors each map's live threshold,
   cluster cutoff, sign mode, and draw priority. **Map depth** is how far around the cut to
@@ -193,6 +193,10 @@ switch is seamless) to turn the figure into a free 2D canvas of brain panels:
   remain geometrically clipped separately.
 - **Panel surface** — the panel menu can independently select pial, inflated, white, any
   template-provided custom surface, or hide the cortex without changing the map representation.
+- **Map surface mode** — cortical voxels project onto the cortex. Voxels classified inside
+  subcortex/cerebellum/brainstem stay volumetric because there is no corresponding cortical
+  sheet; the adjacent **subcort: smooth / blocky** selector controls their fallback. In paired
+  cortex+subcortex views those voxels follow the displayed subcortical half, not the cortex half.
 - **Toolbar** — seed an *R × C* grid of panels, **+ panel**, or tick **transparent**
   for a transparent figure background (exports a transparent PNG).
 - **Copy CLI** — emits `comic render … --spec figure.json` and downloads the
