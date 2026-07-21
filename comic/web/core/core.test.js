@@ -135,6 +135,15 @@ test('subcort panel shows only its categories; representation gate works', () =>
         { voxel: { representation: 'blocky' } }), false);
 });
 
+test('contralateral cortex+subcortex views pair anatomy voxels with the anatomy hemisphere', () => {
+    const content = VIEWS.cortex_subcort_r.content; // right cortex + left subcortex
+    const blocky = { voxel: { representation: 'blocky' } };
+    assert.equal(visible(content, { role: 'voxel', hemisphere: 'rh', category: 'rh_cortex', variant: 'blocky' }, blocky), true);
+    assert.equal(visible(content, { role: 'voxel', hemisphere: 'lh', category: 'lh_cortex', variant: 'blocky' }, blocky), false);
+    assert.equal(visible(content, { role: 'voxel', hemisphere: 'lh', category: 'subcort_l', variant: 'blocky' }, blocky), true);
+    assert.equal(visible(content, { role: 'voxel', hemisphere: 'rh', category: 'subcort_r', variant: 'blocky' }, blocky), false);
+});
+
 // --- colormap: positive-only data never collapses onto a diverging white centre ---
 test('valueToT positive-only-guard pushes values into the LUT hot half', () => {
     // sequential mode, no guard: a small positive value maps near 0
@@ -195,6 +204,18 @@ test('visibility: surface mode shows the surface variant, glass cortex stays', (
     assert.equal(visible(panel, { role: 'cortex', hemisphere: 'lh', variant: 'pial' }, style), true);   // glass cortex KEPT (signature look)
     assert.equal(visible(panel, { role: 'voxel', hemisphere: 'lh', variant: 'surface', category: 'lh_cortex' }, style), true);
     assert.equal(visible(panel, { role: 'voxel', hemisphere: 'lh', variant: 'blocky', category: 'lh_cortex' }, style), false);
+});
+
+test('surface mode keeps subcortical voxels volumetric with a smooth/blocky choice', () => {
+    const content = VIEWS.cortex_subcort_r.content; // right cortex + left subcortex
+    const smooth = { voxel: { representation: 'surface', subcortexRepresentation: 'smooth' }, cortexSurface: 'pial' };
+    assert.equal(visible(content, { role: 'voxel', hemisphere: 'rh', category: 'rh_cortex', variant: 'surface' }, smooth), true);
+    assert.equal(visible(content, { role: 'voxel', hemisphere: 'lh', category: 'subcort_l', variant: 'smooth' }, smooth), true);
+    assert.equal(visible(content, { role: 'voxel', hemisphere: 'lh', category: 'subcort_l', variant: 'blocky' }, smooth), false);
+    assert.equal(visible(content, { role: 'voxel', hemisphere: 'rh', category: 'subcort_r', variant: 'smooth' }, smooth), false);
+    const blocky = { voxel: { representation: 'surface', subcortexRepresentation: 'blocky' } };
+    assert.equal(visible(content, { role: 'voxel', hemisphere: 'lh', category: 'subcort_l', variant: 'blocky' }, blocky), true);
+    assert.equal(visible(content, { role: 'voxel', hemisphere: 'lh', category: 'subcort_l', variant: 'smooth' }, blocky), false);
 });
 
 test('per-panel cortical surface selection is independent of overlay representation', () => {
@@ -359,20 +380,23 @@ test('DEFAULTS carry the M2 additions with backward-compatible identities', () =
     assert.equal(DEFAULTS.style.clim, null);                 // null = derive from data (today's behaviour)
     assert.equal(DEFAULTS.style.units.cluster, 'voxels');
     assert.equal(DEFAULTS.style.voxel.surfaceDepth, 6);
+    assert.equal(DEFAULTS.style.voxel.subcortexRepresentation, 'smooth');
     assert.equal(DEFAULTS.layout.view.s, 1);                 // identity → existing renders unchanged
 });
 
 test('overlayStyle resolves clim/units/surfaceDepth with per-overlay override', () => {
     const cfg = { style: { clim: null, units: { value: 'stat', cluster: 'voxels' },
-        voxel: { surfaceDepth: 6, representation: 'smooth' },
+        voxel: { surfaceDepth: 6, representation: 'smooth', subcortexRepresentation: 'smooth' },
         cutOverlay: { enabled: false, slabMm: 1, interpolation: 'linear', opacity: 0.88 },
-        overlays: [{ clim: [0, 8], units: { value: 'z' }, voxel: { representation: 'surface' },
+        overlays: [{ clim: [0, 8], units: { value: 'z' }, voxel: {
+            representation: 'surface', subcortexRepresentation: 'blocky' },
             cutOverlay: { enabled: true, slabMm: 3, interpolation: 'nearest' } }] } };
     const os = overlayStyle(cfg, 0);
     assert.deepEqual(os.clim, [0, 8]);                       // per-overlay clim wins
     assert.equal(os.units.value, 'z');                       // overridden
     assert.equal(os.units.cluster, 'voxels');                // inherited
     assert.equal(os.representation, 'surface');
+    assert.equal(os.subcortexRepresentation, 'blocky');
     assert.equal(os.surfaceDepth, 6);                        // inherited from global voxel
     assert.deepEqual(os.cutOverlay, { enabled: true, slabMm: 3, interpolation: 'nearest', opacity: 0.88 });
     assert.equal(overlayStyle(cfg, 1).clim, null);           // absent overlay → global (null)

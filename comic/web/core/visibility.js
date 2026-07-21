@@ -7,10 +7,15 @@
  * filter, the "far hemisphere bleeds through the lateral view" bug is impossible.
  *
  * meshMeta = { role:'cortex'|'anatomy'|'voxel', hemisphere:'lh'|'rh'|'mid'|null,
- *              structure, category, variant:'blocky'|'smooth'|null }
+ *              structure, category, variant:'blocky'|'smooth'|'surface'|null }
  * panelContent = { roles:[...], hemisphere:'lh'|'rh'|'both', categories:null|[...],
- *                  representation:null|'blocky'|'smooth' }
+ *                  representation:null|'blocky'|'smooth'|'surface' }
  */
+
+const ANATOMY_VOXEL_CATEGORIES = new Set([
+    'subcort_l', 'subcort_r', 'cereb_l', 'cereb_r', 'brainstem',
+]);
+const isAnatomyVoxel = (m) => m.role === 'voxel' && ANATOMY_VOXEL_CATEGORIES.has(m.category);
 
 export function visible(panelContent, meshMeta, style = {}) {
     const c = panelContent || {};
@@ -23,10 +28,13 @@ export function visible(panelContent, meshMeta, style = {}) {
         return false;
     }
 
-    // hemisphere gate — midline structures (brainstem) are exempt. Anatomy may take a
-    // SEPARATE hemisphere (anatomyHemisphere) so a medial view can show the CONTRALATERAL
-    // subcortex (which sits in front of the cortex wall) while the cortex stays its own side.
-    const hemi = (meshMeta.role === 'anatomy' && c.anatomyHemisphere) ? c.anatomyHemisphere : (c.hemisphere || 'both');
+    // Hemisphere gate — midline structures (brainstem) are exempt. Anatomy AND voxels classified
+    // inside that anatomy share anatomyHemisphere, so a right cortical half paired with the left
+    // subcortex cannot accidentally colour the right subcortex. Cortical voxels continue to follow
+    // the displayed cortex hemisphere.
+    const followsAnatomy = meshMeta.role === 'anatomy' || isAnatomyVoxel(meshMeta);
+    const hemi = (followsAnatomy && c.anatomyHemisphere)
+        ? c.anatomyHemisphere : (c.hemisphere || 'both');
     if (hemi !== 'both' && meshMeta.hemisphere && meshMeta.hemisphere !== 'mid'
         && meshMeta.hemisphere !== hemi) {
         return false;
@@ -38,8 +46,13 @@ export function visible(panelContent, meshMeta, style = {}) {
         if (meshMeta.role === 'voxel') {
             // A native surface overlay has no blocky/smooth variant — force its 'surface' gate so it
             // always shows, regardless of the panel/global representation (which may be blocky/smooth).
-            const rep = meshMeta.surfaceOnly ? 'surface'
+            const requested = meshMeta.surfaceOnly ? 'surface'
                 : (c.representation || (style.voxel && style.voxel.representation) || 'blocky');
+            // Only cortical voxels can be projected onto a cortical surface. In surface mode keep
+            // anatomy-classified voxels volumetric, smooth by default (or blocky when selected).
+            const rep = requested === 'surface' && isAnatomyVoxel(meshMeta)
+                ? ((style.voxel && style.voxel.subcortexRepresentation) || 'smooth')
+                : requested;
             if (meshMeta.variant !== rep) return false;
         } else if (meshMeta.role === 'cortex') {
             const surf = c.surface || style.cortexSurface || 'pial';

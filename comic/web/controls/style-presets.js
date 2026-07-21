@@ -25,7 +25,8 @@ function captureOverlay(config, i) {
         colormap: os.colormap, colormapMode: os.colormapMode, threshold: os.threshold,
         positiveOnly: os.positiveOnly, gamma: os.gamma,
         voxel: {
-            representation: os.representation, clusterMin: os.clusterMin, smoothing: os.smoothing,
+            representation: os.representation, subcortexRepresentation: os.subcortexRepresentation,
+            clusterMin: os.clusterMin, smoothing: os.smoothing,
             shininess: os.shininess, specular: os.specular, emissive: os.emissive,
             veil: clone(os.veil), edges: clone(os.edges),
         },

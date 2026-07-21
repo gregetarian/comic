@@ -39,6 +39,9 @@ export const DEFAULTS = {
         cortexSurface: 'inflated', // 'pial' | 'inflated'
         voxel: {
             representation: 'smooth', // 'blocky' (voxelwise) | 'smooth' | 'surface' (project onto the cortex, M8)
+            // Surface projection exists only for the cortex. Subcortical/cerebellar/brainstem
+            // activations remain volumetric in surface mode, using this representation.
+            subcortexRepresentation: 'smooth', // 'smooth' (default) | 'blocky'
             clusterMin: 105,          // cluster-extent threshold: hide clusters < N voxels
             smoothing: 0,             // extra Taubin smoothing iterations on the 'smooth' (0.5mm-grid) mesh; 0 = off
             shininess: 200,
@@ -119,6 +122,7 @@ export function overlayStyle(config, i = 0) {
         clim: o.clim ?? s.clim,
         units: { ...(s.units || {}), ...(o.units || {}) },
         representation: ov.representation ?? v.representation,
+        subcortexRepresentation: ov.subcortexRepresentation ?? v.subcortexRepresentation,
         clusterMin: ov.clusterMin ?? v.clusterMin,
         smoothing: ov.smoothing ?? v.smoothing,
         shininess: ov.shininess ?? v.shininess,
@@ -152,12 +156,14 @@ export function deepMerge(base, src) {
 const ROLES = new Set(['cortex', 'anatomy', 'voxel']);
 const HEMI = new Set(['lh', 'rh', 'both']);
 const REPRESENTATIONS = new Set(['blocky', 'smooth', 'surface']);   // M2 (+ 'surface' for M8)
+const VOLUME_REPRESENTATIONS = new Set(['blocky', 'smooth']);
 const TEMPLATE_KINDS = new Set(['mni', 'custom', 'none']);          // M2
 
 // clim: null | a single number | a [vmin, vmax] pair with vmin < vmax.
 const climOk = (c) => c == null || typeof c === 'number'
     || (Array.isArray(c) && c.length === 2 && typeof c[0] === 'number' && typeof c[1] === 'number' && c[0] < c[1]);
 const repOk = (r) => r == null || REPRESENTATIONS.has(r);
+const volumeRepOk = (r) => r == null || VOLUME_REPRESENTATIONS.has(r);
 const cutOk = (c) => !c || ((c.interpolation == null || c.interpolation === 'linear' || c.interpolation === 'nearest')
     && (c.slabMm == null || (typeof c.slabMm === 'number' && c.slabMm >= 0))
     && (c.opacity == null || (typeof c.opacity === 'number' && c.opacity >= 0 && c.opacity <= 1)));
@@ -169,11 +175,15 @@ export function validateConfig(cfg) {
     const noTemplate = kind === 'none';
     if (!climOk(cfg.style?.clim)) errors.push('style.clim must be null, a number, or [vmin, vmax] with vmin < vmax');
     if (!repOk(cfg.style?.voxel?.representation)) errors.push(`style.voxel.representation must be one of ${[...REPRESENTATIONS].join('/')}`);
+    if (!volumeRepOk(cfg.style?.voxel?.subcortexRepresentation))
+        errors.push(`style.voxel.subcortexRepresentation must be one of ${[...VOLUME_REPRESENTATIONS].join('/')}`);
     if (!cutOk(cfg.style?.cutOverlay)) errors.push('style.cutOverlay needs interpolation linear/nearest, slabMm >= 0, and opacity 0..1');
     (cfg.style?.overlays || []).forEach((o, i) => {
         if (!o) return;
         if (!climOk(o.clim)) errors.push(`style.overlays[${i}].clim invalid (null | number | [vmin<vmax])`);
         if (!repOk(o.voxel?.representation)) errors.push(`style.overlays[${i}].voxel.representation invalid`);
+        if (!volumeRepOk(o.voxel?.subcortexRepresentation))
+            errors.push(`style.overlays[${i}].voxel.subcortexRepresentation invalid`);
         if (!cutOk(o.cutOverlay)) errors.push(`style.overlays[${i}].cutOverlay invalid`);
     });
     const panels = cfg.layout?.panels || [];
