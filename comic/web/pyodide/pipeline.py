@@ -414,22 +414,40 @@ def classify_overlay_voxels(data, overlay_affine, aseg_data, aseg_affine,
     return masks
 
 
-# Memory guard for the per-component 0.5 mm upsample. zoom = vox / target_mm, so at 2 mm each
+# Memory guards for the per-component 0.5 mm upsample. zoom = vox / target_mm, so at 2 mm each
 # component's bounding box grows ~64x in voxel count before Gaussian smoothing + marching cubes.
 # A pathologically large low-threshold component (e.g. a near-whole-brain blob) can allocate
 # several GB and OOM the browser tab (Pyodide/WASM). Cap the upsampled voxel count per component
-# and coarsen that one component's resolution when it would exceed the budget. Normal activation
-# clusters upsample to a few million voxels (the bundled fixtures peak at ~5.7M), an order of
-# magnitude under this cap, so their zoom is untouched and their geometry is byte-identical.
+# and coarsen that one component's resolution when it would exceed the budget. Sparse activation
+# maps retain the generous legacy cap and therefore stay byte-identical. Dense continuous maps
+# use a much smaller cap: their native grid is already only 2-3 mm, so a ~1-2 mm display mesh is
+# visually smooth without manufacturing hundreds of MB of scientifically meaningless 0.5 mm
+# geometry for every overlay.
 SMOOTH_MAX_UPSAMPLED_VOXELS = 40_000_000   # ~160 MB per float32 array; keeps the working set ~<1 GB
+DENSE_MAP_MIN_CLASSIFIED_VOXELS = 8_000
+DENSE_SMOOTH_MAX_UPSAMPLED_VOXELS = 500_000
+
+
+def smooth_mesh_budget(categories):
+    """Return a per-component upsample budget for a classified overlay.
+
+    ``None`` preserves the original high-resolution path. A dense whole-brain/effect map gets a
+    tighter budget so threshold=0 is practical in a browser, while its native values and spatial
+    support remain untouched.
+    """
+    n_voxels = sum(int(np.count_nonzero(mask)) for mask in categories.values())
+    return DENSE_SMOOTH_MAX_UPSAMPLED_VOXELS if n_voxels >= DENSE_MAP_MIN_CLASSIFIED_VOXELS else None
 
 
 def build_smooth_mesh(mask, signed_data, affine, sigma_mm=1.0, target_mm=0.5,
-                      pad=2, cluster_data=None):
+                      pad=2, cluster_data=None, max_upsampled_voxels=None,
+                      warn_on_coarsen=True):
     """Per-component upsample + Gaussian smooth + marching cubes -> world mesh."""
     vox = np.sqrt((affine[:3, :3] ** 2).sum(axis=0))
     zoom = vox / target_mm
     sigma_vox = sigma_mm / target_mm
+    budget = (SMOOTH_MAX_UPSAMPLED_VOXELS if max_upsampled_voxels is None
+              else max_upsampled_voxels)
     labels, n_comp = ndimage.label(mask)
     all_v, all_f, all_vals, all_clu, offset = [], [], [], [], 0
     for lab in range(1, n_comp + 1):
@@ -442,15 +460,16 @@ def build_smooth_mesh(mask, signed_data, affine, sigma_mm=1.0, target_mm=0.5,
         # otherwise use the exact default zoom/sigma so normal output stays byte-identical.
         c_zoom, c_sigma_vox = zoom, sigma_vox
         up_count = float(np.prod((hi - lo) * c_zoom))
-        if up_count > SMOOTH_MAX_UPSAMPLED_VOXELS:
-            scale = (SMOOTH_MAX_UPSAMPLED_VOXELS / up_count) ** (1.0 / 3.0)   # <1, isotropic coarsen
+        if up_count > budget:
+            scale = (budget / up_count) ** (1.0 / 3.0)   # <1, isotropic coarsen
             c_zoom = zoom * scale
             c_sigma_vox = sigma_vox * scale
-            msg = (f"smooth mesh: a component would upsample to {up_count / 1e6:.0f}M voxels "
-                   f"(> {SMOOTH_MAX_UPSAMPLED_VOXELS / 1e6:.0f}M cap); coarsening its smoothing "
+            msg = (f"smooth mesh: a component would upsample to {up_count / 1e6:.1f}M voxels "
+                   f"(> {budget / 1e6:.1f}M cap); coarsening its smoothing "
                    f"resolution to ~{target_mm / scale:.2f} mm (blockier) to stay within memory.")
-            warnings.warn(msg, stacklevel=2)
-            print("WARNING:", msg)
+            if warn_on_coarsen:
+                warnings.warn(msg, stacklevel=2)
+                print("WARNING:", msg)
         sub_occ = comp[sl].astype(np.float32)
         sub_val = signed_data[sl].astype(np.float32)
         zero = sub_val == 0
@@ -556,6 +575,7 @@ def process_nifti(src, name, threshold=2.3, classify=True, surface=False):
     else:
         m = data != 0
         cats = {'volume': m} if m.any() else {}
+    smooth_budget = smooth_mesh_budget(cats)
 
     # global clim + diverging from all categorised voxels
     all_vals = np.concatenate([data[m] for m in cats.values()]) if cats else np.array([0.0])
@@ -574,7 +594,11 @@ def process_nifti(src, name, threshold=2.3, classify=True, surface=False):
         n = verts.shape[0]
         world = (affine @ np.hstack([verts, np.ones((n, 1))]).T).T[:, :3].astype(np.float32)
         entry = {'blocky': _stage_mesh(world, faces, vvals, vclu)}
-        sv, sf, svals, sclu = build_smooth_mesh(mask, cat_data, affine, cluster_data=cat_clu)
+        sv, sf, svals, sclu = build_smooth_mesh(
+            mask, cat_data, affine, cluster_data=cat_clu,
+            max_upsampled_voxels=smooth_budget,
+            warn_on_coarsen=smooth_budget is None,
+        )
         if len(sv):
             entry['smooth'] = _stage_mesh(sv.astype(np.float32), sf, svals, sclu)
         else:
@@ -592,6 +616,7 @@ def process_nifti(src, name, threshold=2.3, classify=True, surface=False):
         'negativeOnly': negative_only,
         'regionCounts': {cat: int(m.sum()) for cat, m in cats.items()},   # M10: supra-threshold voxels per region
         'structures': structures,
+        'adaptiveSmooth': smooth_budget is not None,
     }
     cut_volume = _stage_cut_volume(data, cluster_data, affine)
     if cut_volume is not None:
