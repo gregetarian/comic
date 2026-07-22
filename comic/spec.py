@@ -72,6 +72,14 @@ def validate(spec):
         hemi = content.get("hemisphere")
         if hemi and hemi not in HEMI:
             errs.append(f"panel {p.get('id')}: bad hemisphere {hemi!r}")
+        anatomy_hemi = content.get("anatomyHemisphere")
+        if anatomy_hemi and anatomy_hemi not in HEMI:
+            errs.append(f"panel {p.get('id')}: bad anatomy hemisphere {anatomy_hemi!r}")
+        for key in ("categories", "anatomyCategories", "voxelCategories"):
+            cats = content.get(key)
+            if cats is not None and (not isinstance(cats, (list, tuple))
+                                     or any(not isinstance(cat, str) for cat in cats)):
+                errs.append(f"panel {p.get('id')}: {key} must be null or a list of category names")
         crep = content.get("representation")
         if crep not in REPRESENTATIONS:
             errs.append(f"panel {p.get('id')}: bad representation {crep!r}")

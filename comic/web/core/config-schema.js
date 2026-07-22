@@ -6,6 +6,8 @@
  * drives BOTH the browser and the headless renderer.
  */
 
+import { VIEWS } from './views.js';
+
 export const DEFAULTS = {
     version: '2.0',
     // Template / space (M2). 'mni' = the bundled fsaverage; 'custom' = a user template dir
@@ -199,6 +201,11 @@ export function validateConfig(cfg) {
         const content = p.content || {};
         (content.roles || []).forEach((r) => { if (!ROLES.has(r)) errors.push(`panel ${p.id}: bad role '${r}'`); });
         if (content.hemisphere && !HEMI.has(content.hemisphere)) errors.push(`panel ${p.id}: bad hemisphere '${content.hemisphere}'`);
+        if (content.anatomyHemisphere && !HEMI.has(content.anatomyHemisphere)) errors.push(`panel ${p.id}: bad anatomy hemisphere '${content.anatomyHemisphere}'`);
+        for (const key of ['categories', 'anatomyCategories', 'voxelCategories']) {
+            if (content[key] != null && (!Array.isArray(content[key]) || content[key].some((x) => typeof x !== 'string')))
+                errors.push(`panel ${p.id}: ${key} must be null or an array of category names`);
+        }
         if (!repOk(content.representation)) errors.push(`panel ${p.id}: bad representation '${content.representation}'`);
         // 'none' mode has no shell and no hemisphere split: reject cortex/anatomy roles and L/R-only views.
         if (noTemplate) {
@@ -214,18 +221,34 @@ export function validateConfig(cfg) {
 /** Merge over defaults, fill panel defaults, validate. Throws on invalid. */
 export function normalizeConfig(raw = {}) {
     const cfg = deepMerge(DEFAULTS, raw);
-    cfg.layout.panels = (cfg.layout.panels || []).map((p) => ({
-        rowSpan: 1, colSpan: 1,
-        anatomyOpacity: null,
-        // M2: declared per-panel fields the engine already reads — now defaulted so they
-        // round-trip losslessly through buildSpec (identity values change no render).
-        zoom: 1, rotate: null, slice: null, outline: null,
-        framing: { margin: 1.06, fit: 'auto' },
-        ...p,
-        content: { roles: ['cortex', 'voxel'], hemisphere: 'both', categories: null, representation: null,
-            surface: null, anatomyStyle: 'glass', anatomyHemisphere: null, ...(p.content || {}) },
-        framing: { margin: 1.06, fit: 'auto', ...(p.framing || {}) },
-    }));
+    cfg.layout.panels = (cfg.layout.panels || []).map((p) => {
+        // A stored `view` is the semantic source of truth. Refresh its load-bearing content fields
+        // from the current vocabulary so old saved Free Canvas layouts cannot display the new view
+        // name while silently retaining the pre-fix same-side voxel pairing.
+        const named = p.view && VIEWS[p.view];
+        const oldContent = p.content || {};
+        const panelContent = named ? {
+            ...named.content,
+            // These are genuine per-panel choices rather than anatomical-view semantics.
+            ...(oldContent.surface != null ? { surface: oldContent.surface } : {}),
+            ...(oldContent.representation != null ? { representation: oldContent.representation } : {}),
+        } : oldContent;
+        const panelCamera = named ? { ...(p.camera || {}), plane: named.plane } : p.camera;
+        return {
+            rowSpan: 1, colSpan: 1,
+            anatomyOpacity: null,
+            // M2: declared per-panel fields the engine already reads — now defaulted so they
+            // round-trip losslessly through buildSpec (identity values change no render).
+            zoom: 1, rotate: null, slice: null, outline: null,
+            framing: { margin: 1.06, fit: 'auto' },
+            ...p,
+            camera: panelCamera,
+            content: { roles: ['cortex', 'voxel'], hemisphere: 'both', categories: null,
+                anatomyCategories: null, voxelCategories: null, representation: null,
+                surface: null, anatomyStyle: 'glass', anatomyHemisphere: null, ...panelContent },
+            framing: { margin: 1.06, fit: 'auto', ...(p.framing || {}) },
+        };
+    });
     const { ok, errors } = validateConfig(cfg);
     if (!ok) throw new Error('Invalid config:\n  ' + errors.join('\n  '));
     return cfg;

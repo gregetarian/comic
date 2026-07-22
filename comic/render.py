@@ -31,8 +31,13 @@ def _cortex_subcort_opaque(hemi):
 
 def _cortex_subcort_contra(cortex_hemi, sub_hemi):
     # cortex of one hemisphere + the CONTRALATERAL subcortex (sits in front of it, occluding).
+    side = "l" if sub_hemi == "lh" else "r"
+    anatomy_categories = [f"subcort_{side}", f"cereb_{side}", "brainstem"]
     return {"roles": ["cortex", "anatomy", "voxel"], "hemisphere": cortex_hemi,
-            "anatomyHemisphere": sub_hemi, "anatomyStyle": "opaque"}
+            "anatomyHemisphere": sub_hemi,
+            "anatomyCategories": anatomy_categories,
+            "voxelCategories": [f"{cortex_hemi}_cortex", *anatomy_categories],
+            "anatomyStyle": "opaque"}
 
 
 VIEWS = {

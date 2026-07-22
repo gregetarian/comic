@@ -41,6 +41,18 @@ def test_good_spec_validates_and_is_a_fixed_point():
     assert spec.validate(json.loads(json.dumps(GOOD)))["layout"]["view"]["s"] == 1.4
 
 
+def test_paired_category_lists_and_anatomy_hemisphere_validate():
+    paired = json.loads(json.dumps(GOOD))
+    paired["layout"]["panels"][0]["content"] = {
+        "roles": ["cortex", "anatomy", "voxel"],
+        "hemisphere": "lh",
+        "anatomyHemisphere": "rh",
+        "anatomyCategories": ["subcort_r", "cereb_r", "brainstem"],
+        "voxelCategories": ["lh_cortex", "subcort_r", "cereb_r", "brainstem"],
+    }
+    assert spec.validate(paired)
+
+
 def test_existing_copycli_spec_still_validates():
     # the spec tests/test_free_canvas.py emits via Copy-CLI (pre-M2/M3 shape) must still pass.
     p = ROOT / "tests" / "shots" / "free_spec.json"
@@ -54,6 +66,8 @@ def test_existing_copycli_spec_still_validates():
     (lambda s: {**s, "style": {**s["style"], "clim": [8, 1]}}, "clim"),
     (lambda s: {**s, "style": {**s["style"], "voxel": {"representation": "blobby"}}}, "representation"),
     (lambda s: {**s, "style": {**s["style"], "voxel": {"subcortexRepresentation": "surface"}}}, "subcortexRepresentation"),
+    (lambda s: {**s, "layout": {**s["layout"], "panels": [{**s["layout"]["panels"][0],
+        "content": {**s["layout"]["panels"][0]["content"], "anatomyHemisphere": "left"}}]}}, "anatomy hemisphere"),
 ])
 def test_bad_specs_fail_loudly(mutate, frag):
     bad = mutate(json.loads(json.dumps(GOOD)))

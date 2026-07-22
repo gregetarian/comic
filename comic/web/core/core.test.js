@@ -12,7 +12,7 @@ import { layoutGrid, freeRect } from './grid.js';
 import { visible } from './visibility.js';
 import { valueToT, resolveColormap, loadColormaps, sampleLUT, deriveMaxAbs } from './colormap.js';
 import { normalizeConfig, validateConfig, overlayStyle, DEFAULTS } from './config-schema.js';
-import { applyView, VIEWS } from './views.js';
+import { applyView, panelViewName, VIEWS } from './views.js';
 import { resolveConfig } from './presets.js';
 import { isFreeFigure, buildSpec, buildRenderText } from '../controls/cli-export.js';
 import { rotateAroundWorldAxis, snapPlaneForAxis, wrapDegrees } from './rotation.js';
@@ -135,13 +135,24 @@ test('subcort panel shows only its categories; representation gate works', () =>
         { voxel: { representation: 'blocky' } }), false);
 });
 
-test('contralateral cortex+subcortex views pair anatomy voxels with the anatomy hemisphere', () => {
-    const content = VIEWS.cortex_subcort_r.content; // right cortex + left subcortex
+test('paired medial views allow only the named cortex and contralateral internal categories', () => {
     const blocky = { voxel: { representation: 'blocky' } };
-    assert.equal(visible(content, { role: 'voxel', hemisphere: 'rh', category: 'rh_cortex', variant: 'blocky' }, blocky), true);
-    assert.equal(visible(content, { role: 'voxel', hemisphere: 'lh', category: 'lh_cortex', variant: 'blocky' }, blocky), false);
-    assert.equal(visible(content, { role: 'voxel', hemisphere: 'lh', category: 'subcort_l', variant: 'blocky' }, blocky), true);
-    assert.equal(visible(content, { role: 'voxel', hemisphere: 'rh', category: 'subcort_r', variant: 'blocky' }, blocky), false);
+    for (const [view, cortexHemi, internalHemi, cortexCat, subCat, cerebCat, wrongSub, wrongCereb] of [
+        ['cortex_subcort_lm', 'lh', 'rh', 'lh_cortex', 'subcort_r', 'cereb_r', 'subcort_l', 'cereb_l'],
+        ['cortex_subcort_rm', 'rh', 'lh', 'rh_cortex', 'subcort_l', 'cereb_l', 'subcort_r', 'cereb_r'],
+    ]) {
+        const content = VIEWS[view].content;
+        assert.deepEqual(content.voxelCategories, [cortexCat, subCat, cerebCat, 'brainstem']);
+        assert.deepEqual(content.anatomyCategories, [subCat, cerebCat, 'brainstem']);
+        assert.equal(visible(content, { role: 'voxel', hemisphere: cortexHemi, category: cortexCat, variant: 'blocky' }, blocky), true);
+        assert.equal(visible(content, { role: 'voxel', hemisphere: internalHemi, category: subCat, variant: 'blocky' }, blocky), true);
+        assert.equal(visible(content, { role: 'voxel', hemisphere: internalHemi, category: cerebCat, variant: 'blocky' }, blocky), true);
+        assert.equal(visible(content, { role: 'anatomy', hemisphere: internalHemi, category: subCat }, blocky), true);
+        assert.equal(visible(content, { role: 'anatomy', hemisphere: internalHemi, category: cerebCat }, blocky), true);
+        assert.equal(visible(content, { role: 'voxel', hemisphere: internalHemi === 'lh' ? 'rh' : 'lh', category: wrongSub, variant: 'blocky' }, blocky), false);
+        assert.equal(visible(content, { role: 'voxel', hemisphere: internalHemi === 'lh' ? 'rh' : 'lh', category: wrongCereb, variant: 'blocky' }, blocky), false);
+        assert.equal(visible(content, { role: 'anatomy', hemisphere: internalHemi === 'lh' ? 'rh' : 'lh', category: wrongCereb }, blocky), false);
+    }
 });
 
 // --- colormap: positive-only data never collapses onto a diverging white centre ---
@@ -329,6 +340,23 @@ test('panels default to glass subcortical; the opaque view sets anatomyStyle=opa
     assert.ok(p.content.roles.includes('cortex') && p.content.roles.includes('anatomy') && p.content.roles.includes('voxel'));
     assert.equal(p.content.categories, null);   // categories null so cortex isn't filtered out
     assert.equal(VIEWS.cortex_subcort_l.plane, 'left_lateral');
+});
+
+test('named paired views refresh stale saved-layout content and remain inferable without view', () => {
+    const cfg = normalizeConfig({ layout: { mode: 'free', panels: [{
+        id: 'paired', view: 'cortex_subcort_lm', camera: { plane: 'left_medial' },
+        place: { x: 0, y: 0, w: 1, h: 1 },
+        // Simulate an old saved panel which still paired every role to the left hemisphere.
+        content: { roles: ['cortex', 'anatomy', 'voxel'], hemisphere: 'lh', anatomyHemisphere: 'lh' },
+    }] } });
+    const panel = cfg.layout.panels[0];
+    assert.equal(panel.content.hemisphere, 'lh');
+    assert.equal(panel.content.anatomyHemisphere, 'rh');
+    assert.deepEqual(panel.content.anatomyCategories, ['subcort_r', 'cereb_r', 'brainstem']);
+    assert.deepEqual(panel.content.voxelCategories, ['lh_cortex', 'subcort_r', 'cereb_r', 'brainstem']);
+    const inferred = { ...panel };
+    delete inferred.view;
+    assert.equal(panelViewName(inferred), 'cortex_subcort_lm');
 });
 
 test('normalizeConfig accepts a place-based panel (free mode) and preserves rotate/slice', () => {

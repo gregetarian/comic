@@ -15,7 +15,21 @@ const subcort = (hemi, cats) => ({ roles: ['anatomy', 'voxel'], hemisphere: hemi
 const cortexSubcortOpaque = (hemi) => ({ roles: ['cortex', 'anatomy', 'voxel'], hemisphere: hemi, categories: null, anatomyStyle: 'opaque' });
 // Cortex of one hemisphere + the CONTRALATERAL subcortex (left subcortex with the right
 // hemisphere, and vice versa) so the subcortex sits in front of that hemisphere's volume.
-const cortexSubcortContra = (cortexHemi, subHemi) => ({ roles: ['cortex', 'anatomy', 'voxel'], hemisphere: cortexHemi, anatomyHemisphere: subHemi, categories: null, anatomyStyle: 'opaque' });
+// Keep the category lists explicit: this view is deliberately asymmetric, so a single broad
+// hemisphere/category filter cannot describe it without leaking the wrong cerebellar half.
+const cortexSubcortContra = (cortexHemi, subHemi) => {
+    const side = subHemi === 'lh' ? 'l' : 'r';
+    const anatomyCategories = [`subcort_${side}`, `cereb_${side}`, 'brainstem'];
+    return {
+        roles: ['cortex', 'anatomy', 'voxel'],
+        hemisphere: cortexHemi,
+        anatomyHemisphere: subHemi,
+        categories: null,
+        anatomyCategories,
+        voxelCategories: [`${cortexHemi}_cortex`, ...anatomyCategories],
+        anatomyStyle: 'opaque',
+    };
+};
 
 export const VIEWS = {
     left_lateral:  { plane: 'left_lateral',  title: 'L Lateral', content: cortex('lh') },
@@ -61,13 +75,20 @@ export function applyView(panel, name) {
 export function panelViewName(panel) {
     if (panel.view && VIEWS[panel.view]) return panel.view;
     const plane = panel.camera && panel.camera.plane;
-    const cats = panel.content && panel.content.categories;
-    if (cats && cats.includes('subcort_l')) return 'subcortical_l';
-    if (cats && cats.includes('subcort_r')) return 'subcortical_r';
-    const hemi = panel.content && panel.content.hemisphere;
+    const content = panel.content || {};
+    const sameArray = (a, b) => {
+        const aa = a || [], bb = b || [];
+        return aa.length === bb.length && aa.every((x, i) => x === bb[i]);
+    };
     for (const name of VIEW_ORDER) {
         const v = VIEWS[name];
-        if (v.plane === plane && v.content.hemisphere === hemi && !v.content.categories) return name;
+        if (v.plane === plane
+            && v.content.hemisphere === content.hemisphere
+            && (v.content.anatomyHemisphere || null) === (content.anatomyHemisphere || null)
+            && sameArray(v.content.roles, content.roles)
+            && sameArray(v.content.categories, content.categories)
+            && sameArray(v.content.anatomyCategories, content.anatomyCategories)
+            && sameArray(v.content.voxelCategories, content.voxelCategories)) return name;
     }
     return plane || 'left_lateral';
 }
