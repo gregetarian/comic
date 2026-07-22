@@ -9,6 +9,7 @@
  * meshMeta = { role:'cortex'|'anatomy'|'voxel', hemisphere:'lh'|'rh'|'mid'|null,
  *              structure, category, variant:'blocky'|'smooth'|'surface'|null }
  * panelContent = { roles:[...], hemisphere:'lh'|'rh'|'both', categories:null|[...],
+ *                  anatomyCategories:null|[...], voxelCategories:null|[...],
  *                  representation:null|'blocky'|'smooth'|'surface' }
  */
 
@@ -19,6 +20,7 @@ const isAnatomyVoxel = (m) => m.role === 'voxel' && ANATOMY_VOXEL_CATEGORIES.has
 
 export function visible(panelContent, meshMeta, style = {}) {
     const c = panelContent || {};
+    const followsAnatomy = meshMeta.role === 'anatomy' || isAnatomyVoxel(meshMeta);
 
     // role gate
     if (c.roles && !c.roles.includes(meshMeta.role)) return false;
@@ -27,12 +29,18 @@ export function visible(panelContent, meshMeta, style = {}) {
     if (c.categories && meshMeta.category && !c.categories.includes(meshMeta.category)) {
         return false;
     }
+    // Paired cortex+interior views are intentionally asymmetric. These role-specific gates
+    // encode the exact allowed structures (e.g. left cortex + right subcortex/cerebellum),
+    // instead of trusting a broad hemisphere tag to imply the intended combination.
+    if (c.anatomyCategories && followsAnatomy && meshMeta.category
+        && !c.anatomyCategories.includes(meshMeta.category)) return false;
+    if (c.voxelCategories && meshMeta.role === 'voxel' && meshMeta.category
+        && !c.voxelCategories.includes(meshMeta.category)) return false;
 
     // Hemisphere gate — midline structures (brainstem) are exempt. Anatomy AND voxels classified
     // inside that anatomy share anatomyHemisphere, so a right cortical half paired with the left
     // subcortex cannot accidentally colour the right subcortex. Cortical voxels continue to follow
     // the displayed cortex hemisphere.
-    const followsAnatomy = meshMeta.role === 'anatomy' || isAnatomyVoxel(meshMeta);
     const hemi = (followsAnatomy && c.anatomyHemisphere)
         ? c.anatomyHemisphere : (c.hemisphere || 'both');
     if (hemi !== 'both' && meshMeta.hemisphere && meshMeta.hemisphere !== 'mid'
