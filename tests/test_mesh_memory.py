@@ -82,6 +82,25 @@ def test_pathological_blob_trips_default_cap():
     assert len(v) > 0 and f.max() < len(v)
 
 
+def test_dense_overlay_gets_browser_safe_budget_but_sparse_overlay_does_not():
+    sparse = {"volume": np.ones(P.DENSE_MAP_MIN_CLASSIFIED_VOXELS - 1, dtype=bool)}
+    dense = {"volume": np.ones(P.DENSE_MAP_MIN_CLASSIFIED_VOXELS, dtype=bool)}
+    assert P.smooth_mesh_budget(sparse) is None
+    assert P.smooth_mesh_budget(dense) == P.DENSE_SMOOTH_MAX_UPSAMPLED_VOXELS
+
+
+def test_explicit_dense_budget_coarsens_without_changing_global_default():
+    mask, sig = _blob((44, 44, 44), np.s_[2:42, 2:42, 2:42])
+    fine = P.build_smooth_mesh(mask, sig, AFF_2MM)
+    with pytest.warns(UserWarning, match="0.5M cap"):
+        coarse = P.build_smooth_mesh(
+            mask, sig, AFF_2MM,
+            max_upsampled_voxels=P.DENSE_SMOOTH_MAX_UPSAMPLED_VOXELS,
+        )
+    assert 0 < len(coarse[0]) < len(fine[0])
+    assert coarse[1].max() < len(coarse[0])
+
+
 if __name__ == "__main__":
     test_normal_small_blob_is_byte_identical()
     test_large_blob_degrades_below_cap_but_keeps_geometry()

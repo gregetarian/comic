@@ -331,9 +331,9 @@ async function loadNeurosynthDemo() {
 
 /** Build + register one overlay from a (meta, flat-buffers) pair, then rebuild. `src`
  *  ({file, threshold}) is kept so the overlay can be re-meshed for surface mode. */
-function addOverlay(meta, buffers, src) {
+function addOverlay(meta, buffers, src, initialStyle = {}) {
     overlays.push(makeOverlay(meta, buffers, overlays.length, src));
-    (config.style.overlays ||= []).push({});
+    (config.style.overlays ||= []).push(initialStyle);
     rebuild();
 }
 
@@ -372,7 +372,7 @@ async function setOverlaySurface(i, repSel) {
 async function handleUpload(files) {
     const surfaceFiles = files.filter((f) => isSurfaceFile(f.name));
     const volumeFiles = files.filter((f) => !isSurfaceFile(f.name) && VOL_RE.test(f.name));
-    // isFinite (not `|| 2.3`): a deliberate threshold of 0 (keep all non-zero voxels)
+    // isFinite (not `|| 2.3`): a deliberate threshold of 0 (unthresholded finite voxels)
     // is valid and must not be clobbered to the default.
     const thr = (v => isFinite(v) ? v : 2.3)(parseFloat(document.getElementById('c-threshold').value));
     const note = 'First upload downloads the ~30 MB scientific stack once.';
@@ -386,7 +386,11 @@ async function handleUpload(files) {
                 await new Promise((r) => setTimeout(r, 2500));
                 continue;
             }
-            addOverlay(meta, buffers, { file: volumeFiles[k], threshold: thr });
+            // Preserve the bake threshold in the per-map style. An unthresholded continuous map
+            // must also disable the inherited cluster-extent cutoff; otherwise it is not actually
+            // unthresholded even though all of its geometry was loaded.
+            const initialStyle = thr === 0 ? { threshold: 0, voxel: { clusterMin: 0 } } : { threshold: thr };
+            addOverlay(meta, buffers, { file: volumeFiles[k], threshold: thr }, initialStyle);
         }
         // Surface maps: pair lh/rh by filename, one overlay per pair (or per lone hemisphere).
         const groups = groupSurfaceFiles(surfaceFiles);

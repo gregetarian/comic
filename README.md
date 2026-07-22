@@ -44,6 +44,10 @@ view pixel-for-pixel.
   figure headlessly, pixel-faithful.
 - **Statistical controls** — voxelwise threshold, **cluster-extent threshold**
   (drop clusters below *k* voxels), positive-only.
+- **Unthresholded whole-brain maps** — set the upload threshold to **0**. COMIC retains the
+  continuous map, automatically disables the cluster cutoff for that overlay, and uses an
+  adaptive smooth-mesh resolution for dense 2–3 mm volumes so the browser does not manufacture
+  hundreds of megabytes of redundant 0.5 mm geometry. Sparse maps keep the original fine mesh.
 - **Faithful colour** — all ~156 matplotlib colormaps (every continuous map +
   its `_r` reverse, RdPu/PuRd and the rest), auto sequential-vs-diverging
   selection, and a positive-data washout guard; an on-screen colorbar (one per
