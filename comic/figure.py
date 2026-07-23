@@ -208,6 +208,7 @@ def render_spec(spec, nifti, *, out=None, session=None, width=None, height=None,
     # per-overlay bake threshold = each overlay's live threshold (baked == shown)
     ov = style.get("overlays") or []
     nn = 1 if isinstance(nifti, (str, os.PathLike)) else len(nifti)
+    gb_spec.validate_input_count(doc, nn, volume_only=True)
     thr = [(ov[i].get("threshold") if i < len(ov) and ov[i].get("threshold") is not None
             else style.get("threshold") if style.get("threshold") is not None else 2.3)
            for i in range(nn)]

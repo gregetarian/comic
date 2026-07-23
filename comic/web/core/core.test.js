@@ -14,7 +14,7 @@ import { valueToT, resolveColormap, loadColormaps, sampleLUT, deriveMaxAbs } fro
 import { normalizeConfig, validateConfig, overlayStyle, DEFAULTS } from './config-schema.js';
 import { applyView, panelViewName, VIEWS } from './views.js';
 import { resolveConfig } from './presets.js';
-import { isFreeFigure, buildSpec, buildRenderText } from '../controls/cli-export.js';
+import { isFreeFigure, usesFigureSpec, buildSpec, buildRenderText } from '../controls/cli-export.js';
 import { rotateAroundWorldAxis, snapPlaneForAxis, wrapDegrees } from './rotation.js';
 import { normalizeTemplateBundle, validateTemplateBundle } from './template-bundle.js';
 
@@ -381,6 +381,13 @@ test('isFreeFigure detects free mode / place / rotate / slice', () => {
     assert.equal(isFreeFigure({ layout: { panels: [{ cell: { row: 0, col: 0 }, rotate: { yaw: 10 } }] } }), true);
 });
 
+test('usesFigureSpec keeps simple grids terse but makes multi-map/zoom exports lossless', () => {
+    const grid = { layout: { mode: 'grid', panels: [{ cell: { row: 0, col: 0 } }] } };
+    assert.equal(usesFigureSpec(grid, [{ meta: { name: 'one.nii.gz' } }], false), false);
+    assert.equal(usesFigureSpec(grid, [{ meta: { name: 'one.nii.gz' } }, { meta: { name: 'two.nii.gz' } }], false), true);
+    assert.equal(usesFigureSpec(grid, [{ meta: { name: 'one.nii.gz' } }], true), true);
+});
+
 test('buildRenderText emits --spec + an embedded figure.json for a free figure', () => {
     const config = {
         layout: {
@@ -400,6 +407,31 @@ test('buildRenderText emits --spec + an embedded figure.json for a free figure',
     assert.equal(json.layout.canvas.bgAlpha, 0);
     assert.equal(json.layout.panels[0].rotate.yaw, 25);
     assert.equal(json.render.width, 800);
+    assert.deepEqual(json.inputs, [{ slot: 1, name: 'zstat.nii.gz', type: 'volume' }]);
+});
+
+test('Free Canvas Copy CLI includes every overlay in slot order', () => {
+    const config = {
+        layout: {
+            mode: 'free', canvas: { w: 800, h: 500, bgAlpha: 1 },
+            panels: [{ id: 'a', place: { x: 0, y: 0, w: 1, h: 1, z: 0 },
+                       camera: { plane: 'dorsal' },
+                       content: { roles: ['cortex', 'voxel'], hemisphere: 'both' } }],
+        },
+        style: { overlays: [{ colormap: 'Reds' }, { colormap: 'Blues' }] },
+        render: { width: 800, height: 500, background: '#ffffff' },
+    };
+    const overlays = [
+        { meta: { name: 'first map.nii.gz' }, src: { file: {} } },
+        { meta: { name: 'second.nii.gz' }, src: { file: {} } },
+    ];
+    const text = buildRenderText({ config, overlays, preset: 'freeCanvas', colormaps: new Map() });
+    assert.match(text, /comic render 'first map\.nii\.gz' second\.nii\.gz --spec figure\.json/);
+    assert.match(text, /gb\.render_spec\("figure\.json", \["first map\.nii\.gz","second\.nii\.gz"\]\)/);
+    const json = JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1));
+    assert.deepEqual(json.inputs.map((x) => [x.slot, x.name]), [
+        [1, 'first map.nii.gz'], [2, 'second.nii.gz'],
+    ]);
 });
 
 // --- M2: extended schema (clim/units/surfaceDepth, template kinds, surface representation) ---

@@ -287,6 +287,12 @@ def cli():
             # --spec is self-contained (layout + style + size): reproduce it verbatim.
             # CLI style flags are ignored here; --width/--height/--bg-alpha still override.
             layout, style, spec_render = load_spec(args.spec)
+            from . import spec as gb_spec
+            spec_doc = json.loads(Path(args.spec).read_text())
+            try:
+                gb_spec.validate_input_count(spec_doc, n)
+            except ValueError as e:
+                parser.error(str(e))
             if args.slice_anatomy:
                 style['sliceAnatomy'] = True
             if args.cut_overlay:
