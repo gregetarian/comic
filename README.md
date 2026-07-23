@@ -4,8 +4,9 @@ A **volumetric** glass-brain viewer + headless figure renderer for 3D neuroimagi
 results — **clusters, statistical blobs, parcellations** — in **MNI152 space**, with a
 cel-shaded comic aesthetic: a translucent fresnel cortex, opaque self-occluding stat
 voxels, live-threshold silhouette edges, and a depth "veil" that fades deep voxels
-toward white. It renders **the volume itself** (voxel cubes or marching-cubes
-isosurfaces) — not a cortical-surface projection.
+toward white. It can render **the volume itself** (voxel cubes or marching-cubes
+isosurfaces), sample a volume onto the cortical sheet, or display native fsaverage
+surface maps.
 
 ### ▶ Try it in your browser (no install): **https://gregetarian.github.io/comic/**
 Drag in a NIfTI and it renders — the whole pipeline runs client-side via Pyodide, no backend.
@@ -25,14 +26,14 @@ view pixel-for-pixel.
 
 ## Features
 
-- **Volumetric** — plots the 3D volume directly (per-structure voxel cubes, or smooth
-  marching-cubes isosurfaces of the supra-threshold blobs); great for clusters / ICA or
-  network components / parcels. Not a surface (cortical-projection) renderer.
+- **Volume or surface display** — draw NIfTI values as exposed voxel faces, smooth
+  marching-cubes geometry, or a pial-to-white cortical projection. Native fsaverage
+  GIFTI/MGH/MGZ maps can be drawn directly on pial, white, or inflated surfaces.
 - **One config, two renderers** — the same declarative config drives the
   interactive browser viewer and the headless PNG renderer.
 - **Multiple volumes at once, distinct colorbars** — load several NIfTIs; each gets its
   own control row **and its own colormap + colorbar**. **Row order = draw priority**: the
-  top row draws on top where overlays overlap. Add with **`+ NIfTI`**, remove with **✕**.
+  top row draws on top where overlays overlap. Add with **`+ map`**, remove with **✕**.
 - **Fully customisable layouts** — any grid of any anatomical views
   (`left_lateral`, `right_medial`, `dorsal`/`axial`, `anterior`/`frontal`,
   subcortical close-ups, …), 2×2 to N×M, from the CLI.
@@ -91,6 +92,47 @@ fsaverage via MNE (cached under `~/mne_data/`).
 
 ---
 
+## Browser figure → reproducible code
+
+The browser's **Copy CLI** button turns the current Free Canvas figure into a reusable
+recipe:
+
+1. Arrange the panels, rotations, cuts, surfaces, colours, thresholds, and output size
+   in the browser.
+2. Click **Copy CLI**. COMIC downloads **`figure.json`** and copies a ready-to-run
+   terminal command containing every loaded volume.
+3. Keep `figure.json` beside your analysis. It contains the figure recipe, **not the
+   image data**. Supply the NIfTIs when rendering.
+
+For one volume:
+
+```bash
+comic render my_map.nii.gz --spec figure.json -o my_figure.png --crop content
+```
+
+For several overlays, pass one volume per saved style slot, in the same order as the
+overlay rows in the browser:
+
+```bash
+comic render first_map.nii.gz second_map.nii.gz third_map.nii.gz \
+  --spec figure.json -o my_figure.png --crop content
+```
+
+The equivalent Python is one line:
+
+```python
+import comic as gb
+gb.render_spec("figure.json", ["first_map.nii.gz", "second_map.nii.gz", "third_map.nii.gz"]).save("my_figure.png")
+```
+
+Input order is the contract: the first file receives `style.overlays[0]`, the second
+receives `style.overlays[1]`, and so on. New browser exports also include a human-readable
+top-level `inputs` list so the original slot names are visible in the JSON. See
+**[Reuse a browser figure with new data](docs/reusing-figure-json.md)** for installation,
+batch rendering with one persistent browser, output/cropping behaviour, and troubleshooting.
+
+---
+
 ## Quickstart
 
 ```bash
@@ -113,10 +155,10 @@ comic render zstat.nii.gz -o figure.png \
 comic render seed.nii.gz networkA.nii.gz networkB.nii.gz -o multi.png \
     --grid 1x3 --views left_lateral,dorsal,right_lateral -k 100
 
-# Reproduce a Free-Canvas figure exactly: the browser's figure.json (its Copy-CLI output)
-# + one NIfTI per overlay slot (the i-th map fills style.overlays[i]).
-comic render faces.nii.gz language.nii.gz addiction.nii.gz dmn.nii.gz \
-    -o figure.png --spec figure.json
+# Reuse a browser Free-Canvas figure with different data. File order binds to the
+# browser's overlay rows: first file -> first colour/style, second -> second, etc.
+comic render faces.nii.gz language.nii.gz \
+    --spec figure.json -o figure.png --crop content
 
 # Re-bake the fsaverage template assets into web/data/ (one-time; needs the [bake] extra)
 comic bake
@@ -130,16 +172,18 @@ comic bake
 ## The interactive viewer
 
 The control bar is split into a **global surface row** and **one row per loaded
-NIfTI**. Every slider has a type-in box; **tap a parameter's label (or the ⓘ next to a
+map**. Every slider has a type-in box; **tap a parameter's label (or the ⓘ next to a
 toggle) for a one-line explanation.**
 
 **Surface row (applies to the whole figure):**
 
-- **`+ NIfTI`** — load one or more stat maps (meshed in-browser via Pyodide; the first
-  upload fetches the ~30 MB scientific stack once). Each appends a new overlay row.
+- **`+ map`** — load one or more NIfTI volumes or fsaverage surface maps (processed
+  in-browser via Pyodide; the first upload fetches the ~30 MB scientific stack once).
+  Each appends a new overlay row.
 - **Demo** — load the example Neurosynth maps (faces · addiction · default-network ·
   language), meshed in-browser — a one-click showcase on the otherwise empty canvas.
-- **Copy CLI** — copy a `comic render` command that reproduces the current view.
+- **Copy CLI** — for Free Canvas, multi-overlay, or per-panel-zoom figures, download
+  `figure.json` and copy ready terminal/Python commands with every map in slot order.
 - **layout** — switch 4-panel / 9-panel / overview / **Free Canvas** (see below).
 - **Save brain** — high-res, print-tuned capture of the brains only (no colorbars,
   full canvas — never squashed by a stack of bars).
@@ -203,8 +247,8 @@ switch is seamless) to turn the figure into a free 2D canvas of brain panels:
   cortex+subcortex views those voxels follow the displayed subcortical half, not the cortex half.
 - **Toolbar** — seed an *R × C* grid of panels, **+ panel**, or tick **transparent**
   for a transparent figure background (exports a transparent PNG).
-- **Copy CLI** — emits `comic render … --spec figure.json` and downloads the
-  `figure.json`; running that command reproduces the exact figure headlessly.
+- **Copy CLI** — emits `comic render … --spec figure.json`, including every loaded map,
+  and downloads `figure.json`; replace the filenames with paths if needed and run it.
 
 > Slicing supports arbitrary plane normals / sphere centres / cube bounds in the
 > `figure.json` (and `--spec`); the editor's `✂` offers the common presets one click
@@ -216,9 +260,9 @@ switch is seamless) to turn the figure into a free 2D canvas of brain panels:
 (its own colormap + colorbar; argument order = overlay/draw order), so a single command
 renders a multi-volume figure. It is fully parameterised — `--grid RxC`, `--views ...`
 (row-major; `_` = blank cell; aliases like `axial=dorsal`, `frontal=anterior`), or
-**`--spec figure.json`** for a Free Canvas figure (a self-contained canvas document —
-layout + style + size — as emitted by the browser's *Copy CLI*; it overrides
-`--grid/--views`; with multiple maps the i-th map fills `style.overlays[i]`),
+**`--spec figure.json`** for a browser figure (a reusable recipe containing layout,
+style, and size, as emitted by the browser's *Copy CLI*; it overrides `--grid/--views`;
+with multiple maps the i-th map fills `style.overlays[i]`),
 plus `--bg-alpha 0` for a transparent PNG, plus style flags:
 `--surface`, `--voxels`, `--smooth` (extra surface smoothing),
 `--cmap`, `-k/--cluster-size`, `--threshold`, `--veil`, `--veil-k`, `--emissive`, `--specular`, `--shininess`,
@@ -232,16 +276,21 @@ plus `--bg-alpha 0` for a transparent PNG, plus style flags:
 
 ## Scope & limitations
 
-- **MNI152 space only.** The fsaverage cortex/subcortical template and the voxel→region
-  classification assume your map is in **MNI152**. A map in another space (native,
-  MNI305, fsaverage surface, etc.) will mis-place or classify to nothing.
-- **3D volumes only.** Input must be a **3D** NIfTI stat/label map (not a 4D timeseries,
-  not a `.gii`/surface overlay). Upload a thresholded statistic or cluster/label volume.
-- **Volumetric, not surface rendering.** It draws the *volume* (voxel cubes or
-  marching-cubes isosurfaces of the blobs) inside a glass brain — it does **not** project
-  values onto a cortical surface mesh (no inflated-surface vertex overlays).
-- **Template is fixed (fsaverage).** No per-subject anatomy; the glass shell + subcortical
-  structures are the group template, baked once.
+- **The hosted volume workflow assumes MNI152 alignment.** COMIC warns about clear
+  mismatches but does not register data. Headless/Python rendering also supports a custom
+  template bundle or `--no-template` volume-only rendering in the map's own space.
+- **Volume inputs are 3D.** NIfTI maps may be thresholded or continuous (threshold `0`),
+  but 4D timeseries must first be reduced to a 3D statistic/label map. Native fsaverage
+  surface overlays are supported separately as GIFTI, MGH, MGZ, or morphometry files.
+- **Surface projection is for display.** Sampling a volume between pial and white is not a
+  substitute for a surface-based statistical analysis. Subcortical, cerebellar, and
+  brainstem values remain smooth or blocky volumes because they have no cortical sheet.
+- **Bundled anatomy is group anatomy.** The standard shell, internal meshes, and 1-mm cut
+  T1 are aligned template assets, not a subject-specific reconstruction. Custom template
+  users are responsible for supplying mutually aligned surfaces, anatomy, segmentation,
+  and maps.
+- **The cut MRI cannot add resolution to a statistical map.** Cut-map values are sampled
+  from the source NIfTI grid (nearest or linear, optionally through a thin max-absolute slab).
 - **First browser upload downloads ~30 MB** (the Pyodide scientific stack) before the
   first map renders; cached afterwards. The viewer **boots empty** — upload your own NIfTIs,
   or click **Demo** (or open `?demo=1`) to mesh the example Neurosynth maps in-browser.

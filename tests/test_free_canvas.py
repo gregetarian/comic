@@ -151,6 +151,8 @@ def main():
         assert cli_text, "Copy CLI did not emit a --spec command for the free figure"
         assert '"mode": "free"' in cli_text, "emitted figure.json is not a free layout"
         assert '"slice"' in cli_text, "slice not serialized into figure.json"
+        assert '"inputs"' in cli_text and '"slot": 1' in cli_text, \
+            "emitted figure.json does not identify its data slot"
         print("[8] Copy CLI -> --spec figure.json (free layout + slice embedded) ✓")
 
         # capture the LIVE edited config (moved/resized/rotated/added panel + slice) for the

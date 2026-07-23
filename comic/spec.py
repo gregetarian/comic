@@ -11,6 +11,7 @@ REPRESENTATIONS = {"blocky", "smooth", "surface", None}
 VOLUME_REPRESENTATIONS = {"blocky", "smooth", None}
 ROLES = {"cortex", "anatomy", "voxel"}
 HEMI = {"lh", "rh", "both"}
+INPUT_TYPES = {"volume", "surface"}
 
 
 def _clim_ok(c):
@@ -30,6 +31,22 @@ def validate(spec):
     if kind not in TEMPLATE_KINDS:
         errs.append(f"template.kind must be one of {sorted(TEMPLATE_KINDS)}, got {kind!r}")
     no_template = kind == "none"
+
+    inputs = cfg.get("inputs")
+    if inputs is not None:
+        if not isinstance(inputs, list) or not inputs:
+            errs.append("inputs must be a non-empty list when present")
+        else:
+            for i, item in enumerate(inputs):
+                if not isinstance(item, dict):
+                    errs.append(f"inputs[{i}] must be an object")
+                    continue
+                if item.get("slot") != i + 1:
+                    errs.append(f"inputs[{i}].slot must be {i + 1}")
+                if not isinstance(item.get("name"), str) or not item.get("name"):
+                    errs.append(f"inputs[{i}].name must be a non-empty string")
+                if item.get("type", "volume") not in INPUT_TYPES:
+                    errs.append(f"inputs[{i}].type must be one of {sorted(INPUT_TYPES)}")
 
     style = cfg.get("style") or {}
     if not _clim_ok(style.get("clim")):
@@ -92,3 +109,16 @@ def validate(spec):
     if errs:
         raise ValueError("Invalid figure spec:\n  " + "\n  ".join(errs))
     return cfg
+
+
+def validate_input_count(spec, n, *, volume_only=False):
+    """Fail loudly when a new browser export declares data slots but the caller supplies a
+    different number. Older specs without `inputs` remain backward-compatible."""
+    inputs = spec.get("inputs")
+    if inputs is None:
+        return
+    if len(inputs) != n:
+        names = ", ".join(f"{x.get('slot')}:{x.get('name')}" for x in inputs if isinstance(x, dict))
+        raise ValueError(f"figure.json expects {len(inputs)} input(s) ({names}); received {n}")
+    if volume_only and any(x.get("type", "volume") != "volume" for x in inputs):
+        raise ValueError("comic.render_spec currently accepts volume slots only; use `comic render --surface-map ... --spec figure.json` for native surface inputs")
