@@ -4,12 +4,10 @@
  *
  * This works because the browser viewer and the CLI `render` command consume the
  * SAME config schema (core/config-schema.js): render.py just turns flags into that
- * config and runs the identical headless viewer. So every browser style control maps
- * to a flag. The places they can't match are stated as `# note:` comments:
- *   - the CLI composites multiple overlays (pass several NIfTIs, or a --spec figure.json);
- *     a single Copy-CLI command for multi-overlay GRID figures is still pending (roadmap M5),
- *   - per-panel zoom has no CLI flag yet,
- *   - the browser never knows the upload's disk path (you supply it).
+ * config and runs the identical headless viewer. Free Canvas figures use a figure.json
+ * recipe because their per-panel placement/rotation/slices cannot be expressed cleanly as
+ * flags. The browser knows each uploaded file's name, but not its original disk path, so the
+ * user may need to replace those names with paths on the machine that performs the render.
  */
 import { overlayStyle } from '../core/config-schema.js';
 import { resolveColormap } from '../core/colormap.js';
@@ -34,6 +32,7 @@ const D = {
 
 const fmt = (n) => { const v = +n; return Number.isInteger(v) ? String(v) : String(Math.round(v * 1e4) / 1e4); };
 const q = (s) => (/[^\w.\-/]/.test(s) ? `'${String(s).replace(/'/g, "'\\''")}'` : String(s));
+const inputName = (o, i) => o.src?.file?.name || o.meta?.name || `map${i + 1}.nii.gz`;
 
 /** A figure is "free" (needs --spec, not --grid/--views) if it's in Free Canvas mode or
  *  any panel carries free placement / per-panel rotation / a slice. */
@@ -42,12 +41,18 @@ export function isFreeFigure(config) {
     return L.mode === 'free' || (L.panels || []).some((p) => p.place || p.rotate || p.slice);
 }
 
+/** A JSON recipe is the lossless path for Free Canvas, multiple overlays, or per-panel zoom.
+ *  A simple unzoomed one-overlay grid remains readable as ordinary --grid/--views flags. */
+export function usesFigureSpec(config, overlays = [], panelZoomUsed = false) {
+    return isFreeFigure(config) || overlays.length > 1 || panelZoomUsed;
+}
+
 /** The self-contained canvas document the CLI reproduces with `--spec figure.json`.
  *  It bundles the layout (place/rotate/slice/canvas), the full style, and the render
  *  size/aspect — so `comic render <nifti> --spec figure.json` round-trips exactly. */
-export function buildSpec(config) {
+export function buildSpec(config, overlays = []) {
     const cv = config.layout && config.layout.canvas;
-    return {
+    const spec = {
         // M3: the ONE figure document. layout carries view{s,cx,cy} + per-panel zoom/rotate/slice
         // (declared in config-schema DEFAULTS), template records the space, style the full per-overlay
         // style — so Copy-CLI, --spec, the notebook render_spec, presets, and URL-state never drift.
@@ -60,6 +65,17 @@ export function buildSpec(config) {
             background: (config.render && config.render.background) || '#ffffff',
         },
     };
+    // Human-readable data-slot hints. The renderer deliberately keeps the data outside the
+    // recipe; positional CLI/Python inputs fill these slots. Unknown top-level fields are
+    // forward-compatible, so older renderers safely ignore this metadata.
+    if (overlays.length) {
+        spec.inputs = overlays.map((o, i) => ({
+            slot: i + 1,
+            name: inputName(o, i),
+            type: o.src?.surface ? 'surface' : 'volume',
+        }));
+    }
+    return spec;
 }
 
 /** Build the CLI command for a single overlay's resolved style. */
@@ -110,19 +126,22 @@ function commandFor(config, i, meta, colormaps, preset) {
 export function buildRenderText({ config, overlays, preset, colormaps, panelZoomUsed }) {
     if (!overlays.length) return '# Load a NIfTI first — there is no overlay to reproduce.';
 
-    // Free Canvas / per-panel rotation / slices can't be expressed by --grid/--views — emit
-    // a self-contained figure.json and a `--spec` command that reproduces it exactly.
-    if (isFreeFigure(config)) {
-        const spec = buildSpec(config);
-        const name = overlays[0].meta.name || 'stat.nii.gz';
+    // Free Canvas / per-panel edits and multi-overlay styles cannot be expressed compactly by
+    // --grid/--views flags — emit one self-contained recipe + one composite command instead.
+    if (usesFigureSpec(config, overlays, panelZoomUsed)) {
+        const spec = buildSpec(config, overlays);
+        const names = overlays.map(inputName);
         const notes = [
-            '# comic render — Free Canvas figure (reproduces the exact on-screen layout).',
-            '# 1) save the JSON below as figure.json   2) run the command (point it at your NIfTI on disk).',
+            '# COMIC browser figure -> reproducible PNG',
+            '# figure.json stores the panels, positions, rotations, cuts, surfaces, colours, thresholds, and size.',
+            '# The image data stays separate: replace the filenames below with paths to your NIfTIs if needed.',
+            '# Inputs bind to style slots from left to right (first file = slot 1, second file = slot 2, etc.).',
         ];
-        if (overlays.length > 1)
-            notes.push('# note: figure.json carries the layout/style for ALL overlays; pass your maps in argument order (the i-th fills style.overlays[i]).');
-        const cmd = `comic render ${q(name)} -o glassbrain.png --spec figure.json --crop content`;
-        return notes.join('\n') + '\n\n' + cmd + '\n\n# ---- figure.json ----\n' + JSON.stringify(spec, null, 2) + '\n';
+        const cmd = `comic render ${names.map(q).join(' ')} --spec figure.json -o glassbrain.png --crop content`;
+        const py = `# gb.render_spec("figure.json", ${JSON.stringify(names)}).save("glassbrain.png")`;
+        return notes.join('\n') + '\n\n# Terminal (ready to run):\n' + cmd
+            + '\n\n# Python equivalent:\n# import comic as gb\n' + py
+            + '\n\n# ---- figure.json (also downloaded separately) ----\n' + JSON.stringify(spec, null, 2) + '\n';
     }
 
     const notes = [
@@ -130,11 +149,6 @@ export function buildRenderText({ config, overlays, preset, colormaps, panelZoom
         '# (needs the `comic` Python package + Playwright/Chromium installed).',
         '# Replace the filename with the path to your NIfTI on disk.',
     ];
-    if (overlays.length > 1)
-        notes.push(`# note: ${overlays.length} overlays are shown; render.py composites all maps passed in one call —`,
-                   '#       the per-map commands below each set one colormap (a single composite command lands in roadmap M5).');
-    if (panelZoomUsed)
-        notes.push('# note: per-panel zoom (the +/- buttons) has no CLI equivalent and is not captured.');
     notes.push('# note: resolution/aspect via --width/--height (default 1600x1000); the browser');
     notes.push('#       "Save PNG" also adds a slight print look (thinner lines, more margin).');
 

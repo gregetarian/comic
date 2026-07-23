@@ -5,10 +5,13 @@ is the CPython mirror of web/core/config-schema.js:validateConfig — the proof 
 the CLI (--spec), and the notebook API agree on what a valid figure is.
 """
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
+import comic as gb
 from comic import spec
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -39,6 +42,61 @@ def test_good_spec_validates_and_is_a_fixed_point():
     assert spec.validate(cfg) is cfg or spec.validate(cfg)  # re-validate is stable, no raise
     # round-trips through JSON unchanged (figure.json is the on-disk form)
     assert spec.validate(json.loads(json.dumps(GOOD)))["layout"]["view"]["s"] == 1.4
+
+
+def test_exported_input_slots_validate_and_enforce_count():
+    exported = json.loads(json.dumps(GOOD))
+    exported["inputs"] = [
+        {"slot": 1, "name": "language.nii.gz", "type": "volume"},
+        {"slot": 2, "name": "dmn.nii.gz", "type": "volume"},
+    ]
+    spec.validate(exported)
+    spec.validate_input_count(exported, 2, volume_only=True)
+    with pytest.raises(ValueError, match="expects 2 input"):
+        spec.validate_input_count(exported, 1)
+
+    exported["inputs"][1]["slot"] = 7
+    with pytest.raises(ValueError, match=r"inputs\[1\]\.slot"):
+        spec.validate(exported)
+
+
+def test_cli_rejects_wrong_declared_input_count_before_loading_data(tmp_path):
+    exported = json.loads(json.dumps(GOOD))
+    exported["inputs"] = [
+        {"slot": 1, "name": "language.nii.gz", "type": "volume"},
+        {"slot": 2, "name": "dmn.nii.gz", "type": "volume"},
+    ]
+    recipe = tmp_path / "figure.json"
+    recipe.write_text(json.dumps(exported))
+    result = subprocess.run(
+        [sys.executable, "-m", "comic.core", "render", "only-one.nii.gz",
+         "--spec", str(recipe), "-o", str(tmp_path / "out.png")],
+        capture_output=True, text=True,
+    )
+    assert result.returncode == 2
+    assert "expects 2 input(s)" in result.stderr and "received 1" in result.stderr
+
+
+def test_python_render_spec_binds_declared_slots_in_order_without_rewriting_paths():
+    exported = json.loads(json.dumps(GOOD))
+    exported["inputs"] = [
+        {"slot": 1, "name": "language.nii.gz", "type": "volume"},
+        {"slot": 2, "name": "dmn.nii.gz", "type": "volume"},
+    ]
+
+    class StubSession:
+        def render(self, nifti, out, **kwargs):
+            self.nifti, self.kwargs = nifti, kwargs
+            return b"\x89PNG\r\n\x1a\n", None
+
+    session = StubSession()
+    figure = gb.render_spec(exported, ["replacement-a.nii.gz", "replacement-b.nii.gz"],
+                            session=session, colorbar=False)
+    assert session.nifti == ["replacement-a.nii.gz", "replacement-b.nii.gz"]
+    assert figure.png.startswith(b"\x89PNG")
+
+    with pytest.raises(ValueError, match="expects 2 input"):
+        gb.render_spec(exported, ["only-one.nii.gz"], session=session)
 
 
 def test_paired_category_lists_and_anatomy_hemisphere_validate():

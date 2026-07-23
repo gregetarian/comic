@@ -21,7 +21,7 @@ import { createEngine } from '../scene/renderer.js';
 import { createColorbar } from '../controls/colorbar.js';
 import { initKapow } from '../controls/kapow.js';
 import { bindGlobalControls, buildOverlayRows } from '../controls/bind.js';
-import { buildRenderText, isFreeFigure, buildSpec } from '../controls/cli-export.js';
+import { buildRenderText, usesFigureSpec, buildSpec } from '../controls/cli-export.js';
 import { createFreeCanvasEditor } from '../controls/freecanvas.js';
 import { exportSpinGif } from '../controls/gif-export.js';
 import { processNifti, processSurface } from '../pyodide/bootstrap.js';
@@ -744,12 +744,12 @@ async function copyCliCommand() {
     const text = buildRenderText({ config, overlays, preset: state.preset, colormaps, panelZoomUsed: state.panelZoomUsed });
     const flash = (m) => { btn.textContent = m; setTimeout(() => { btn.textContent = label; }, 1600); };
     console.log(text);
-    // For a Free Canvas figure, also hand the user figure.json (the command needs it).
-    const free = overlays.length && isFreeFigure(config);
-    if (free) downloadText(JSON.stringify(buildSpec(config), null, 2), 'figure.json');
+    // Lossless figures (Free Canvas, multi-overlay, or per-panel zoom) also need figure.json.
+    const recipe = overlays.length && usesFigureSpec(config, overlays, state.panelZoomUsed);
+    if (recipe) downloadText(JSON.stringify(buildSpec(config, overlays), null, 2), 'figure.json');
     try {
         await navigator.clipboard.writeText(text);
-        flash(!overlays.length ? 'Load a map' : free ? 'Copied + figure.json' : 'Copied!');
+        flash(!overlays.length ? 'Load a map' : recipe ? 'Copied + figure.json' : 'Copied!');
     } catch {
         downloadText(text, 'glassbrain-cli.txt');
         flash('Saved .txt');

@@ -9,7 +9,8 @@ Three.js viewer under `comic/web/`). The same files run three ways:
 - **Standalone CLI** (`comic render`): `pipeline.py` runs in CPython
   in-process, geometry is written as arrays, and the *same* engine is driven
   headlessly in Playwright/Chromium to screenshot a PNG.
-- **Python** (`comic.render.render_to_png`): the function the CLI calls.
+- **Python** (`comic.render`, `comic.render_spec`, and `RenderSession`): notebook,
+  scripted, and high-throughput entry points over the same renderer.
 
 > This document supersedes the original PyVista/VTK prototype AND the later
 > GLB-per-overlay `overlays.py`/`export.py`-overlay path. Per-upload meshing now
@@ -19,18 +20,23 @@ Three.js viewer under `comic/web/`). The same files run three ways:
 
 ## 1. Data sources & the one-time bake — `bake.py`
 
-Fixed `fsaverage` assets are baked once (needs the `[bake]` extra: mne/trimesh/cmap)
-into `comic/web/data/`:
+The default fsaverage/MNI152 template is baked once (needs the `[bake]` extra:
+mne/trimesh/cmap) into `comic/web/data/` as an atomic, validated bundle:
 
-- Cortical **pial** + **inflated** surface GLBs per hemisphere (curvature in the
+- Cortical **pial**, **white**, and **inflated** surface GLBs per hemisphere (curvature in the
   vertex-colour red channel — currently UNUSED by the glass material).
 - Subcortical structure GLBs (one solid-colour mesh each).
 - `aseg_uint8.bin.gz` + `aseg.json`: the FreeSurfer `aseg` segmentation as gzipped
   uint8 256³ plus a sidecar (dims, affine) — the volume used for voxel→region
   classification at runtime.
 - `colormaps.json`: 256×3 sRGB LUTs sampled from the `cmap` catalogue.
-- `scene.json` (base manifest, no overlays), `render-config.json` (default preset
-  + style), and a pre-baked `demo/` overlay (instant landing render, no Pyodide).
+- `anat_uint8.bin.gz` + `anat.json`: native-1-mm AFNI MNI2009c T1 values plus exact
+  pial-footprint and hemisphere masks for the one-sided cut MRI surface.
+- `scene.json` is the base manifest (no overlays): it records the transform identity,
+  available surface variants, cut-anatomy payload, and measured pial↔T1 alignment.
+  `template.validate_template_bundle` fails loudly if the bundle is incomplete or outside
+  its documented tolerance. `render-config.json` supplies the default preset/style, and
+  `demo/` contains a pre-baked instant landing overlay.
 - `bake()` also copies `pipeline.py` → `web/pyodide/pipeline.py` so the two stay
   byte-identical (guarded by `tests/test_pyodide_sync.py`).
 
@@ -73,12 +79,14 @@ Two representations are produced per structure; the engine chooses one live.
   directions emit a quad only where a voxel face abuts empty space. Watertight,
   self-occluding clusters at a fraction of a full hexahedral mesh. Each scalar
   field (signed value, cluster size) is sampled per emitted vertex.
-- **Smooth** (`build_smooth_mesh`): per connected component, upsample to a 0.5 mm
+- **Smooth** (`build_smooth_mesh`): sparse connected components target a 0.5 mm
   grid, Gaussian-smooth the occupancy, `marching_cubes(level=0.5)`, transform to
   world via the overlay affine. The value field is **nearest-filled** before
   sampling so boundary vertices keep saturated colour. Tiny clusters that yield no
   marching-cubes surface fall back to the blocky geometry (smooth mode never
-  silently hides them).
+  silently hides them). Dense, threshold-zero whole-brain maps select a coarser grid
+  under an explicit memory budget instead of manufacturing an impractically large
+  uniform 0.5-mm mesh.
 
 `process_nifti(src, name, threshold)` runs the whole chain and returns a JSON
 meta string (`name`, `threshold`, `maxAbsValue` = 99th percentile of |value| over
@@ -100,14 +108,16 @@ shader thresholds live). It requires `init_cortex()`. A **lower-resolution** fsa
 (`_upsample_to_template`): FreeSurfer's icosahedra are nested, so the low-res vertices ARE the
 template's first N vertices, and a KDTree over that prefix maps every ico7 vertex to its nearest
 source. A non-icosahedral vertex count raises. (Note: a null hemisphere arrives from Pyodide as
-a `JsNull` proxy, not Python `None`, so it's normalised by type name.) The meta has `surfaceOnly: True`, empty `structures`, and a
-`surface` block. On the engine side that flag forces the overlay's visibility gate to the
+a `JsNull` proxy, not Python `None`, so it is normalised by type name.) The meta has
+`surfaceOnly: True`, empty `structures`, and a `surface` block. On the engine side that flag
+forces the overlay's visibility gate to the
 `surface` variant regardless of the panel/global representation (`visibility.js`), so a
 surface overlay **never offers blocky/smooth** — the browser row shows a fixed `surface`
 tag instead of the representation selector, and there is no volume cluster-extent `-k`.
 CLI: `comic render --surface-map lh=lh.gii,rh=rh.gii[,name=Label] -o out.png` (repeatable;
-volume overlays, if any, come first). Not yet wired: the notebook `comic.render` API and
-the browser drag-drop upload (both take volumes today).
+volume overlays, if any, come first). Browser drag/drop uses the same pipeline and pairs
+left/right files by filename. The high-level notebook `comic.render` helper currently accepts
+volume inputs; native surface inputs use the CLI or browser path.
 
 ## 6. Geometry handoff — `arrays.py` (CLI/Python) & Pyodide (browser)
 
@@ -134,8 +144,11 @@ and is positioned by EXACTLY ONE of `cell{row,col}` or `place{x,y,w,h}`).
   `lighting`, `tilt`, `shadows`.
 - `layout.{mode:'grid'|'free', grid, canvas{w,h,bgAlpha}, panels[]}`; a panel
   carries `content{roles, hemisphere, categories, representation, anatomyStyle,
-  anatomyHemisphere}`, `camera{plane}` or `{pose}`, `framing`, and (free mode)
-  `rotate` / `slice`.
+  anatomyHemisphere, anatomyCategories, voxelCategories}`, `camera{plane}` or `{pose}`,
+  `framing`, per-panel surface choice, and (free mode) `rotate` / `slice`. Explicit
+  `voxelCategories` make paired medial views asymmetric by design: left medial cortex is
+  paired with right subcortical/cerebellar meshes and voxels, and vice versa; brainstem is
+  retained as a midline category.
 
 ## 8. Colour — `web/core/colormap.js`
 
@@ -163,11 +176,17 @@ sets `window.__GB_DONE__` for Playwright; load failures set `window.__GB_ERR__`)
 
 Cameras apply a fixed oblique world-space **tilt** kept right-handed (so lighting
 stays correct and L/R laterals mirror). Framing auto-fits each panel; whole-brain
-panels can share one world scale. Glass cortex = fresnel + cel material; voxels are
+panels can share one world scale. In Free Canvas the RGB MNI-axis gizmo is anchored to
+the authored panel rectangle, not the changing projected brain bounds. Glass cortex =
+fresnel + cel material; voxels are
 opaque `MeshPhong` with shader discards (threshold / clusterMin / positive-only),
 an emissive flat-colour term, a logarithmic depth veil, and a light-independent
 glint. Outline passes render view-space depth to a float target and detect depth
-discontinuities → black cortex silhouette + faint per-voxel edges.
+discontinuities → black cortex silhouette + faint per-voxel edges. Plane, spherical,
+and cubic cuts share clipping state across cortex, internal anatomy, and voxel meshes.
+The cut-MRI pass samples the bundled 1-mm T1, writes opaque depth on the exposed side,
+and is reverse-side culled. A separate cut-map pass samples the retained source NIfTI
+texture with nearest/linear interpolation and a max-absolute slab.
 
 ## 10. Headless / Python rendering — `render.py`
 
@@ -180,7 +199,12 @@ screenshots the brain, and optionally writes the colorbar legend as a
 `<out>_colorbars.png` sidecar. CLI print defaults (thicker outline, looser margin,
 no subcortical shell alpha) are deep-merged UNDER any explicit style flags.
 `build_layout(grid, views)` builds a grid layout from `RxC` + row-major view names;
-`load_spec(path)` ingests a Free-Canvas figure JSON for `--spec`.
+`load_spec(path)` ingests the browser's `figure.json` recipe for `--spec`. The recipe
+stores layout/style/size but not image data: positional volume arguments fill
+`style.overlays[i]`. The public Python equivalent is
+`comic.render_spec("figure.json", volumes)`. Reusing one `RenderSession` amortises the
+Chromium startup when the same recipe is applied to many jobs; see
+`docs/reusing-figure-json.md`.
 
 The CLI (`core.py cli()`) wraps this: `open`, `bake`, and `render` (NIfTIs `+`,
 `--grid`, `--views`, `--spec`, plus per-overlay/global style flags).

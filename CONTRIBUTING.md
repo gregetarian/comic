@@ -18,9 +18,9 @@ end-to-end viewer tests.
 ## Running the tests
 
 ```bash
-pytest -q                    # Python unit + integration tests
-node --test comic/web/core/  # JS core tests (colormap, colormap-gen, …)
-ruff check                   # lint
+pytest -q                              # Python unit + integration tests
+node --test comic/web/core/*.test.js   # JS core tests (colormap, config, visibility, …)
+ruff check                             # lint
 ```
 
 Run all three before opening a pull request.
