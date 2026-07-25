@@ -158,17 +158,40 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
     // layer costs one Float32Array of distances per hemisphere, not a second copy of the
     // surface). Each is created up front and stays in the scene; changing atlas only rewrites
     // the aDist attribute, so it never needs an engine rebuild.
-    //
-    // Borders are attached to the cortex shells AND to the M8 surface-projection sheets. Both are
-    // fsaverage ico7 with identical topology, but they are not the same surface: the sheets are
-    // staged on PIAL vertices while the shell defaults to the (mildly) inflated one, so a sheet is
-    // in front of the shell in some places and behind it in others. Carrying a border on both and
-    // letting the depth test choose means the line is always drawn on whichever sheet is frontmost
-    // — with one shared colour at full opacity, an overlapping stroke is indistinguishable from a
-    // single one, so the union costs nothing visually and needs no per-frame bookkeeping.
+    // --- surface sheets follow the DISPLAYED cortex surface ---------------------------------
+    // pipeline._stage_surface stages the sheet on PIAL vertices, but the shell shown is whatever
+    // cortexSurface/content.surface selects (inflated by default). They differ by up to ~3.4 mm, so
+    // the fill sat on a different surface from the shell it was meant to lie on: fold lines landed
+    // off the folds, and the sheet poked through the shell in places. Every cortex variant is
+    // fsaverage ico7 with the SAME vertex order and the SAME index buffer, so the sheet can simply
+    // borrow the displayed variant's position/normal attributes — no resampling, no extra geometry,
+    // and both buffers are already on the GPU.
+    const cortexGeo = {};        // variant -> hemi -> BufferGeometry
+    for (const tm of sceneModel.meshes)
+        if (tm.meta.role === 'cortex' && tm.meta.variant)
+            (cortexGeo[tm.meta.variant] ||= {})[tm.meta.hemisphere] = tm.mesh.geometry;
+    const surfaceSheets = sceneModel.meshes.filter(
+        (tm) => tm.meta.role === 'voxel' && tm.meta.variant === 'surface');
+
+    function alignSurfaceSheets(content) {
+        if (!surfaceSheets.length) return;
+        const variant = (content && content.surface) || config.style.cortexSurface || 'pial';
+        const byHemi = cortexGeo[variant];
+        if (!byHemi) return;                     // 'hidden', or a template without that variant
+        for (const tm of surfaceSheets) {
+            const src = byHemi[tm.meta.hemisphere];
+            if (!src || src.attributes.position.count !== tm.mesh.geometry.attributes.position.count) continue;
+            const g = tm.mesh.geometry;
+            if (g.attributes.position === src.attributes.position) continue;
+            g.setAttribute('position', src.attributes.position);
+            if (src.attributes.normal) g.setAttribute('normal', src.attributes.normal);
+        }
+    }
+
+    // Borders attach to the cortex shells only. Now that a sheet shares the shell's positions the
+    // two coincide exactly, so one border per shell is enough.
     const borderMat = makeBorderMaterial(config.style.parcellation || {});
-    const borderSources = sceneModel.meshes.filter(
-        (tm) => tm.meta.role === 'cortex' || (tm.meta.role === 'voxel' && tm.meta.variant === 'surface'));
+    const borderSources = sceneModel.meshes.filter((tm) => tm.meta.role === 'cortex');
     const borderMeshes = borderSources.map((tm) => {
         const geo = makeBorderGeometry(tm.mesh.geometry);
         const mesh = new THREE.Mesh(geo, borderMat);
@@ -682,6 +705,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
             camera.updateMatrixWorld(true);
 
             applyVisibility(def.content);
+            alignSurfaceSheets(def.content);   // sheet borrows THIS panel's cortex surface
             applyPanelSlice(def.slice);     // per-panel cut (resets to OFF when absent)
             // Anatomy cut-cap: on a sliced panel (with slice-anatomy on), paint the T1 cross-section
             // on the exposed cut face; hide it everywhere else (the mesh is shared across panels).

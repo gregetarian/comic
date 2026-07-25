@@ -350,6 +350,18 @@ are normalised to `-1`, and regions matching
 `unknown|medial_wall|background|corpuscallosum|???` are dropped and the remainder renumbered
 densely — otherwise comparing two atlases draws a spurious ring around the corpus callosum.
 
+**The sheet is drawn on the DISPLAYED surface.** `pipeline._stage_surface` stages the cortical
+sheet on **pial** vertices, but the shell shown is whatever `cortexSurface` / `content.surface`
+selects — inflated by default. The two differ by up to 3.4 mm, so the fill sat on a different
+surface from the shell it was meant to lie on: fold lines landed off the folds, and the sheet poked
+through the shell as grey fringes around activation patches. Every cortex variant is fsaverage ico7
+with the SAME vertex order and the SAME index buffer, so the engine now has the sheet borrow the
+displayed variant's `position`/`normal` attributes per panel (`alignSurfaceSheets`). No resampling,
+no extra geometry, and both buffers are already resident. Per-panel `content.surface` is honoured
+because the swap happens per panel. Measured effect on the surface golden: mean |Δ| 0.1675 over
+4130 px — within the existing tolerance, so no baseline was re-blessed; the volumetric goldens are
+untouched at 0.0000.
+
 **A solid cortical sheet — `style.voxel.surfaceBase`.** In surface mode the sheet DISCARDS
 sub-threshold vertices so the glass shell shows through, which is the glass-brain look for a stat
 map. For an atlas it is wrong: the unpainted medial wall becomes a genuine hole in the geometry,
