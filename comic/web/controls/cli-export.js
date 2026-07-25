@@ -28,6 +28,7 @@ const D = {
     veilStrength: 0.66, veilK: 7.4, emissive: 1.0, specular: 0.0, shininess: 200,
     directional: 0, ambient: 0, glassMaxOpacity: 0.0, outlineThreshold: 0.018,
     edgeWidth: 1.9, colormapMode: 'auto', overVoxelOpacity: 0.4,
+    lineColor: '#000000', edgeColor: '#808080',
 };
 
 const fmt = (n) => { const v = +n; return Number.isInteger(v) ? String(v) : String(Math.round(v * 1e4) / 1e4); };
@@ -114,6 +115,13 @@ function commandFor(config, i, meta, colormaps, preset) {
     if (s.outline.enabled === false) extra.push('--no-outline');
     if (s.outline.overVoxels === false) extra.push('--no-lines-over-voxels');
     else if ((s.outline.overVoxelOpacity ?? 1) !== D.overVoxelOpacity) extra.push(`--lines-over-voxels --over-voxel-opacity ${fmt(s.outline.overVoxelOpacity ?? 1)}`);
+    // Line colours + the split outer contour. Only emitted when moved off the default, so a
+    // stock figure's command is unchanged.
+    if (s.outline.color !== D.lineColor) extra.push(`--line-color ${s.outline.color}`);
+    if (s.outline.anatomyColor) extra.push(`--anat-line-color ${s.outline.anatomyColor}`);
+    if (os.edges.color !== D.edgeColor) extra.push(`--voxel-edge-color ${os.edges.color}`);
+    if (s.outline.silhouette?.color) extra.push(`--silhouette-color ${s.outline.silhouette.color}`);
+    if (s.outline.silhouette?.width != null) extra.push(`--silhouette-w ${fmt(s.outline.silhouette.width)}`);
     if (extra.length) parts.push(extra.join(' '));
 
     return parts.join(' \\\n  ');

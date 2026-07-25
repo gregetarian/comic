@@ -59,6 +59,23 @@ view pixel-for-pixel.
 - **Blocky or smooth** voxels, pial or inflated cortex; an optional **`smooth+`** pass
   (size-preserving Laplacian) that rounds rough cluster surfaces — most visible on
   large/irregular blobs.
+- **Parcellation borders** — draw atlas parcel boundaries on the cortical surface with
+  `--borders schaefer400_7` (or the **Parcels** control group). Lines are a geodesic
+  distance field, so they hold a constant screen-pixel width at any zoom and look identical
+  on pial, white and inflated. Schaefer 100/200/400/1000 × 7/17 networks ship with COMIC;
+  `comic parcels bake aparc a2009s yeo7 yeo17 hcpmmp1` fetches the rest from your own
+  FreeSurfer/MNE fsaverage install. `comic parcels list` shows what is available.
+- **Plot one value per parcel** — `--parcel-values table.csv --parcel-atlas schaefer400_7`
+  takes a CSV of `region,value`, paints each parcel flat through the colormap, and turns the
+  borders on. Region names are matched against the atlas (a bare FreeSurfer name like
+  `bankssts` applies to both hemispheres; `lh_bankssts` to one), and **an unmatched name is an
+  error, not a warning**.
+- **Per-line-set colours + a guaranteed outline** — set the colour of the cortical fold lines,
+  the subcortical lines, the voxel/blob edges, and the brain's outer contour independently
+  (`--line-color`, `--anat-line-color`, `--voxel-edge-color`, `--silhouette-color`,
+  `--silhouette-w`). The outer contour is its own pass over everything visible, so you can
+  grey out the fold lines — or switch them off entirely with `--no-outline` — and the brain
+  still keeps its dark outline.
 - **Clickable help on every control** — tap a parameter's label (above its slider) or
   the small **ⓘ** next to a toggle for a one-line explanation.
 - **Shared world scale** so every brain renders at the same physical size across

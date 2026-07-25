@@ -1,0 +1,85 @@
+{
+  "version": "fsaverage-ico7-v1",
+  "atlases": {
+    "schaefer400_7": {
+      "label": "Schaefer 400 (7 networks)",
+      "nparcels": 400,
+      "source": "CBIG v0.14.3-Update_Yeo2011_Schaefer2018_labelname",
+      "license": "MIT",
+      "shipped": true,
+      "bytes": 73765
+    },
+    "aparc": {
+      "label": "Desikan-Killiany (68)",
+      "nparcels": 68,
+      "source": "FreeSurfer fsaverage",
+      "license": "FreeSurfer (not OSI)",
+      "shipped": false,
+      "bytes": 33422
+    },
+    "yeo7": {
+      "label": "Yeo 7 networks",
+      "nparcels": 14,
+      "source": "FreeSurfer fsaverage (Yeo 2011)",
+      "license": "cite Yeo et al. 2011",
+      "shipped": false,
+      "bytes": 26496
+    },
+    "schaefer100_7": {
+      "label": "Schaefer 100 (7 networks)",
+      "nparcels": 100,
+      "source": "CBIG v0.14.3-Update_Yeo2011_Schaefer2018_labelname",
+      "license": "MIT",
+      "shipped": true,
+      "bytes": 42987
+    },
+    "schaefer100_17": {
+      "label": "Schaefer 100 (17 networks)",
+      "nparcels": 100,
+      "source": "CBIG v0.14.3-Update_Yeo2011_Schaefer2018_labelname",
+      "license": "MIT",
+      "shipped": true,
+      "bytes": 42982
+    },
+    "schaefer200_7": {
+      "label": "Schaefer 200 (7 networks)",
+      "nparcels": 200,
+      "source": "CBIG v0.14.3-Update_Yeo2011_Schaefer2018_labelname",
+      "license": "MIT",
+      "shipped": true,
+      "bytes": 55817
+    },
+    "schaefer200_17": {
+      "label": "Schaefer 200 (17 networks)",
+      "nparcels": 200,
+      "source": "CBIG v0.14.3-Update_Yeo2011_Schaefer2018_labelname",
+      "license": "MIT",
+      "shipped": true,
+      "bytes": 55811
+    },
+    "schaefer400_17": {
+      "label": "Schaefer 400 (17 networks)",
+      "nparcels": 400,
+      "source": "CBIG v0.14.3-Update_Yeo2011_Schaefer2018_labelname",
+      "license": "MIT",
+      "shipped": true,
+      "bytes": 73834
+    },
+    "schaefer1000_7": {
+      "label": "Schaefer 1000 (7 networks)",
+      "nparcels": 1000,
+      "source": "CBIG v0.14.3-Update_Yeo2011_Schaefer2018_labelname",
+      "license": "MIT",
+      "shipped": true,
+      "bytes": 103649
+    },
+    "schaefer1000_17": {
+      "label": "Schaefer 1000 (17 networks)",
+      "nparcels": 1000,
+      "source": "CBIG v0.14.3-Update_Yeo2011_Schaefer2018_labelname",
+      "license": "MIT",
+      "shipped": true,
+      "bytes": 103663
+    }
+  }
+}

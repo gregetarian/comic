@@ -17,7 +17,17 @@ import { overlayStyle } from '../core/config-schema.js';
 import { meshLayer, anatomyLayer } from '../core/mesh-meta.js';
 import { createAnatomyCap } from './anatomy-cap.js';
 import { makeGlassMaterial, makeAnatomyMaterial, makeOpaqueAnatomyMaterial, makeVoxelMaterial, makeSurfaceMaterial, makeSharedVoxelUniforms } from './materials.js';
-import { OutlinePass, makeThresholdDepthMaterial, makePlainDepthMaterial } from './passes.js';
+import { makeBorderMaterial, makeBorderGeometry, applyLabels } from './parcellation.js';
+import { OutlinePass, makeThresholdDepthMaterial, makePlainDepthMaterial, DEPTH_CLEAR } from './passes.js';
+
+const _clearScratch = new THREE.Color();   // save/restore around a depth-target clear
+const _colScratch = new THREE.Color();     // hex → linear RGB for the live line-colour uniforms
+
+/** Push a CSS hex colour into an OutlinePass's uColor (a vec3, not a THREE.Color). */
+function setPassColor(pass, hex) {
+    _colScratch.set(hex);
+    pass.outlineMaterial.uniforms.uColor.value.set(_colScratch.r, _colScratch.g, _colScratch.b);
+}
 
 export function createEngine({ renderer, width, height, sceneModel, colormaps, config }) {
     const scene = new THREE.Scene();
@@ -74,6 +84,9 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
     // subcortex layer, so the main camera draws it but the outline/edge depth passes never do.
     const CAP_LAYER = N + 2;
     const CUT_OVERLAY_LAYER = N + 3;
+    // Parcel borders are ordinary depth-tested geometry (not a screen-space pass), so they need a
+    // layer the panel cameras draw but no outline/edge depth pass ever renders.
+    const PARC_LAYER = N + 4;
     let anatomyCap = null;   // set by setAnatomyVolume() once the volume asset is loaded
     const cutVolumes = sceneModel.cutVolumes || [];
 
@@ -136,6 +149,50 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
             m.castShadow = SH.enabled; m.receiveShadow = SH.enabled;
         }
         scene.add(m);
+    }
+
+    // --- parcellation borders -------------------------------------------------------------
+    // One border mesh per cortex mesh, sharing that mesh's position/index buffers (so the whole
+    // layer costs one Float32Array of distances per hemisphere, not a second copy of the
+    // surface). Each is created up front and stays in the scene; changing atlas only rewrites
+    // the aDist attribute, so it never needs an engine rebuild.
+    //
+    // Borders are attached to the cortex shells AND to the M8 surface-projection sheets. Both are
+    // fsaverage ico7 with identical topology, but they are not the same surface: the sheets are
+    // staged on PIAL vertices while the shell defaults to the (mildly) inflated one, so a sheet is
+    // in front of the shell in some places and behind it in others. Carrying a border on both and
+    // letting the depth test choose means the line is always drawn on whichever sheet is frontmost
+    // — with one shared colour at full opacity, an overlapping stroke is indistinguishable from a
+    // single one, so the union costs nothing visually and needs no per-frame bookkeeping.
+    const borderMat = makeBorderMaterial(config.style.parcellation || {});
+    const borderSources = sceneModel.meshes.filter(
+        (tm) => tm.meta.role === 'cortex' || (tm.meta.role === 'voxel' && tm.meta.variant === 'surface'));
+    const borderMeshes = borderSources.map((tm) => {
+        const geo = makeBorderGeometry(tm.mesh.geometry);
+        const mesh = new THREE.Mesh(geo, borderMat);
+        mesh.renderOrder = 3;                // after the glass cortex (1), before the voxels (15)
+        mesh.layers.set(PARC_LAYER);
+        mesh.visible = false;
+        scene.add(mesh);
+        return { mesh, geo, src: tm };       // src.mesh.visible drives this one's visibility
+    });
+    let parcLoaded = null;                   // name of the atlas currently written into aDist
+    let parcAtlas = null;                    // its {lh, rh} label arrays, kept so `smooth` can re-derive
+
+    /** Write an atlas's labels into every border geometry. `atlas` is {lh, rh} Int16Arrays.
+     *  Pass null to detach. Cheap enough to call on every `smooth` change (~a few hundred ms for
+     *  both hemispheres × the surface variants in the scene). */
+    function setParcellation(name, atlas) {
+        parcLoaded = atlas ? name : null;
+        parcAtlas = atlas || null;
+        if (!atlas) return;
+        for (const b of borderMeshes) {
+            const labels = atlas[b.src.meta.hemisphere];
+            if (!labels) continue;           // a template with no lh/rh split has no atlas to draw
+            applyLabels(b.geo, b.src.mesh.geometry, labels, {
+                medialWall: config.style.parcellation?.medialWall !== false,
+            });
+        }
     }
 
     // Downsampled world voxel vertices, for anchoring the depth veil to the ACTUAL
@@ -278,6 +335,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         cam.layers.enable(ANATOMY_LAYER);                    // draw the subcortex shell (own layer)
         cam.layers.enable(CAP_LAYER);                        // draw the anatomy cut-cap (own layer)
         cam.layers.enable(CUT_OVERLAY_LAYER);                // thresholded maps composited on that cap
+        cam.layers.enable(PARC_LAYER);                       // parcellation boundary lines
         return { def: p, camera: cam, zoom: p.zoom || 1 };   // zoom: live per-panel rescale
     });
 
@@ -302,8 +360,23 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
     });
     // Subcortex outline — its OWN pass on ANATOMY_LAYER so its width is independent of the cortex
     // line (anatomyWidthMul, default 1.0 = uniform) without disturbing the cortex silhouette/sulci.
+    // It is given an EXPLICIT depth material (rather than the constructor's private one) so
+    // applyPanelSlice can reach it: without that the subcortex outline was computed from uncut
+    // geometry and kept stroking structures the Free Canvas cut had already removed.
+    const anatomyDepthMat = makePlainDepthMaterial(THREE.DoubleSide);
     const anatomyOutline = new OutlinePass(renderer, scene, maxCellW, maxCellH, {
-        layer: ANATOMY_LAYER, color: config.style.outline.color, width: config.style.outline.width, threshold: config.style.outline.threshold,
+        layer: ANATOMY_LAYER, color: config.style.outline.anatomyColor ?? config.style.outline.color,
+        width: config.style.outline.width, threshold: config.style.outline.threshold,
+        depthMaterial: anatomyDepthMat,
+    });
+    // The outer silhouette of the WHOLE figure. Its depth buffer is the union of cortex, subcortex,
+    // every overlay's supra-threshold voxels and the cut cap, so the contour follows whatever is
+    // actually visible from this angle — not the cortex alone. bgMode 2 = stroke ONLY where a tap
+    // touches empty background, so it draws the outer contour and nothing else.
+    const silhouettePass = new OutlinePass(renderer, scene, maxCellW, maxCellH, {
+        layer: 0, color: config.style.outline.silhouette?.color ?? config.style.outline.color,
+        width: config.style.outline.silhouette?.width ?? config.style.outline.width,
+        threshold: config.style.outline.threshold, bgMode: 2,
     });
     // Per-overlay voxel edge passes (each its own layer + edge style + veil).
     const edgePasses = [];
@@ -337,11 +410,38 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
     // occluded where a closer overlay's volume covers them (no longer see-through).
     for (const ep of edgePasses) ep.outlineMaterial.uniforms.uClipDepth.value = clipTarget.texture;
 
+    // The silhouette pass composites EVERY visible layer into its own depth target. Nothing can
+    // occlude an outer contour (it is by definition the frontmost boundary), so it never clips.
+    let silCapActive = false;   // set per panel in renderFrame, read by the hook below
+    silhouettePass.renderDepth = (cam, sc) => {
+        cam.layers.set(0);
+        sc.overrideMaterial = cortexOutline.depthMaterial;
+        renderer.render(sc, cam);
+        cam.layers.set(ANATOMY_LAYER);
+        sc.overrideMaterial = anatomyDepthMat;
+        renderer.render(sc, cam);
+        for (let i = 0; i < N; i++) {
+            cam.layers.set(1 + i);
+            sc.overrideMaterial = edgePasses[i].depthMaterial;   // threshold-aware: matches what's drawn
+            renderer.render(sc, cam);
+        }
+        if (silCapActive && anatomyCap) {
+            cam.layers.set(CAP_LAYER);
+            sc.overrideMaterial = anatomyCap.depthMaterial;
+            renderer.render(sc, cam);
+        }
+    };
+
     function renderClipDepth(camera, opaqueAnat, anyEdges, capActive) {
         const prev = scene.overrideMaterial;
         renderer.setRenderTarget(clipTarget);
         renderer.setScissorTest(false);
-        renderer.clear();                                   // clears colour (white→far) + depth
+        // Fixed far/no-coverage sentinel — see passes.js. Clearing to the FIGURE background instead
+        // (as this used to) meant a dark `render.background` read as depth 0, i.e. nearer than every
+        // surface, so the clip test treated empty space as an occluder and dimmed the whole outline.
+        const prevClear = renderer.getClearColor(_clearScratch), prevAlpha = renderer.getClearAlpha();
+        renderer.setClearColor(DEPTH_CLEAR, 1);
+        renderer.clear();                                   // clears colour (far/empty) + depth
         // Fold the nearest VOXEL depth in ONLY when voxel edges are shown — that clip exists so an
         // edge (and the cortex line over it) yields to a voxel genuinely in front. With smooth fills
         // (no edges) the cortex line-art should stay complete, so we DON'T let the volumes erase it.
@@ -368,6 +468,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
             renderer.render(scene, clipCam);
         }
         scene.overrideMaterial = prev;
+        renderer.setClearColor(prevClear, prevAlpha);
         renderer.setRenderTarget(null);
     }
 
@@ -402,6 +503,11 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
             if (vis && tm.meta.role === 'voxel' && ov[tm.meta.overlay ?? 0] && ov[tm.meta.overlay ?? 0].hidden) vis = false;
             tm.mesh.visible = vis;
         }
+        // Borders follow whichever cortex surface this panel actually shows (pial / white /
+        // inflated, one hemisphere or both) — they are per-vertex, so they are correct on all of
+        // them without recomputation.
+        const pOn = !!(config.style.parcellation?.enabled && parcLoaded);
+        for (const b of borderMeshes) b.mesh.visible = pOn && b.src.mesh.visible;
     }
     // View-space depth range of one overlay's visible voxels (nearest/farthest vertex).
     function voxelDepthRange(content, oi, camPos, fwd) {
@@ -459,7 +565,9 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         writeSlice(anatomyOpaqueMat.uniforms, slice);
         writeSlice(anatomyClipDepthMat.uniforms, slice);
         for (let i = 0; i < N; i++) writeSlice(uniforms[i], slice);   // voxel + its edge depth material
-        writeSlice(cortexOutline.depthMaterial.uniforms, slice);      // cortex silhouette
+        writeSlice(cortexOutline.depthMaterial.uniforms, slice);      // cortex outline + silhouette depth
+        writeSlice(anatomyDepthMat.uniforms, slice);                  // subcortex outline + silhouette depth
+        writeSlice(borderMat.uniforms, slice);                        // parcel borders follow the cut
     }
 
     // Install (or clear) the anatomy cut-cap volume. `vol` is {data,dims,affine} from the baked
@@ -635,6 +743,16 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
                 edgePasses[i].outlineMaterial.uniforms.uClipApply.value = clip ? 1.0 : 0.0;
                 edgePasses[i].update(camera, rect.x, rect.y, rect.w, rect.h);
             }
+            // Does the OUTER contour need its own pass this frame? Only when it would differ from
+            // what the cortex pass already draws: the fold lines are off, or the silhouette has been
+            // given its own colour/width. When it inherits both and the folds are on, the single
+            // historical pass draws contour + folds exactly as before — so a default figure renders
+            // through the identical code path and stays pixel-for-pixel unchanged.
+            const sil = config.style.outline.silhouette || {};
+            const inheritsLook = sil.color == null && sil.width == null;
+            const wantSilhouette = sil.enabled !== false
+                && !(config.style.outline.enabled && inheritsLook);
+            silCapActive = capActive;
             // Black cortex outline on top — clipped so any voxel genuinely in front shows.
             // Per-panel `def.outline` MULTIPLIES the global width/threshold (default 1) so e.g. a
             // dorsal panel — whose densely-folded superior surface is seen face-on and merges into
@@ -650,6 +768,9 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
                 ou.uClipApply.value = clip ? 1.0 : 0.0;
                 ou.uOverVoxelAlpha.value = config.style.outline.overVoxels
                     ? (config.style.outline.overVoxelOpacity ?? 1.0) : 0.0;
+                // Hand the outer contour to the silhouette pass when it is running, so the two
+                // never stroke the same pixels in two different colours.
+                ou.uBgMode.value = wantSilhouette ? 1.0 : 0.0;
                 cortexOutline.update(camera, rect.x, rect.y, rect.w, rect.h);
                 // Subcortex on top, on its own pass at the reduced anatomyWidthMul — only when this
                 // panel actually shows anatomy (else the empty layer-pass is skipped).
@@ -661,8 +782,19 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
                     // subcortex outline is occluded where the cortex wall is in front of it.
                     au.uClipDepth.value = cortexOutline.depthTarget.texture;
                     au.uClipApply.value = 1.0;
+                    au.uBgMode.value = wantSilhouette ? 1.0 : 0.0;
                     anatomyOutline.update(camera, rect.x, rect.y, rect.w, rect.h);
                 }
+            }
+            // Outer contour LAST, so it sits on top of every fill, edge and fold line. It is the one
+            // stroke that must survive whatever the rest of the style does.
+            if (wantSilhouette) {
+                const su = silhouettePass.outlineMaterial.uniforms, po = def.outline;
+                su.uLineWidth.value = (sil.width ?? config.style.outline.width)
+                    * outlineSaveScale * ((po && po.widthMul) || 1);
+                su.uThreshold.value = config.style.outline.threshold * ((po && po.thresholdMul) || 1);
+                su.uClipApply.value = 0.0;
+                silhouettePass.update(camera, rect.x, rect.y, rect.w, rect.h);
             }
         }
     }
@@ -674,6 +806,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         // so the brains keep a fixed size; only the view transform's screen mapping changes.
         cortexOutline.setSize(w, h);
         anatomyOutline.setSize(w, h);
+        silhouettePass.setSize(w, h);
         for (const ep of edgePasses) ep.setSize(w, h);
         clipTarget.setSize(Math.round(w * renderer.getPixelRatio()), Math.round(h * renderer.getPixelRatio()));
     }
@@ -683,6 +816,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         renderer.setSize(width, height, false);
         cortexOutline.pr = pr; cortexOutline.setSize(width, height);
         anatomyOutline.pr = pr; anatomyOutline.setSize(width, height);
+        silhouettePass.pr = pr; silhouettePass.setSize(width, height);
         for (const ep of edgePasses) { ep.pr = pr; ep.setSize(width, height); }
         clipTarget.setSize(Math.round(width * pr), Math.round(height * pr));
     }
@@ -700,6 +834,20 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         glassMat.uniforms.uMaxOpacity.value = s.glass.maxOpacity;
         cortexOutline.outlineMaterial.uniforms.uLineWidth.value = s.outline.width;
         cortexOutline.outlineMaterial.uniforms.uThreshold.value = s.outline.threshold;
+        // Line COLOURS are pushed here and nowhere else. They used to be baked in at pass
+        // construction, which is why changing one needed a full engine rebuild — and why the
+        // colour fields in the schema had no UI at all.
+        setPassColor(cortexOutline, s.outline.color);
+        setPassColor(anatomyOutline, s.outline.anatomyColor ?? s.outline.color);
+        setPassColor(silhouettePass, s.outline.silhouette?.color ?? s.outline.color);
+        const parc = s.parcellation || {};
+        _colScratch.set(parc.color ?? '#1a1a1a');
+        borderMat.uniforms.uColor.value.set(_colScratch.r, _colScratch.g, _colScratch.b);
+        // Border width is in device px, so this doubles as the post-save RESTORE: applyStyle has
+        // just reset outlineSaveScale, and scaleOutlines multiplies the uniform during a save
+        // exactly as it does for the voxel edge passes.
+        borderMat.uniforms.uHalfWidth.value = (parc.width ?? 2.0) * 0.5;
+        borderMat.uniforms.uOpacity.value = parc.opacity ?? 1.0;
         for (let i = 0; i < N; i++) {
             const os = overlayStyle(config, i), u = uniforms[i];
             u.uGlintAmt.value = os.specular;
@@ -713,6 +861,8 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
             const em = edgePasses[i].outlineMaterial.uniforms;
             em.uOpacity.value = os.edges.opacity;
             em.uLineWidth.value = os.edges.width;
+            em.uThreshold.value = os.edges.threshold;   // was construction-only, like the colour
+            setPassColor(edgePasses[i], os.edges.color);
         }
         if (anatomyCap) anatomyCap.setOverlayStyles(resolvedCutOverlaySpecs());
     }
@@ -795,6 +945,8 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
     function scaleOutlines(f) {
         outlineSaveScale *= f;   // cortex outline width is recomputed per-panel from this each frame
         for (const ep of edgePasses) ep.outlineMaterial.uniforms.uLineWidth.value *= f;
+        borderMat.uniforms.uHalfWidth.value *= f;
+
     }
 
     // Free this engine's GPU resources so it can be rebuilt in-place when the
@@ -806,6 +958,12 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         for (const m of voxelMats) m.dispose();
         cortexOutline.dispose();
         anatomyOutline.dispose();
+        silhouettePass.dispose();
+        anatomyDepthMat.dispose();
+        borderMat.dispose();
+        // Only the border geometries' own aDist buffers are freed — position/index are the cortex
+        // meshes' attributes, which outlive the engine.
+        for (const b of borderMeshes) { b.geo.deleteAttribute('position'); b.geo.setIndex(null); b.geo.dispose(); }
         for (const ep of edgePasses) ep.dispose();
         clipTarget.dispose();
         if (anatomyCap) anatomyCap.dispose();
@@ -815,6 +973,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
     return {
         scene, renderFrame, resize, setPixelRatio, getPanelRects, getPanelContentRects, getPanelDesignRects, getPanelContentAABB, getPanelView, zoomPanel, scaleOutlines, recolor, applyStyle, applySmoothing, setColormap, dispose,
         setView, getView, panView, zoomViewAt, resetView, fitView, setAnatomyVolume,
+        setParcellation, getParcellation: () => parcLoaded,
         getSurfaceVariants: () => surfaceVariants.slice(),
         setSpinFit: (v) => { spinFit = !!v; },   // sphere-fit (constant size) only while spinning
         overlays, config, renderer, THREE, sceneModel,

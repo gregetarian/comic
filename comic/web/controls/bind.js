@@ -65,6 +65,13 @@ const TIPS = {
     'c-outline-overvox': 'Cortex line strength where it crosses a voxel: 0 = hidden under the blob, 1 = full black on top, in between = a greyed line blended with the blob.',
     'c-directional': 'Directional (headlight) intensity — global.',
     'c-ambient': 'Ambient light intensity — global.',
+    'c-line-color': 'Colour of the cortical fold (sulcal/gyral) lines.',
+    'c-line-anat-color': 'Colour of the subcortical structure lines. Defaults to the cortex line colour.',
+    'c-sil-color': "Colour of the brain's outer contour. Setting it splits the contour off from the fold lines, so you can lighten or hide the folds and still keep a dark outline.",
+    'c-sil-width': 'Thickness of the outer contour, independent of the fold lines.',
+    'c-parc': 'Draw atlas parcel boundaries on the cortical surface.',
+    'c-parc-color': 'Colour of the parcel boundary lines.',
+    'c-parc-width': 'Parcel boundary thickness, in screen pixels — constant at any zoom.',
 };
 
 function bindRange(el, value, oninput, { min, max, step } = {}, tip, propagate) {
@@ -101,8 +108,17 @@ function bindToggle(el, active, onchange, tip) {
     el.classList.toggle('active', !!active);
     el.addEventListener('click', () => { el.classList.toggle('active'); onchange(el.classList.contains('active')); });
 }
+/** A colour swatch inside a .sw wrapper — same clickable-label help as a slider. */
+function bindColor(el, value, oninput, tip) {
+    if (!el) return;
+    el.value = value || '#000000';
+    if (tip) el.title = tip;
+    el.addEventListener('input', () => oninput(el.value));
+    infoLabel(el, tip);        // infoLabel only needs el.closest('.sw') and its first <span>
+}
 const slider = (id, value, oninput, opts) => bindRange($(id), value, oninput, opts, TIPS[id]);
 const toggle = (id, active, onchange) => bindToggle($(id), active, onchange, TIPS[id]);
+const color = (id, value, oninput) => bindColor($(id), value, oninput, TIPS[id]);
 
 function sw(labelText) {
     const wrap = document.createElement('div'); wrap.className = 'sw';
@@ -358,7 +374,7 @@ function setupLayoutPicker(lay, config, preset, onPreset) {
     populate();
 }
 
-export function bindGlobalControls({ config, colormaps, getEngine, preset, onUpload, onPreset }) {
+export function bindGlobalControls({ config, colormaps, getEngine, preset, onUpload, onPreset, onParcellation }) {
     const s = config.style;
     const apply = () => getEngine().applyStyle();
 
@@ -373,6 +389,36 @@ export function bindGlobalControls({ config, colormaps, getEngine, preset, onUpl
     slider('c-outline-overvox', s.outline.overVoxelOpacity ?? 1, (v) => { s.outline.overVoxels = true; s.outline.overVoxelOpacity = v; apply(); }, { min: 0, max: 1, step: 0.05 });
     slider('c-directional', s.lighting.directional, (v) => { s.lighting.directional = v; apply(); }, { min: 0, max: 4, step: 0.05 });
     slider('c-ambient', s.lighting.ambient, (v) => { s.lighting.ambient = v; apply(); }, { min: 0, max: 4, step: 0.05 });
+
+    // --- line colours -----------------------------------------------------------------
+    // Touching the outer-contour colour or width SPLITS it off from the fold lines (see
+    // style.outline.silhouette in config-schema). Until then both are null and one pass draws
+    // both, exactly as before — so simply opening the panel changes nothing.
+    const sil = (s.outline.silhouette ||= { enabled: true, color: null, width: null });
+    color('c-line-color', s.outline.color, (hex) => { s.outline.color = hex; apply(); });
+    color('c-line-anat-color', s.outline.anatomyColor ?? s.outline.color, (hex) => { s.outline.anatomyColor = hex; apply(); });
+    color('c-sil-color', sil.color ?? s.outline.color, (hex) => { sil.color = hex; apply(); });
+    slider('c-sil-width', sil.width ?? s.outline.width, (v) => { sil.width = v; apply(); }, { min: 0.3, max: 12, step: 0.1 });
+    const silReset = $('c-sil-reset');
+    if (silReset) silReset.addEventListener('click', () => {
+        sil.color = null; sil.width = null; s.outline.anatomyColor = null;
+        const c = $('c-sil-color'); if (c) c.value = s.outline.color;
+        const a = $('c-line-anat-color'); if (a) a.value = s.outline.color;
+        const w = $('c-sil-width');
+        if (w) { w.value = s.outline.width; if (w.nextElementSibling) w.nextElementSibling.value = trimNum(s.outline.width); }
+        apply();
+    });
+
+    // --- parcellation borders ---------------------------------------------------------
+    // Colour/width are pure style (applyStyle pushes a uniform). Enabling, changing atlas, or
+    // changing `smooth` needs the label field fetched and/or the distance field re-derived, so
+    // those go back to main.js through onParcellation.
+    const p = (s.parcellation ||= { enabled: false, atlas: null, color: '#1a1a1a', width: 2.0 });
+    color('c-parc-color', p.color, (hex) => { p.color = hex; apply(); });
+    slider('c-parc-width', p.width, (v) => { p.width = v; apply(); }, { min: 0.4, max: 8, step: 0.1 });
+    toggle('c-parc', p.enabled, (on) => { onParcellation?.({ enabled: on }); });
+    const atlasSel = $('c-parc-atlas');
+    if (atlasSel) atlasSel.addEventListener('change', () => onParcellation?.({ atlas: atlasSel.value }));
 
     const up = $('c-upload');
     if (up) up.addEventListener('change', (e) => {

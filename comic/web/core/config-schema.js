@@ -67,7 +67,21 @@ export const DEFAULTS = {
         // for the buried portion: 1 = full black on top, <1 = a muted/greyed stroke that blends with
         // the voxel it crosses (so the line reads as passing under the blob). Default false = the
         // depth-correct look (voxels occlude the lines behind them).
-        outline: { enabled: true, color: '#000000', width: 7.0, threshold: 0.018, anatomyWidthMul: 1.0, overVoxels: true, overVoxelOpacity: 0.4 },
+        // anatomyColor: null = the subcortex line inherits `color`; set it to stroke the subcortical
+        // structures in their own colour. silhouette: the OUTER contour of the figure, split out of
+        // this pass so it survives whatever you do to the interior fold lines — recolour them, thin
+        // them, or switch them off, and the brain still gets its dark outline. `color`/`width` null
+        // means "inherit from the fold lines", and in that case (with folds on) the separate pass is
+        // skipped entirely and the single historical pass draws both — so default output is unchanged.
+        outline: { enabled: true, color: '#000000', width: 7.0, threshold: 0.018, anatomyWidthMul: 1.0,
+            overVoxels: true, overVoxelOpacity: 0.4, anatomyColor: null,
+            silhouette: { enabled: true, color: null, width: null } },
+        // Parcellation boundary lines (atlas borders drawn on the cortical surface). `atlas` names a
+        // baked/fetched per-vertex label set; width is in device px and is constant at any zoom.
+        // The contour is always smoothed by a fixed amount — see scene/parcellation.js for why that
+        // is not a parameter and is never done by relabelling vertices.
+        parcellation: { enabled: false, atlas: null, color: '#1a1a1a', width: 2.0, opacity: 1.0,
+            medialWall: true },
         // Scene lights off by default — voxel colour comes from emissive (full flat
         // colormap) + the light-independent glint, so the colours stay saturated.
         lighting: { directional: 0, ambient: 0, headlight: true },
@@ -166,6 +180,14 @@ const climOk = (c) => c == null || typeof c === 'number'
     || (Array.isArray(c) && c.length === 2 && typeof c[0] === 'number' && typeof c[1] === 'number' && c[0] < c[1]);
 const repOk = (r) => r == null || REPRESENTATIONS.has(r);
 const volumeRepOk = (r) => r == null || VOLUME_REPRESENTATIONS.has(r);
+// Line colours are validated (unlike the older style fields) because a typo'd colour renders as
+// black with no clue why — and a whole figure's line-art hangs on them. Absent (null/undefined)
+// always passes: validateConfig also runs on partial, un-normalised configs, and a missing field
+// simply means "inherit", exactly as climOk/repOk/cutOk treat theirs.
+const colorOk = (c) => c == null || (typeof c === 'string' && /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(c));
+const widthOk = (w) => w == null || (typeof w === 'number' && w > 0);
+const parcOk = (p) => !p || (colorOk(p.color) && widthOk(p.width)
+    && (p.opacity == null || (typeof p.opacity === 'number' && p.opacity >= 0 && p.opacity <= 1)));
 const cutOk = (c) => !c || ((c.interpolation == null || c.interpolation === 'linear' || c.interpolation === 'nearest')
     && (c.slabMm == null || (typeof c.slabMm === 'number' && c.slabMm >= 0))
     && (c.opacity == null || (typeof c.opacity === 'number' && c.opacity >= 0 && c.opacity <= 1)));
@@ -180,6 +202,11 @@ export function validateConfig(cfg) {
     if (!volumeRepOk(cfg.style?.voxel?.subcortexRepresentation))
         errors.push(`style.voxel.subcortexRepresentation must be one of ${[...VOLUME_REPRESENTATIONS].join('/')}`);
     if (!cutOk(cfg.style?.cutOverlay)) errors.push('style.cutOverlay needs interpolation linear/nearest, slabMm >= 0, and opacity 0..1');
+    if (!colorOk(cfg.style?.outline?.color)) errors.push('style.outline.color must be a #rgb/#rrggbb colour');
+    if (!colorOk(cfg.style?.outline?.anatomyColor)) errors.push('style.outline.anatomyColor must be null or a #rgb/#rrggbb colour');
+    if (!colorOk(cfg.style?.outline?.silhouette?.color)) errors.push('style.outline.silhouette.color must be null or a #rgb/#rrggbb colour');
+    if (!widthOk(cfg.style?.outline?.silhouette?.width)) errors.push('style.outline.silhouette.width must be null or a positive number');
+    if (!parcOk(cfg.style?.parcellation)) errors.push('style.parcellation needs a #rgb/#rrggbb color, width > 0, and opacity 0..1');
     (cfg.style?.overlays || []).forEach((o, i) => {
         if (!o) return;
         if (!climOk(o.clim)) errors.push(`style.overlays[${i}].clim invalid (null | number | [vmin<vmax])`);
