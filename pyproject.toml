@@ -73,4 +73,10 @@ comic = [
 # so ignore those stylistic rules; keep F + the meaningful E checks (undefined names,
 # comparisons, bare excepts, syntax).
 [tool.ruff.lint]
+# `select` is PINNED, not inherited. These four were ruff's default rule set when this policy was
+# written; leaving it implicit meant a ruff release could silently add rules and break CI on an
+# unrelated commit. That happened: 0.16.0 added isort (I) and several refactor families to its
+# defaults, and CI — which installs `ruff` unpinned via the [dev] extra — went red with 68 style
+# findings on a commit that changed none of them.
+select = ["E4", "E7", "E9", "F"]
 ignore = ["E701", "E702", "E401", "E402", "E731"]

@@ -3,8 +3,8 @@
 The baked-asset tests are skipped when comic/web/data/parcels is empty, so a fresh clone that has
 not run `comic parcels bake` still passes; the pure-logic tests always run.
 """
-import json
 import gzip
+import json
 from pathlib import Path
 
 import numpy as np
