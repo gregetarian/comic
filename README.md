@@ -69,7 +69,11 @@ view pixel-for-pixel.
   takes a CSV of `region,value`, paints each parcel flat through the colormap, and turns the
   borders on. Region names are matched against the atlas (a bare FreeSurfer name like
   `bankssts` applies to both hemispheres; `lh_bankssts` to one), and **an unmatched name is an
-  error, not a warning**.
+  error, not a warning**. The cortical sheet is drawn solid (`--surface-base`), so an unpainted
+  medial wall reads as grey surface rather than a window onto the far side of the hemisphere.
+  In the browser, just drop the table in — the atlas is inferred from the row count and region
+  names, and you are asked only when it genuinely cannot be known (every Schaefer size ships in
+  both a 7- and a 17-network variant).
 - **Per-line-set colours + a guaranteed outline** — set the colour of the cortical fold lines,
   the subcortical lines, the voxel/blob edges, and the brain's outer contour independently
   (`--line-color`, `--anat-line-color`, `--voxel-edge-color`, `--silhouette-color`,

@@ -50,6 +50,11 @@ export const DEFAULTS = {
             specular: 0.0,   // light-independent glint amount (slider 0..0.6); off = flat matte
             emissive: 1.0,   // full flat colormap colour (scene lights are 0 by default)
             surfaceDepth: 6, // M2: K depth samples pial->white when representation === 'surface' (M8)
+            // Surface mode: colour for cortex BELOW threshold. null = discard it so the glass
+            // shell shows through (the glass-brain look for a stat map). A colour makes the sheet
+            // solid, which is what an atlas figure wants — an unpainted medial wall is then a grey
+            // surface rather than a hole you can see the far side of the hemisphere through.
+            surfaceBase: null,
             veil: { strength: 0.30, k: 7.4, color: '#ffffff' },   // depth veil low by default (was 0.66)
             edges: { enabled: true, color: '#808080', opacity: 1.0, width: 1.9, threshold: 0.003 },
         },
@@ -145,6 +150,7 @@ export function overlayStyle(config, i = 0) {
         specular: ov.specular ?? v.specular,
         emissive: ov.emissive ?? v.emissive,
         surfaceDepth: ov.surfaceDepth ?? v.surfaceDepth,
+        surfaceBase: ov.surfaceBase ?? v.surfaceBase,
         veil: { ...(v.veil || {}), ...(ov.veil || {}) },
         edges: { ...(v.edges || {}), ...(ov.edges || {}) },
         cutOverlay: { ...(s.cutOverlay || {}), ...(o.cutOverlay || {}) },

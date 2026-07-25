@@ -100,6 +100,8 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         });
         u.uMaxAbs.value = deriveMaxAbs(os.clim, overlays[i].maxAbsValue ?? 1.0);   // clim pins the scale
         u.uThreshold.value = os.threshold ?? overlays[i].threshold ?? 0;
+        u.uBaseApply.value = os.surfaceBase ? 1 : 0;
+        if (os.surfaceBase) u.uBaseColor.value.set(os.surfaceBase);
         uniforms.push(u);
         const mat = makeVoxelMaterial({}, u);
         // Row order = display priority: where overlays coincide in depth, the
@@ -858,6 +860,8 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
             u.uThreshold.value = os.threshold ?? overlays[i].threshold ?? 0;
             u.uPositiveOnly.value = os.positiveOnly ? 1 : 0;
             u.uClusterMin.value = os.clusterMin ?? 0;
+            u.uBaseApply.value = os.surfaceBase ? 1 : 0;
+            if (os.surfaceBase) u.uBaseColor.value.set(os.surfaceBase);
             const em = edgePasses[i].outlineMaterial.uniforms;
             em.uOpacity.value = os.edges.opacity;
             em.uLineWidth.value = os.edges.width;
