@@ -97,7 +97,7 @@ out vec4 fragColor;
 void main() {
     float a;
     if (!gbSampleAnatomy(a)) discard;
-    fragColor = vec4(-vViewDepth / 500.0, 0.0, 0.0, 1.0);
+    fragColor = vec4(-vViewDepth / 500.0, 1.0, 0.0, 1.0);   // G = coverage flag (see passes.js)
 }`;
 
 const OVERLAY_FRAG = `

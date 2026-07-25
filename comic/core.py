@@ -132,6 +132,10 @@ def cli():
     bk.add_argument('--aseg-labels', default=None, help='JSON map {label_id: category} for the aseg')
     bk.add_argument('--space', default='custom', help='template space label (informational)')
 
+    pc = sub.add_parser('parcels', help='List or bake cortical parcellations for --borders')
+    pc.add_argument('action', choices=['list', 'bake'], nargs='?', default='list')
+    pc.add_argument('names', nargs='*', help='atlas names to bake (default: every shipped one)')
+
     r = sub.add_parser('render', help='Render a custom multi-panel figure to PNG (headless)')
     r.add_argument('nifti', nargs='*',
                    help='NIfTI stat map(s). Pass several for a multi-overlay figure (each map '
@@ -190,6 +194,32 @@ def cli():
     r.add_argument('--edge-thr', type=float, default=None)
     r.add_argument('--line-w', type=float, default=None)
     r.add_argument('--voxel-edge-w', type=float, default=None)
+    r.add_argument('--line-color', default=None, metavar='#RRGGBB',
+                   help='colour of the cortical fold (sulcal/gyral) lines (default #000000)')
+    r.add_argument('--anat-line-color', default=None, metavar='#RRGGBB',
+                   help='colour of the subcortical structure lines (default: same as --line-color)')
+    r.add_argument('--voxel-edge-color', default=None, metavar='#RRGGBB',
+                   help='colour of the voxel/blob edge lines (default #808080)')
+    r.add_argument('--silhouette-color', default=None, metavar='#RRGGBB',
+                   help="colour of the brain's outer contour. Setting it (or --silhouette-w) splits "
+                        'the contour off from the fold lines, so the folds can be lightened or '
+                        'switched off (--no-outline) while the dark outline survives')
+    r.add_argument('--silhouette-w', type=float, default=None,
+                   help='thickness of the outer contour, independent of the fold-line width')
+    r.add_argument('--borders', default=None, metavar='ATLAS',
+                   help='draw parcellation boundary lines on the cortical surface, e.g. '
+                        'schaefer400_7 / aparc / yeo7. `comic parcels list` shows what is baked')
+    r.add_argument('--border-color', default=None, metavar='#RRGGBB',
+                   help='parcel boundary colour (default #1a1a1a)')
+    r.add_argument('--border-w', type=float, default=None,
+                   help='parcel boundary thickness in screen pixels (default 2.0)')
+    r.add_argument('--parcel-values', default=None, metavar='TABLE.csv',
+                   help='a CSV/TSV of `region,value` (one row per parcel) painted flat onto the '
+                        'cortical surface through the colormap. Needs --parcel-atlas (or --borders) '
+                        'to say which parcellation the region names belong to. Implies borders on '
+                        'that atlas and a display threshold of 0 unless you set --threshold')
+    r.add_argument('--parcel-atlas', default=None, metavar='ATLAS',
+                   help='atlas the --parcel-values region names index (default: whatever --borders uses)')
     r.add_argument('--positive-only', action='store_true')
     r.add_argument('--no-edges', action='store_true')
     r.add_argument('--no-outline', action='store_true')
@@ -263,6 +293,23 @@ def cli():
         else:
             bake.bake()
 
+    elif args.command == 'parcels':
+        from . import parcels as P
+        out = WEB_DIR / 'data' / 'parcels'
+        if args.action == 'bake':
+            P.bake_parcellations(out, args.names or None)
+        else:
+            index_path = out / 'index.json'
+            baked = json.loads(index_path.read_text())['atlases'] if index_path.exists() else {}
+            print(f"{'atlas':16s} {'parcels':>8s}  {'baked':5s}  source / licence")
+            for name, spec in P.ATLASES.items():
+                info = baked.get(name)
+                n = str(info['nparcels']) if info else '-'
+                print(f"{name:16s} {n:>8s}  {'yes' if info else 'no':5s}  {spec['source']} — {spec['license']}")
+            print("\nBake with:  comic parcels bake <name> [<name> ...]"
+                  "\nAtlases marked 'no' are not redistributable, so they are fetched from your own"
+                  "\nFreeSurfer/MNE fsaverage install on demand rather than shipped with COMIC.")
+
     elif args.command == 'render':
         from .render import build_layout, render_to_png, load_spec, _deep_merge, to_volume_layout
         from .figure import build_style
@@ -275,6 +322,26 @@ def cli():
             if 'lh' not in d and 'rh' not in d:
                 parser.error(f"--surface-map '{spec}' needs at least lh=<file> or rh=<file>")
             surface_maps.append(d)
+        # --parcel-values: expand a per-region table into per-vertex maps and hand them to the
+        # SAME native-surface path a .gii would take. The atlas doubles as the border source, so
+        # `--parcel-values t.csv --parcel-atlas schaefer400_7` is the whole figure in one flag.
+        if args.parcel_values:
+            from . import parcels as P
+            atlas = args.parcel_atlas or args.borders
+            if not atlas:
+                parser.error('--parcel-values needs --parcel-atlas (or --borders) to name the parcellation')
+            maps = P.values_to_vertex_maps(P.load_value_table(args.parcel_values), atlas,
+                                           WEB_DIR / 'data' / 'parcels')
+            surface_maps.append({'lh': maps['lh'], 'rh': maps['rh'],
+                                 'name': Path(args.parcel_values).stem})
+            args.borders = args.borders or atlas
+            # A per-parcel table is not a z-map: the default 2.3 cutoff would blank most figures.
+            # Not exactly 0 either — the medial wall and any parcel absent from the table are 0,
+            # and a 0 threshold would paint them as the bottom of the colormap instead of leaving
+            # the cortex showing through. An epsilon hides exact zeros and nothing else.
+            if args.threshold == r.get_default('threshold'):
+                args.threshold = '1e-9'
+
         if not args.nifti and not surface_maps:
             parser.error("render needs at least one NIfTI (positional) or a --surface-map")
         if surface_maps and (args.sweep is not None or args.orbit is not None):
@@ -357,6 +424,16 @@ def cli():
             setp('outline.overVoxels', args.lines_over_voxels)
             setp('outline.overVoxelOpacity', args.over_voxel_opacity)
             setp('voxel.edges.width', args.voxel_edge_w)
+            setp('outline.color', args.line_color)
+            setp('outline.anatomyColor', args.anat_line_color)
+            setp('voxel.edges.color', args.voxel_edge_color)
+            setp('outline.silhouette.color', args.silhouette_color)
+            setp('outline.silhouette.width', args.silhouette_w)
+            if args.borders:
+                setp('parcellation.enabled', True)
+                setp('parcellation.atlas', args.borders)
+            setp('parcellation.color', args.border_color)
+            setp('parcellation.width', args.border_w)
             if args.no_edges:
                 setp('voxel.edges.enabled', False)
             if args.no_outline:

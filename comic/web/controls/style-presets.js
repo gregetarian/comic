@@ -13,7 +13,8 @@ const KEY = 'comic.stylePresets.v1';
 // Global style fields a preset carries (everything in config.style EXCEPT the per-overlay
 // `overlays` array, which is captured separately, and nothing layout-related).
 const GLOBAL_KEYS = ['colormap', 'colormapMode', 'threshold', 'positiveOnly', 'gamma', 'margin',
-    'cortexSurface', 'voxel', 'glass', 'anatomy', 'outline', 'lighting', 'tilt', 'shadows'];
+    'cortexSurface', 'voxel', 'glass', 'anatomy', 'outline', 'lighting', 'tilt', 'shadows',
+    'parcellation'];
 
 const isObj = (x) => x && typeof x === 'object' && !Array.isArray(x);
 const clone = (x) => JSON.parse(JSON.stringify(x));

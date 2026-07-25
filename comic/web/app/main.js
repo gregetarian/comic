@@ -16,7 +16,7 @@ import { loadColormaps } from '../core/colormap.js';
 import { setOverlayStyle } from '../core/config-schema.js';
 import { createPresetsUI, randomColormapName } from '../controls/style-presets.js';
 import { contentBBoxPx } from '../core/bbox.js';
-import { loadBaseScene, buildOverlayMeshes, buildCutVolume, loadOverlayArrays, loadAnatomyVolume } from '../scene/asset-loader.js';
+import { loadBaseScene, buildOverlayMeshes, buildCutVolume, loadOverlayArrays, loadAnatomyVolume, loadParcellation, loadParcellationIndex } from '../scene/asset-loader.js';
 import { createEngine } from '../scene/renderer.js';
 import { createColorbar } from '../controls/colorbar.js';
 import { initKapow } from '../controls/kapow.js';
@@ -40,6 +40,7 @@ const state = createSessionState();
 let renderer, colormaps, baseScene, config, engine, colorbar;
 let overlays = [];   // [{ meta, meshObjs: [{ mesh, meta, values, aabb }, ...] }]
 let anatomyVol = null;   // the cut-cap volume asset {data,dims,affine}, loaded on first use
+let parcAtlas = null;    // the active parcellation's {lh,rh} label arrays, kept across rebuilds
 let zoomEls = [];
 let fcEditor = null;   // Free Canvas editor overlay (only in layout.mode === 'free')
 let container, canvas;
@@ -107,7 +108,9 @@ async function main() {
         getEngine: () => engine,
         onUpload: handleUpload,
         onPreset: setPreset,
+        onParcellation: setParcellationUI,
     });
+    populateAtlasPicker();
     initKapow(document.getElementById('c-kapow'));
     document.getElementById('c-save-brain').addEventListener('click', saveBrain);
     document.getElementById('c-save-bars').addEventListener('click', saveBars);
@@ -262,6 +265,11 @@ async function runHeadless() {
         try { anatomyVol = await loadAnatomyVolume(DATA, baseScene.templateBundle); engine.setAnatomyVolume(anatomyVol); }
         catch (err) { console.warn('slice anatomy asset unavailable:', err); }
     }
+    // Parcellation borders — same "await before the screenshot" rule as the cut anatomy. NOT
+    // wrapped in a try: a figure that asked for an atlas and silently rendered without it would
+    // be a wrong figure, so a missing/mismatched atlas must fail the render loudly.
+    const parc = config.style.parcellation;
+    if (parc?.enabled && parc.atlas) engine.setParcellation(parc.atlas, await loadParcellation(parc.atlas, DATA));
 
     // Brain fills the full figure (no strip → never squashed); render.py hides/shows the
     // colorbar to screenshot it separately. Wait for the web font so colorbar ticks settle.
@@ -538,6 +546,59 @@ async function setCutOverlay(on) {
     else { engine.applyStyle(); engine.renderFrame(); }
 }
 
+/** Fill the atlas <select> from what this install actually has baked. An install with no
+ *  parcels/ directory simply gets a disabled picker — the rest of the viewer is unaffected. */
+async function populateAtlasPicker() {
+    const sel = document.getElementById('c-parc-atlas');
+    if (!sel) return;
+    const { atlases } = await loadParcellationIndex(DATA);
+    // index.json is committed but the non-redistributable atlases are git-ignored, so a fresh
+    // clone (and the GitHub Pages artifact) can list atlases whose payload was never shipped.
+    // One HEAD each, in parallel, keeps the picker honest about what this install can actually
+    // load instead of offering a choice that 404s.
+    const listed = Object.keys(atlases);
+    const ok = await Promise.all(listed.map((n) => fetch(`${DATA}parcels/${n}.bin.gz`, { method: 'HEAD' })
+        .then((r) => r.ok).catch(() => false)));
+    const names = listed.filter((_, i) => ok[i]);
+    if (!names.length) {
+        sel.innerHTML = '<option>none baked</option>';
+        sel.disabled = true;
+        document.getElementById('c-parc')?.setAttribute('disabled', '');
+        return;
+    }
+    sel.innerHTML = '';
+    for (const n of names) {
+        const o = document.createElement('option');
+        o.value = n; o.textContent = atlases[n].label || n;
+        sel.append(o);
+    }
+    config.style.parcellation.atlas ||= names[0];
+    sel.value = config.style.parcellation.atlas;
+}
+
+/** Enable/disable borders, switch atlas, or re-derive after a `smooth` change.
+ *  Fetches the label field on first use (~30-100 kB) and reverts the toggle if it fails. */
+async function setParcellationUI({ enabled, atlas }) {
+    const p = config.style.parcellation;
+    const btn = document.getElementById('c-parc');
+    if (atlas) p.atlas = atlas;
+    if (enabled != null) p.enabled = enabled;
+    if (!p.enabled) { btn?.classList.remove('active'); return; }
+    if (!p.atlas) { p.enabled = false; btn?.classList.remove('active'); return; }
+    try {
+        setLoading(`Loading ${p.atlas} boundaries…`);
+        parcAtlas = await loadParcellation(p.atlas, DATA);
+        engine.setParcellation(p.atlas, parcAtlas);
+        setLoading(null);
+        btn?.classList.add('active');
+    } catch (err) {
+        console.error(err);
+        p.enabled = false; parcAtlas = null;
+        btn?.classList.remove('active');
+        setLoading('Parcellation unavailable.'); setTimeout(() => setLoading(null), 2500);
+    }
+}
+
 /** Dispose the old engine and recreate it for the current overlay set. */
 function rebuild() {
     // Preserve the user's whole-canvas zoom/pan across rebuilds (overlay add/remove,
@@ -556,6 +617,9 @@ function rebuild() {
     // Re-attach the anatomy cut-cap volume after a rebuild (the engine is recreated fresh);
     // the volume asset itself is cached, so this is just a texture rebind, not a re-fetch.
     if ((config.style.sliceAnatomy || config.style.cutOverlay?.enabled) && anatomyVol) engine.setAnatomyVolume(anatomyVol);
+    // Same for the parcellation: the new engine's border geometries start empty. The label
+    // arrays are already in memory, so this only re-derives the distance field.
+    if (config.style.parcellation?.enabled && parcAtlas) engine.setParcellation(config.style.parcellation.atlas, parcAtlas);
     // Preserve the user's pan/zoom across rebuilds that KEEP the design size (overlay
     // add/remove). When the design size CHANGES (a preset switch), re-fit instead — a
     // carried-over view is centred/scaled for the old size and would overflow. The very
@@ -642,6 +706,14 @@ function syncGlobalControls() {
     setRange('c-outline-width', s.outline.width);
     setRange('c-directional', s.lighting.directional);
     setRange('c-ambient', s.lighting.ambient);
+    const setColor = (id, hex) => { const el = document.getElementById(id); if (el && hex) el.value = hex; };
+    setColor('c-line-color', s.outline.color);
+    setColor('c-line-anat-color', s.outline.anatomyColor ?? s.outline.color);
+    setColor('c-sil-color', s.outline.silhouette?.color ?? s.outline.color);
+    setRange('c-sil-width', s.outline.silhouette?.width ?? s.outline.width);
+    setToggle('c-parc', s.parcellation?.enabled);
+    setColor('c-parc-color', s.parcellation?.color);
+    setRange('c-parc-width', s.parcellation?.width ?? 2.0);
 }
 
 // --- per-panel zoom controls (recreated each rebuild; layout/panel count can change) ---

@@ -6,6 +6,8 @@ spec fails LOUDLY the same way the browser would — never a silent degrade.
 before handing it to the engine, so the three front-ends agree on what a valid figure is.
 """
 
+import re
+
 TEMPLATE_KINDS = {"mni", "custom", "none"}
 REPRESENTATIONS = {"blocky", "smooth", "surface", None}
 VOLUME_REPRESENTATIONS = {"blocky", "smooth", None}
@@ -14,10 +16,22 @@ HEMI = {"lh", "rh", "both"}
 INPUT_TYPES = {"volume", "surface"}
 
 
+_HEX_RE = re.compile(r"^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
+
+
 def _clim_ok(c):
     return (c is None or isinstance(c, (int, float))
             or (isinstance(c, (list, tuple)) and len(c) == 2
                 and all(isinstance(x, (int, float)) for x in c) and c[0] < c[1]))
+
+
+def _color_ok(c):
+    """None = 'inherit' and always passes, mirroring colorOk in config-schema.js."""
+    return c is None or (isinstance(c, str) and _HEX_RE.match(c) is not None)
+
+
+def _width_ok(w):
+    return w is None or (isinstance(w, (int, float)) and not isinstance(w, bool) and w > 0)
 
 
 def validate(spec):
@@ -57,6 +71,25 @@ def validate(spec):
     subrep = (style.get("voxel") or {}).get("subcortexRepresentation")
     if subrep not in VOLUME_REPRESENTATIONS:
         errs.append(f"style.voxel.subcortexRepresentation invalid: {subrep!r}")
+    outline = style.get("outline") or {}
+    silhouette = outline.get("silhouette") or {}
+    for path, value in (("style.outline.color", outline.get("color")),
+                        ("style.outline.anatomyColor", outline.get("anatomyColor")),
+                        ("style.outline.silhouette.color", silhouette.get("color")),
+                        ("style.voxel.edges.color", ((style.get("voxel") or {}).get("edges") or {}).get("color"))):
+        if not _color_ok(value):
+            errs.append(f"{path} must be null or a #rgb/#rrggbb colour, got {value!r}")
+    if not _width_ok(silhouette.get("width")):
+        errs.append(f"style.outline.silhouette.width must be null or a positive number, got {silhouette.get('width')!r}")
+    parc = style.get("parcellation") or {}
+    if parc:
+        if not _color_ok(parc.get("color")):
+            errs.append(f"style.parcellation.color must be a #rgb/#rrggbb colour, got {parc.get('color')!r}")
+        if not _width_ok(parc.get("width")):
+            errs.append(f"style.parcellation.width must be a positive number, got {parc.get('width')!r}")
+        op = parc.get("opacity")
+        if op is not None and not (isinstance(op, (int, float)) and 0 <= op <= 1):
+            errs.append(f"style.parcellation.opacity must be 0..1, got {op!r}")
     for i, o in enumerate(style.get("overlays") or []):
         if not o:
             continue

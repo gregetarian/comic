@@ -252,6 +252,12 @@ def load_surface_map(src, filename=None):
     FreeSurfer volume-encoded scalars (.mgh/.mgz), and FreeSurfer morphometry/curv binary.
     Returns a 1-D float32 array; the caller checks its length against the template vertex count."""
     import nibabel as nib
+    # An already-computed per-vertex array (e.g. a parcel value table expanded by comic.parcels)
+    # is handed straight through — there is no file to read.
+    if isinstance(src, np.ndarray):
+        vals = np.ravel(np.asarray(src, dtype=np.float32))
+        vals[~np.isfinite(vals)] = 0.0
+        return vals
     name = (filename or (str(src) if isinstance(src, (str, os.PathLike)) else '')).lower()
     if not isinstance(src, (str, os.PathLike)):
         b = bytes(src)

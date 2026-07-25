@@ -36,3 +36,17 @@ booms/
 
 # Test screenshot output
 tests/shots/
+
+# Parcellations that are NOT ours to redistribute. `comic parcels bake <name>` fetches these
+# from the user's own FreeSurfer/MNE fsaverage install (or figshare) into the same directory the
+# MIT-licensed Schaefer atlases live in, so they must be excluded by name rather than by folder.
+#   aparc / a2009s / aparc_sub  — FreeSurfer Software License, not OSI-approved
+#   yeo7 / yeo17                — Yeo et al. 2011, citation-required, no explicit licence
+#   hcpmmp1                     — HCP Open Access Data Use Terms (see comic/parcels.py)
+comic/web/data/parcels/_cache/
+comic/web/data/parcels/aparc.*
+comic/web/data/parcels/a2009s.*
+comic/web/data/parcels/aparc_sub.*
+comic/web/data/parcels/yeo7.*
+comic/web/data/parcels/yeo17.*
+comic/web/data/parcels/hcpmmp1.*

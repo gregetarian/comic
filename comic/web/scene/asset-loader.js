@@ -71,6 +71,36 @@ export function loadAnatomyVolume(base = 'data/', bundle = null) {
     return _anatCache;
 }
 
+// Parcellations (comic/parcels.py bakes these). Same shape as loadAnatomyVolume — memoised
+// promise, sidecar JSON + gzipped binary, native DecompressionStream, loud on a missing asset —
+// but keyed by atlas name so several can coexist. ~26–103 kB each, so they are fetched on demand
+// rather than shipped inside the 7 MB cortex GLBs.
+const _parcelCache = new Map();
+let _parcelIndex = null;
+const PARCEL_VER = 'fsaverage-ico7-v1';
+
+/** {version, atlases:{name:{label,nparcels,…}}} — what this install can draw. */
+export function loadParcellationIndex(base = 'data/') {
+    if (!_parcelIndex) _parcelIndex = fetch(base + 'parcels/index.json?' + PARCEL_VER)
+        .then((r) => (r.ok ? r.json() : { version: PARCEL_VER, atlases: {} }));
+    return _parcelIndex;
+}
+
+/** One atlas → {lh, rh} Int16Array per-vertex labels (-1 = medial wall), + names/colors. */
+export function loadParcellation(name, base = 'data/') {
+    if (!_parcelCache.has(name)) _parcelCache.set(name, (async () => {
+        const meta = await fetch(`${base}parcels/${name}.json?${PARCEL_VER}`)
+            .then((r) => { if (!r.ok) throw new Error(`parcellation '${name}' is not baked — run: comic parcels bake ${name}`); return r.json(); });
+        const gz = await fetch(`${base}parcels/${name}.bin.gz?${PARCEL_VER}`).then((r) => r.arrayBuffer());
+        const buf = await new Response(new Blob([gz]).stream()
+            .pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();
+        const cut = (h) => new Int16Array(buf.slice(meta[h][0], meta[h][0] + meta[h][1]));
+        return { lh: cut('lh'), rh: cut('rh'), names: meta.names, colors: meta.colors,
+                 networks: meta.networks, nverts: meta.nverts };
+    })());
+    return _parcelCache.get(name);
+}
+
 export async function loadBaseScene(base = 'data/') {
     const manifest = await fetch(base + 'scene.json').then((r) => r.json());
     const checked = validateTemplateBundle(manifest);

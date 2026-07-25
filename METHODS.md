@@ -188,6 +188,187 @@ The cut-MRI pass samples the bundled 1-mm T1, writes opaque depth on the exposed
 and is reverse-side culled. A separate cut-map pass samples the retained source NIfTI
 texture with nearest/linear interpolation and a max-absolute slab.
 
+### 9a. Line sets, the coverage flag, and the split outer contour
+
+**What was done.** Every line COMIC draws comes from one screen-space filter
+(`OutlinePass`, `web/scene/passes.js`): a chosen THREE layer is re-rendered with a depth
+material into a float target, and a full-screen quad thresholds a 4-tap depth-discontinuity
+metric. Three changes were made to that machinery.
+
+*Coverage flag.* Depth materials now write `G = 1` where geometry was drawn, and the depth
+targets are cleared to a fixed sentinel `(R = 1 "far", G = 0 "empty")` instead of to the
+figure's background colour. Testing `G < 0.5` is therefore an exact "this tap is empty
+background" predicate. **Rationale:** the previous code inferred background from the red
+channel via `vd < 0.999`, which is only valid for a white background — with
+`render.background = "#000000"` the target cleared to depth 0, i.e. nearer than any surface,
+so the over-voxel clip treated empty space as an occluder and dimmed the *entire* cortex
+outline whenever clipping was active. **Assumption removed:** that the clear colour encodes
+a usable depth. The `R` channel still carries `viewZ/500` unchanged.
+
+*Split silhouette.* `style.outline.silhouette = {enabled, color, width}`. A new pass strokes
+only discontinuities whose neighbourhood touches empty background (`uBgMode = 2`), over a
+depth buffer composited from **all** visible layers — cortex, subcortex, every overlay's
+supra-threshold voxels, and the cut cap — so the contour follows the union of what is drawn
+rather than the cortex alone. When it runs, the cortex/subcortex passes switch to
+`uBgMode = 1` (interior folds only) so the two never stroke the same pixels in different
+colours. **Rationale:** the outer contour and the sulcal/gyral lines were the same pass, so
+recolouring, thinning, or disabling the folds also destroyed the brain's outline;
+`--no-outline` produced a blank silhouette-less figure.
+
+*Zero-regression gate.* The separate pass is **skipped entirely** when
+`silhouette.color` and `silhouette.width` are both null *and* `outline.enabled` is true —
+i.e. when it would draw exactly what the single historical pass already draws. Verified: all
+four `tests/test_golden_renders.py` jobs render **byte-identical** (mean |Δ| = 0.000000, 0
+differing pixels) to the same jobs at `d39d62f`. Note the *committed* baselines are
+independently stale — they fail identically at `d39d62f` and at this change — so the
+comparison was made against renders produced from a clean checkout, not against
+`tests/golden/`.
+
+*Live line colours.* `outline.color`, `outline.anatomyColor` (new; null = inherit
+`outline.color`), `silhouette.color` and per-overlay `voxel.edges.color`/`.threshold` are
+now pushed by `applyStyle()`. **Rationale:** they were written once at pass construction, so
+changing a line colour required a full engine rebuild — which is why the colour fields in
+the schema had no UI at all.
+
+**Parameters.** `--borders ATLAS`, `--border-color`, `--border-w`; `--line-color`,
+`--anat-line-color`, `--voxel-edge-color`,
+`--silhouette-color`, `--silhouette-w` (CLI); the *Lines* control group (browser); the same
+keys under `style.outline` for `--spec`/`gb.render(style=...)`. Colours are validated as
+`#rgb`/`#rrggbb` in **both** `config-schema.js:validateConfig` and `spec.py:validate`
+(null always passes = "inherit"), because a typo'd colour otherwise renders black with no
+diagnostic.
+
+**Also fixed.** `applyPanelSlice()` never reached the subcortex outline's depth material, so
+on a sliced Free-Canvas panel that outline was computed from uncut geometry; the pass is now
+constructed with an explicit, slice-tracked depth material.
+
+**Alternatives considered.** (i) Leaving the contour in the cortex pass and drawing a second
+darker contour on top — rejected: the underlying light-coloured contour still fringes
+through the anti-aliased edge. (ii) Making the silhouette pass unconditional — rejected: it
+perturbs the anti-aliasing ramp of every existing figure for no benefit in the default case.
+
+### 9b. Parcellation boundary lines — `web/core/parcel-field.js`, `web/scene/parcellation.js`
+
+**What was done.** Atlas parcel borders drawn on the cortical surface, as a geodesic
+distance-field line rather than an edge filter.
+
+**Method.** For each hemisphere, per-vertex integer labels `L(v)` (−1 = not cortex):
+
+1. **Adjacency** (`buildAdjacency`) in CSR form from the existing triangle index buffer. Topology
+   is shared by pial/white/inflated and by every atlas, so it is built once per hemisphere and
+   memoised on the geometry.
+2. **Colouring** (`colorParcels`): a greedy Welsh–Powell proper colouring of the parcel adjacency
+   graph, with the medial wall as one extra virtual parcel. Adjacent parcels get different colours.
+3. **Signed fields** (`signedBoundaryFields`): for each of `PLANES = 4` colour bits, the surface
+   splits two ways — parcels whose colour has that bit set, and the rest. Each edge joining the two
+   sides is an interface crossing at its midpoint, so its endpoints are seeded at **±half the edge
+   length**, positive on the bit-set side. Magnitudes propagate by Bellman-Ford over a shrinking
+   frontier, capped at `DIST_MAX = 8 mm`; each vertex keeps the sign of its own side.
+4. **Contour smoothing** (`smoothFields`): a fixed 4 Laplacian passes over the packed fields.
+5. **Render**: the border geometry *shares* the cortex mesh's position and index attributes and
+   adds only `aSigned` (a `vec4`), so the layer costs four floats per vertex rather than a second
+   copy of the surface. The fragment shader takes the nearest zero crossing across the planes,
+   `px = min_b |s_b| / ‖∇s_b‖`, and `alpha = 1 − smoothstep(h − 0.7, h + 0.7, px)`.
+
+**Rationale.** Because a distance field has |∇d| ≈ 1, the screen-space gradient magnitude *is*
+mm-per-pixel, so `h` is a true device-pixel half-width — the line holds its thickness at any zoom,
+panel size or surface variant, and is analytically anti-aliased. `length(vec2(dFdx, dFdy))` rather
+than `fwidth()` because `fwidth` is |dFdx| + |dFdy|, which overestimates the gradient by up to √2
+*and varies with the boundary's on-screen orientation*, making diagonal borders visibly thinner
+than axis-aligned ones.
+
+**Assumptions.** (i) |∇d| ≈ 1 — true for a geodesic distance field away from the medial axis; it
+degrades only at triple junctions where three parcels meet, thickening the line by ≲40% over a few
+pixels. (ii) Linear interpolation of `d` across a triangle is accurate near the boundary — holds
+because ico7 triangles are ~1 mm and the line is ~1 mm wide. (iii) The atlas and the template are
+the same mesh: a vertex-count mismatch **throws** rather than drawing another brain's boundaries.
+
+**Why the field has to be signed — two failed attempts, recorded because both look reasonable.**
+
+*Unsigned, seeded at the midpoint.* Put the boundary at the edge midpoint and seed both endpoints
+with half the edge length. Both endpoints then hold the **same positive value**, so the linear
+interpolant across the boundary is a plateau at ~0.5 mm rather than a V through zero. The field
+never reaches 0, the line never reaches full opacity, and borders render as a faint grey smudge
+whose strength varies with local edge length. An unsigned distance field has a *crease* at the
+boundary, and linear interpolation across a triangle cannot represent a crease in that triangle's
+interior — so no seeding of an unsigned field can be sub-triangle accurate.
+
+*Unsigned, zero on the vertices.* Seeding the zero set onto boundary vertices fixes the opacity,
+and was shipped first. But it makes the rendered contour a **dilated vertex set**: quantised to the
+mesh, visibly staircased at ~1 mm, with a width that wanders depending on how the band falls. This
+is exactly the artefact the distance-field approach was chosen to avoid, reintroduced by the fix
+for the previous problem. It was caught by looking at a high-resolution crop, not by reasoning.
+
+*Signed, via graph colouring (shipped).* A sign needs a two-way split, and a many-parcel partition
+has no global inside/outside — but each **bit** of a proper colouring is one: adjacent parcels
+differ in at least one bit, so every boundary is separated by at least one plane. Signed, the
+interpolant runs +½e → −½e and crosses zero exactly at the interface, anywhere inside a triangle.
+Four planes are packed into one `vec4`, so this is still a single draw. Planes that separate
+nothing stay constant, hence have zero screen gradient, hence are inert — unit-tested.
+
+**Smoothing is fixed, and never touches parcel membership.** An earlier version exposed a `smooth`
+parameter driving majority-vote *relabelling* — each vertex taking the modal label of its 1-ring.
+That was removed: an atlas's parcel assignment is data, and a viewer editing it to make a line look
+nicer misrepresents the atlas. Only the signed *field* is smoothed, which moves the rendered zero
+crossing while every vertex keeps the parcel the atlas gave it. It also does not change stroke
+width, because the shader measures |s|/‖∇s‖, which is invariant to a local rescaling of `s`. Both
+properties are unit-tested (`web/core/parcel-field.test.js`).
+
+**Where the line is painted.** Border meshes are attached to the cortex shells *and* to the M8
+surface-projection sheets. These are not the same surface — the sheets are staged on **pial**
+vertices while the shell defaults to the mildly-inflated one — so a sheet is in front of the shell
+in some places and behind it elsewhere. Carrying a border on both and letting the depth test choose
+means the line is always drawn on whichever sheet is frontmost; at one shared colour and full
+opacity an overlapping stroke is indistinguishable from a single one. (Attaching only to the shell
+was tried first and left the borders largely hidden under the fill.)
+
+**Alternative rejected.** Rendering parcel IDs to a buffer and detecting ID changes in screen space
+— the analogue of the existing depth-edge passes — is about a third of the code and reuses
+`OutlinePass`. It requires a `flat` varying (GLSL3), which pins every boundary to a triangle edge:
+on ico7 at ~3 px/mm that is a ±1.5 px staircase that no amount of smoothing removes, because the
+boundary is quantised to the mesh. The distance field is sub-triangle accurate.
+
+### 9c. Parcellation assets and per-parcel values — `parcels.py`
+
+**Atlas assets.** `comic parcels bake` writes, per atlas, a gzipped int16 label array (lh ++ rh)
+plus a JSON sidecar of names / colours / hemispheres / Yeo-network tokens. Measured: 26–101 kB per
+atlas for both hemispheres, against a 63 MB data directory. Labels index the baked cortex meshes
+directly — the bake pipeline preserves fsaverage vertex order bit-exactly (all six cortex GLBs
+equal `mni305_to_mni152(read_geometry('?h.pial'))` to max diff 0.0, and pial/white/inflated share
+one index buffer), so **one** array serves all three surface variants and no mesh is re-baked.
+
+**`.annot` reading is deliberately not nibabel's.** `nibabel.freesurfer.read_annot` resolves each
+vertex's packed-RGB value to a colour-table row with `np.searchsorted` and never verifies the value
+was found. A value between two table ids is silently mapped to the wrong region; a value above the
+maximum raises `IndexError` (Gordon's fsaverage annot uses `0x7FFFFFFF` for its medial wall and
+crashes outright). `parcels.read_annot` does the lookup with an explicit dict and asserts that the
+only unmapped values are the known unassigned sentinels.
+
+**Medial-wall normalisation.** The source atlases mark non-cortex four different ways (`-1`, `0`,
+`0x7FFFFFFF`, or by region name) and Schaefer's mask differs from FreeSurfer's by 79 vertices. All
+are normalised to `-1`, and regions matching
+`unknown|medial_wall|background|corpuscallosum|???` are dropped and the remainder renumbered
+densely — otherwise comparing two atlases draws a spurious ring around the corpus callosum.
+
+**Per-parcel values.** `--parcel-values table.csv` reads `region,value`, expands it to per-vertex
+maps, and feeds the *existing* native-surface overlay path, so parcel fills reuse the whole
+colormap/threshold/colorbar pipeline unchanged. Region matching is by the atlas's own name, or by
+1-based index when every key is an integer. **Unmatched names raise** rather than warn: silently
+dropping rows from a mismatched Schaefer variant yields a figure that looks fine and means nothing.
+FreeSurfer atlases spell a region identically in both hemispheres (`bankssts` appears twice in
+aparc), so a bare name matches **both** — the bilateral reading a such a table intends — while an
+`lh_`/`rh_` prefix or `_lh`/`_rh` suffix selects one. (A plain name→index dict silently kept only
+the right-hemisphere entry; caught by `tests/test_parcels.py`.)
+
+**Licensing drives provenance.** Schaefer 2018 (CBIG, MIT, pinned to tag
+`v0.14.3-Update_Yeo2011_Schaefer2018_labelname` because earlier revisions shipped erroneous region
+names — and the names are what network membership is parsed from) is vendored: 10 atlases, ~800 kB.
+FreeSurfer's own atlases (FreeSurfer Software License, not OSI), Yeo 2011 (citation-only) and
+Glasser HCP-MMP1 (HCP Open Access Data Use Terms) are **fetched on demand** from the user's own
+MNE/FreeSurfer fsaverage install and git-ignored by name. Network membership is parsed from region
+names, never from colours: CBIG perturbs each parcel's RGB off its network colour so every parcel
+gets a unique packed value, and neighbouring networks' perturbed ranges overlap.
+
 ## 10. Headless / Python rendering — `render.py`
 
 `render_to_png(nifti, out_png, *, layout, style, threshold, cmap, ...)` (one path

@@ -215,6 +215,11 @@
       box-shadow: 0 3px 10px rgba(0,0,0,0.32); display: none; }
     .info-pop.show { display: block; }
     input[type=range] { width: 66px; }
+    /* line-colour swatches (cortex / subcortex / silhouette / parcel borders) */
+    input[type=color].swatch { width: 28px; height: 17px; padding: 0; border: 1px solid #ccc;
+      border-radius: 3px; background: #fff; cursor: pointer; }
+    input[type=color].swatch::-webkit-color-swatch-wrapper { padding: 1px; }
+    input[type=color].swatch::-webkit-color-swatch { border: none; border-radius: 2px; }
     .numbox { width: 46px; margin-top: 2px; font-size: 10px; padding: 1px 3px; border: 1px solid #ccc; border-radius: 3px; text-align: center; }
     .numbox::-webkit-inner-spin-button, .numbox::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
     select, .btn { font-size: 11px; padding: 3px 6px; border: 1px solid #ccc; border-radius: 3px; background: #fff; cursor: pointer; }
@@ -310,6 +315,21 @@
         <div class="sw"><span>edge thr</span><input type="range" id="c-outline-thresh"></div>
         <div class="sw"><span>line w</span><input type="range" id="c-outline-width"></div>
         <div class="sw"><span>vox α</span><input type="range" id="c-outline-overvox"></div>
+      </div>
+      <div class="grp">
+        <span class="lab">Lines</span>
+        <div class="sw"><span>cortex</span><input type="color" class="swatch" id="c-line-color"></div>
+        <div class="sw"><span>subcort</span><input type="color" class="swatch" id="c-line-anat-color"></div>
+        <div class="sw"><span>outline</span><input type="color" class="swatch" id="c-sil-color"></div>
+        <div class="sw"><span>outline w</span><input type="range" id="c-sil-width"></div>
+        <button class="btn" id="c-sil-reset" title="Drop the separate outer-contour colour and width and go back to inheriting them from the cortex lines">Reset</button>
+      </div>
+      <div class="grp">
+        <span class="lab">Parcels</span>
+        <button class="btn" id="c-parc" title="Draw atlas parcel boundaries on the cortical surface. Works on pial, white and inflated alike.">Borders</button>
+        <select class="btn" id="c-parc-atlas" title="Which parcellation supplies the boundaries"></select>
+        <div class="sw"><span>border</span><input type="color" class="swatch" id="c-parc-color"></div>
+        <div class="sw"><span>border w</span><input type="range" id="c-parc-width"></div>
       </div>
       <div class="grp">
         <span class="lab">Light</span>
