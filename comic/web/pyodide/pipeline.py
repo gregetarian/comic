@@ -252,6 +252,12 @@ def load_surface_map(src, filename=None):
     FreeSurfer volume-encoded scalars (.mgh/.mgz), and FreeSurfer morphometry/curv binary.
     Returns a 1-D float32 array; the caller checks its length against the template vertex count."""
     import nibabel as nib
+    # A JS TypedArray handed across the Pyodide FFI (the browser's parcel-vector upload). It is a
+    # JsProxy, NOT an ndarray, and bytes() on a Float32Array raises — so convert first. .to_py()
+    # gives a zero-copy-cost memoryview that preserves the source dtype; np.asarray(proxy) directly
+    # would silently widen float32 to float64 (and uint8 to int32).
+    if hasattr(src, 'to_py'):
+        src = np.asarray(src.to_py())
     # An already-computed per-vertex array (e.g. a parcel value table expanded by comic.parcels)
     # is handed straight through — there is no file to read.
     if isinstance(src, np.ndarray):

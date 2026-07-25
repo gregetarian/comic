@@ -24,8 +24,10 @@ import { bindGlobalControls, buildOverlayRows } from '../controls/bind.js';
 import { buildRenderText, usesFigureSpec, buildSpec } from '../controls/cli-export.js';
 import { createFreeCanvasEditor } from '../controls/freecanvas.js';
 import { exportSpinGif } from '../controls/gif-export.js';
-import { processNifti, processSurface } from '../pyodide/bootstrap.js';
-import { VOL_RE, isSurfaceFile, groupSurfaceFiles, surfaceOverlayName } from '../core/surface-files.js';
+import { processNifti, processSurface, processParcelValues } from '../pyodide/bootstrap.js';
+import { VOL_RE, isSurfaceFile, isParcelValueFile, groupSurfaceFiles, surfaceOverlayName } from '../core/surface-files.js';
+import { parseValueTable, inferAtlas, valuesToVertexMaps, namedValuesToParcelOrder } from '../core/parcel-values.js';
+import { askAtlas } from '../controls/atlas-prompt.js';
 import { createSessionState } from './state.js';
 
 const DATA = 'data/';
@@ -160,7 +162,7 @@ async function main() {
     viewerEl.addEventListener('dragleave', (e) => { if (e.target === viewerEl) viewerEl.classList.remove('dragging'); });
     viewerEl.addEventListener('drop', (e) => {
         e.preventDefault(); viewerEl.classList.remove('dragging');
-        const files = [...(e.dataTransfer?.files || [])].filter((f) => VOL_RE.test(f.name) || isSurfaceFile(f.name));
+        const files = [...(e.dataTransfer?.files || [])].filter((f) => VOL_RE.test(f.name) || isSurfaceFile(f.name) || isParcelValueFile(f.name));
         if (files.length) handleUpload(files);
     });
     // Global Surface toggle: flip ALL loaded overlays to surface projection (and back to smooth).
@@ -378,8 +380,9 @@ async function setOverlaySurface(i, repSel) {
 /** Process uploaded File(s) entirely in-browser (lazy-loads Pyodide). Routes NIfTI volumes and
  *  native fsaverage surface maps (.gii/.mgh/.mgz, paired by hemisphere) to their own pipelines. */
 async function handleUpload(files) {
+    const parcelFiles = files.filter((f) => isParcelValueFile(f.name));
     const surfaceFiles = files.filter((f) => isSurfaceFile(f.name));
-    const volumeFiles = files.filter((f) => !isSurfaceFile(f.name) && VOL_RE.test(f.name));
+    const volumeFiles = files.filter((f) => !isSurfaceFile(f.name) && !isParcelValueFile(f.name) && VOL_RE.test(f.name));
     // isFinite (not `|| 2.3`): a deliberate threshold of 0 (unthresholded finite voxels)
     // is valid and must not be clobbered to the default.
     const thr = (v => isFinite(v) ? v : 2.3)(parseFloat(document.getElementById('c-threshold').value));
@@ -415,6 +418,9 @@ async function handleUpload(files) {
             }
             addOverlay(meta, buffers, { surface: true });
         }
+        // Per-parcel value tables: infer the atlas, expand onto the vertices, paint through the
+        // same surface path, and switch the matching borders on.
+        for (const f of parcelFiles) await loadParcelValues(f, thr, note);
         setLoading(null);
     } catch (err) {
         console.error(err);
@@ -544,6 +550,78 @@ async function setCutOverlay(on) {
     showCutMapOptions(on);
     if (on && (!config.style.sliceAnatomy || !anatomyVol)) await setSliceAnatomy(true);
     else { engine.applyStyle(); engine.renderFrame(); }
+}
+
+/**
+ * A table of per-parcel values → a painted brain with its atlas borders on.
+ *
+ * The atlas is inferred from the row count, and from region names when the file has them. When the
+ * count alone is ambiguous — every Schaefer size exists in both a 7- and a 17-network variant, and
+ * the two disagree about which parcel each row is — the user is asked rather than guessed at.
+ */
+async function loadParcelValues(file, thr, note) {
+    setLoading('Reading ' + file.name + '…', note);
+    const parsed = parseValueTable(await file.text());
+
+    // Offer only atlases whose payload this install actually has (index.json is committed but the
+    // non-redistributable atlases are git-ignored, so it can over-promise on a fresh clone).
+    const { atlases } = await loadParcellationIndex(DATA);
+    const present = Object.fromEntries(await Promise.all(Object.entries(atlases).map(async ([k, v]) =>
+        [k, (await fetch(`${DATA}parcels/${k}.bin.gz`, { method: 'HEAD' }).then((r) => r.ok).catch(() => false)) ? v : null])));
+    const available = Object.fromEntries(Object.entries(present).filter(([, v]) => v));
+
+    // When the file carries region names they can settle a length tie outright, but that needs the
+    // candidates' name lists. Fetch just the sidecars (names only, not the label payload), and only
+    // for the atlases the row count already narrowed us to.
+    let nameLists = {};
+    if (parsed.names) {
+        const shortlist = Object.entries(available).filter(([, a]) => a.nparcels === parsed.values.length);
+        nameLists = Object.fromEntries(await Promise.all(shortlist.map(async ([k]) =>
+            [k, await fetch(`${DATA}parcels/${k}.json`).then((r) => (r.ok ? r.json() : null))
+                .then((j) => (j ? j.names : [])).catch(() => [])])));
+    }
+    const { candidates, reason } = inferAtlas(parsed, available, nameLists);
+    if (!candidates.length) {
+        const sizes = [...new Set(Object.values(available).map((a) => a.nparcels))].sort((a, b) => a - b);
+        throw new Error(`${file.name}: ${reason}. Baked atlases have ${sizes.join(', ')} parcels`
+            + ' — bake more with `comic parcels bake`.');
+    }
+    const atlasName = candidates.length === 1 ? candidates[0]
+        : await askAtlas(candidates, (k) => available[k].label || k,
+            `${file.name}: ${reason}. Which is it?`);
+    if (!atlasName) { setLoading(null); return; }             // dismissed
+
+    setLoading('Loading ' + atlasName + '…', note);
+    const atlas = await loadParcellation(atlasName, DATA);
+
+    // A bare vector is positional, so it is only safe where the parcel ORDER is canonical. For an
+    // atlas that spells a region identically in both hemispheres (aparc, yeo7) the order is the
+    // FreeSurfer colour-table order, which is not alphabetical — while most exports of those
+    // atlases are. Accepting a bare vector there would mis-assign nearly every region silently.
+    if (!parsed.names && available[atlasName].uniqueNames === false)
+        throw new Error(`${atlasName} needs a table with region names: its regions are named the same in`
+            + ' both hemispheres and its parcel order is not alphabetical, so a bare list of numbers'
+            + ' cannot be matched up safely.');
+
+    const ordered = parsed.names
+        ? namedValuesToParcelOrder(parsed.names, parsed.values, atlas)
+        : parsed.values;
+    const maps = valuesToVertexMaps(ordered, atlas);
+
+    const name = file.name.replace(/\.(csv|tsv|txt)$/i, '');
+    // Threshold: a per-parcel table is not a z-map, so the map-wide default would blank it. An
+    // epsilon hides only exact zeros — the medial wall and any parcel absent from the table —
+    // leaving the cortex showing through there. Matches the CLI's --parcel-values behaviour.
+    const eps = 1e-9;
+    const { meta, buffers } = await processParcelValues(maps.lh, maps.rh, name, eps,
+        (m) => setLoading(m, note));
+    addOverlay(meta, buffers, { surface: true }, { threshold: eps });
+
+    // The borders that go with the data, on the atlas we just resolved.
+    config.style.parcellation.atlas = atlasName;
+    const sel = document.getElementById('c-parc-atlas');
+    if (sel && [...sel.options].some((o) => o.value === atlasName)) sel.value = atlasName;
+    await setParcellationUI({ enabled: true, atlas: atlasName });
 }
 
 /** Fill the atlas <select> from what this install actually has baked. An install with no

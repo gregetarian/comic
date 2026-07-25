@@ -11,8 +11,15 @@ const SURF_EXT_RE = /\.(gii|mgh|mgz)$/i;
 const HEMI_RE = /(^|[._-])(lh|rh)([._-]|$)|hemi-[lr](?![a-z])/i;   // \b fails before '_' (a word char)
 
 /** True for a native surface map: a surface extension, or an lh/rh-marked non-NIfTI (morph). */
+/** A table of per-parcel values (one number per atlas parcel), not a per-vertex surface map. */
+export const PARCEL_VALUE_RE = /\.(csv|tsv|txt)$/i;
+export const isParcelValueFile = (name) => PARCEL_VALUE_RE.test(name);
+
 export function isSurfaceFile(name) {
     if (SURF_EXT_RE.test(name)) return true;
+    // A hemi marker alone is not enough: `lh_schaefer_values.csv` is a parcel value table, and
+    // routing it into process_surface would hand a CSV to a GIFTI reader.
+    if (PARCEL_VALUE_RE.test(name)) return false;
     return HEMI_RE.test(name) && !VOL_RE.test(name);
 }
 
