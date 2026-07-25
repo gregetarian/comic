@@ -220,6 +220,11 @@ def cli():
                         'that atlas and a display threshold of 0 unless you set --threshold')
     r.add_argument('--parcel-atlas', default=None, metavar='ATLAS',
                    help='atlas the --parcel-values region names index (default: whatever --borders uses)')
+    r.add_argument('--surface-base', default=None, metavar='#RRGGBB',
+                   help='in surface mode, fill cortex BELOW threshold with this colour instead of '
+                        'letting the glass shell show through. Makes the cortical sheet solid, so an '
+                        'unpainted medial wall reads as grey surface rather than a window onto the far '
+                        'side of the hemisphere. Defaults on (#cccccc) with --parcel-values')
     r.add_argument('--positive-only', action='store_true')
     r.add_argument('--no-edges', action='store_true')
     r.add_argument('--no-outline', action='store_true')
@@ -335,6 +340,10 @@ def cli():
             surface_maps.append({'lh': maps['lh'], 'rh': maps['rh'],
                                  'name': Path(args.parcel_values).stem})
             args.borders = args.borders or atlas
+            # An atlas figure wants a SOLID cortical sheet: without it the unpainted medial wall is
+            # a hole in the geometry and the far side of the hemisphere shows through it.
+            if args.surface_base is None:
+                args.surface_base = '#cccccc'
             # A per-parcel table is not a z-map: the default 2.3 cutoff would blank most figures.
             # Not exactly 0 either — the medial wall and any parcel absent from the table are 0,
             # and a 0 threshold would paint them as the bottom of the colormap instead of leaving
@@ -427,6 +436,7 @@ def cli():
             setp('outline.color', args.line_color)
             setp('outline.anatomyColor', args.anat_line_color)
             setp('voxel.edges.color', args.voxel_edge_color)
+            setp('voxel.surfaceBase', args.surface_base)
             setp('outline.silhouette.color', args.silhouette_color)
             setp('outline.silhouette.width', args.silhouette_w)
             if args.borders:

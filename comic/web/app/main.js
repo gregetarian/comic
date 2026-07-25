@@ -615,7 +615,10 @@ async function loadParcelValues(file, thr, note) {
     const eps = 1e-9;
     const { meta, buffers } = await processParcelValues(maps.lh, maps.rh, name, eps,
         (m) => setLoading(m, note));
-    addOverlay(meta, buffers, { surface: true }, { threshold: eps });
+    // surfaceBase makes the cortical sheet SOLID. Without it the unpainted medial wall is a hole
+    // in the geometry, and you see the far side of the same hemisphere through it.
+    addOverlay(meta, buffers, { surface: true },
+        { threshold: eps, voxel: { surfaceBase: '#cccccc' } });
 
     // The borders that go with the data, on the atlas we just resolved.
     config.style.parcellation.atlas = atlasName;

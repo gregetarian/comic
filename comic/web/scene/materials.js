@@ -179,6 +179,10 @@ export function makeSharedVoxelUniforms(style = {}) {
         // specular/shine sliders work even with the scene lights at zero.
         uGlintAmt: { value: v.specular ?? 0.10 },
         uGlintPow: { value: v.shininess ?? 80 },
+        // Surface mode only: fill sub-threshold cortex with a flat colour instead of discarding it,
+        // so the cortical sheet is a closed, occluding surface (see makeSurfaceMaterial).
+        uBaseApply: { value: 0.0 },
+        uBaseColor: { value: new THREE.Color(0xcccccc) },
         // Per-panel slice (shared with this overlay's edge depth material in passes.js).
         ...sliceUniforms(),
     };
@@ -262,14 +266,25 @@ export function makeSurfaceMaterial(style = {}, shared) {
                 `#include <project_vertex>\n vViewZ = -mvPosition.z;\n ${SLICE_VERT_ASSIGN}`);
         shader.fragmentShader =
             `uniform float uThreshold, uMaxAbs, uPositiveOnly, uNearZ, uFarZ, uVeilStrength, uVeilK, uEmissiveBoost, uGlintAmt, uGlintPow;
-             uniform vec3 uVeilColor;
+             uniform vec3 uVeilColor, uBaseColor;
+             uniform float uBaseApply;
              varying float vThreshValue; varying float vViewZ;
              ${SLICE_FRAG_PARS}\n` + shader.fragmentShader;
+        // uBaseApply turns the sheet from a stencil into a SOLID surface: sub-threshold vertices
+        // are painted uBaseColor instead of discarded. Discarding leaves real holes in the
+        // geometry — an atlas's unpainted medial wall becomes a window through which the far side
+        // of the same hemisphere is visible, because there is simply nothing there to occlude it.
+        // Filling closes the surface, so it occludes by ordinary depth test, and gives the neutral
+        // grey medial wall that atlas figures are normally drawn with.
         shader.fragmentShader = shader.fragmentShader.replace('#include <color_fragment>',
             `#include <color_fragment>
              if (gbSliceDiscard(vWorldPos)) discard;
-             if (abs(vThreshValue) < uThreshold) discard;            // sub-threshold cortex -> glass shows through
-             if (uPositiveOnly > 0.5 && vThreshValue < 0.0) discard;
+             bool gbSub = abs(vThreshValue) < uThreshold
+                       || (uPositiveOnly > 0.5 && vThreshValue < 0.0);
+             if (gbSub) {
+                 if (uBaseApply < 0.5) discard;                      // glass shows through (default)
+                 diffuseColor.rgb = uBaseColor;
+             }
              float zf = clamp((vViewZ - uNearZ) / max(uFarZ - uNearZ, 1e-3), 0.0, 1.0);
              float veil = log(1.0 + uVeilK * zf) / log(1.0 + uVeilK);
              diffuseColor.rgb = mix(diffuseColor.rgb, uVeilColor, veil * uVeilStrength);

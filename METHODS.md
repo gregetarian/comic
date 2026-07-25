@@ -350,6 +350,16 @@ are normalised to `-1`, and regions matching
 `unknown|medial_wall|background|corpuscallosum|???` are dropped and the remainder renumbered
 densely — otherwise comparing two atlases draws a spurious ring around the corpus callosum.
 
+**A solid cortical sheet — `style.voxel.surfaceBase`.** In surface mode the sheet DISCARDS
+sub-threshold vertices so the glass shell shows through, which is the glass-brain look for a stat
+map. For an atlas it is wrong: the unpainted medial wall becomes a genuine hole in the geometry,
+and the far side of the same hemisphere is visible through it (there is nothing there to occlude
+it — the near glass shell is drawn in the transparent pass, *after* the opaque sheets it would
+need to hide). `surfaceBase` paints those vertices a flat colour instead, closing the surface so
+it occludes by ordinary depth test, and giving the neutral grey medial wall atlas figures are
+normally drawn with. Default null (unchanged glass behaviour); `--parcel-values` turns it on at
+`#cccccc`, and so does the browser's vector upload.
+
 **Per-parcel values.** `--parcel-values table.csv` reads `region,value`, expands it to per-vertex
 maps, and feeds the *existing* native-surface overlay path, so parcel fills reuse the whole
 colormap/threshold/colorbar pipeline unchanged. Region matching is by the atlas's own name, or by
