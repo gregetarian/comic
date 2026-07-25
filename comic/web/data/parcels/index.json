@@ -7,7 +7,8 @@
       "source": "CBIG v0.14.3-Update_Yeo2011_Schaefer2018_labelname",
       "license": "MIT",
       "shipped": true,
-      "bytes": 73765
+      "bytes": 73765,
+      "uniqueNames": true
     },
     "aparc": {
       "label": "Desikan-Killiany (68)",
@@ -15,7 +16,8 @@
       "source": "FreeSurfer fsaverage",
       "license": "FreeSurfer (not OSI)",
       "shipped": false,
-      "bytes": 33422
+      "bytes": 33422,
+      "uniqueNames": false
     },
     "yeo7": {
       "label": "Yeo 7 networks",
@@ -23,7 +25,8 @@
       "source": "FreeSurfer fsaverage (Yeo 2011)",
       "license": "cite Yeo et al. 2011",
       "shipped": false,
-      "bytes": 26496
+      "bytes": 26496,
+      "uniqueNames": false
     },
     "schaefer100_7": {
       "label": "Schaefer 100 (7 networks)",
@@ -31,7 +34,8 @@
       "source": "CBIG v0.14.3-Update_Yeo2011_Schaefer2018_labelname",
       "license": "MIT",
       "shipped": true,
-      "bytes": 42987
+      "bytes": 42987,
+      "uniqueNames": true
     },
     "schaefer100_17": {
       "label": "Schaefer 100 (17 networks)",
@@ -39,7 +43,8 @@
       "source": "CBIG v0.14.3-Update_Yeo2011_Schaefer2018_labelname",
       "license": "MIT",
       "shipped": true,
-      "bytes": 42982
+      "bytes": 42982,
+      "uniqueNames": true
     },
     "schaefer200_7": {
       "label": "Schaefer 200 (7 networks)",
@@ -47,7 +52,8 @@
       "source": "CBIG v0.14.3-Update_Yeo2011_Schaefer2018_labelname",
       "license": "MIT",
       "shipped": true,
-      "bytes": 55817
+      "bytes": 55817,
+      "uniqueNames": true
     },
     "schaefer200_17": {
       "label": "Schaefer 200 (17 networks)",
@@ -55,7 +61,8 @@
       "source": "CBIG v0.14.3-Update_Yeo2011_Schaefer2018_labelname",
       "license": "MIT",
       "shipped": true,
-      "bytes": 55811
+      "bytes": 55811,
+      "uniqueNames": true
     },
     "schaefer400_17": {
       "label": "Schaefer 400 (17 networks)",
@@ -63,7 +70,8 @@
       "source": "CBIG v0.14.3-Update_Yeo2011_Schaefer2018_labelname",
       "license": "MIT",
       "shipped": true,
-      "bytes": 73834
+      "bytes": 73834,
+      "uniqueNames": true
     },
     "schaefer1000_7": {
       "label": "Schaefer 1000 (7 networks)",
@@ -71,7 +79,8 @@
       "source": "CBIG v0.14.3-Update_Yeo2011_Schaefer2018_labelname",
       "license": "MIT",
       "shipped": true,
-      "bytes": 103649
+      "bytes": 103649,
+      "uniqueNames": true
     },
     "schaefer1000_17": {
       "label": "Schaefer 1000 (17 networks)",
@@ -79,7 +88,8 @@
       "source": "CBIG v0.14.3-Update_Yeo2011_Schaefer2018_labelname",
       "license": "MIT",
       "shipped": true,
-      "bytes": 103663
+      "bytes": 103663,
+      "uniqueNames": true
     }
   }
 }

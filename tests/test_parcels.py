@@ -17,8 +17,17 @@ PARCELS = Path(__file__).resolve().parent.parent / "comic" / "web" / "data" / "p
 
 
 def _baked():
+    """Atlases whose payload is actually on disk.
+
+    index.json is committed but the non-redistributable atlases are git-ignored, so on a fresh
+    clone (and in CI) the index lists atlases whose .bin.gz was never checked in. Filtering by the
+    payload is what keeps these tests honest about what this checkout really has.
+    """
     index = PARCELS / "index.json"
-    return json.loads(index.read_text())["atlases"] if index.exists() else {}
+    if not index.exists():
+        return {}
+    listed = json.loads(index.read_text())["atlases"]
+    return {k: v for k, v in listed.items() if (PARCELS / f"{k}.bin.gz").exists()}
 
 
 def _any_atlas():

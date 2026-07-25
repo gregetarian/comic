@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { isSurfaceFile, detectHemi, groupSurfaceFiles, surfaceOverlayName, VOL_RE } from './surface-files.js';
+import { isParcelValueFile, isSurfaceFile, detectHemi, groupSurfaceFiles, surfaceOverlayName, VOL_RE } from './surface-files.js';
 
 test('isSurfaceFile: surface extensions and hemi-marked morph files, not NIfTI', () => {
     for (const n of ['lh.thickness.gii', 'rh.stat.mgh', 'sub-01_hemi-L_stat.gii', 'lh.curv', 'stat.mgz'])
@@ -47,4 +47,15 @@ test('VOL_RE matches NIfTI, not surface files', () => {
     assert.equal(VOL_RE.test('zstat1.nii.gz'), true);
     assert.equal(VOL_RE.test('stat.mgz'), false);
     assert.equal(VOL_RE.test('lh.thickness.gii'), false);
+});
+
+test('a per-parcel value table is NOT a surface file, even with a hemi marker', () => {
+    // `lh_schaefer_values.csv` matches the hemi pattern, so without this it would be routed into
+    // process_surface and hand a CSV to a GIFTI reader.
+    assert.equal(isParcelValueFile('values.csv'), true);
+    assert.equal(isParcelValueFile('schaefer400.tsv'), true);
+    assert.equal(isParcelValueFile('betas.txt'), true);
+    assert.equal(isParcelValueFile('lh.thickness.gii'), false);
+    assert.equal(isSurfaceFile('lh_schaefer_values.csv'), false);
+    assert.equal(isSurfaceFile('lh.thickness.gii'), true);
 });

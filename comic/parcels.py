@@ -193,8 +193,14 @@ def bake_parcellation(name, out_dir, cache=None):
     spec = ATLASES[name]
     size = (out / f"{name}.bin.gz").stat().st_size
     print(f"  baked {name}: {len(names)} parcels, {size/1024:.0f} kB")
+    # uniqueNames drives the browser's bare-vector guard. When an atlas spells a region identically
+    # in both hemispheres (aparc, yeo7) a plain vector of numbers cannot be trusted: its order is
+    # the FreeSurfer colour-table order, which is NOT alphabetical (29 of aparc's 34 positions
+    # differ), while aparcstats2table/ENIGMA-style exports are — so a bare vector would be silently
+    # and completely mis-assigned. Those atlases require a table with region names.
     return {"label": spec["label"], "nparcels": len(names), "source": spec["source"],
-            "license": spec["license"], "shipped": spec["shipped"], "bytes": size}
+            "license": spec["license"], "shipped": spec["shipped"], "bytes": size,
+            "uniqueNames": len(set(names)) == len(names)}
 
 
 def load_value_table(path):

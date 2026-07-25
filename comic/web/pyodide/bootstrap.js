@@ -107,3 +107,38 @@ export async function processSurface(lhFile, rhFile, name, threshold = 2.3, onPr
     pipeline.clear_buffers();
     return { meta, buffers };
 }
+
+/**
+ * Process ALREADY-EXPANDED per-vertex values (the parcel-vector upload: a table of one number per
+ * parcel, painted onto the vertices in JS because the browser already holds the atlas labels).
+ * Goes through the SAME process_surface as a .gii, so the overlay, colormap, threshold and
+ * colorbar behave identically — only the source of the numbers differs.
+ *
+ * `lhVals`/`rhVals` are Float32Array (or null). They are converted to real numpy arrays on the
+ * Python side first: a TypedArray crosses the FFI as a JsProxy, so `isinstance(x, np.ndarray)` is
+ * false and `bytes(x)` raises on a float array. `.to_py()` is the cheap, dtype-preserving
+ * conversion (np.asarray on the proxy directly would silently widen float32 to float64).
+ */
+export async function processParcelValues(lhVals, rhVals, name, threshold, onProgress = () => {}) {
+    const { py, pipeline } = await ensurePyodide(onProgress);
+    await ensureCortex(onProgress);
+    onProgress('Painting ' + name + '…');
+    const toF32 = py.runPython(
+        'import numpy as np\n'
+        + 'def _gb_f32(x):\n'
+        + '    return np.ascontiguousarray(np.asarray(x.to_py()), dtype=np.float32)\n'
+        + '_gb_f32');
+    const lhArr = lhVals ? toF32(lhVals) : null;
+    const rhArr = rhVals ? toF32(rhVals) : null;
+    try {
+        const metaStr = pipeline.process_surface(lhArr, rhArr, name, threshold, null, null);
+        const meta = JSON.parse(metaStr);
+        const proxy = pipeline.get_all_buffers();
+        const buffers = proxy.toJs();
+        proxy.destroy();
+        pipeline.clear_buffers();
+        return { meta, buffers };
+    } finally {
+        lhArr?.destroy(); rhArr?.destroy(); toF32.destroy();
+    }
+}
