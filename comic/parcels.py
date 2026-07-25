@@ -44,7 +44,7 @@ _CBIG_URL = ("https://raw.githubusercontent.com/ThomasYeoLab/CBIG/" + _CBIG_TAG
              + "/FreeSurfer5.3/fsaverage/label/{hemi}.Schaefer2018_{n}Parcels_{net}Networks_order.annot")
 
 # Anything matching this is "not a cortical parcel" and becomes -1.
-_NON_CORTEX = re.compile(r"unknown|medial_?wall|background|corpuscallosum|^\?\?\?$", re.I)
+_NON_CORTEX = re.compile(r"unknown|medial_?wall|background|corpuscallosum|^\?\?\?$", re.IGNORECASE)
 # FreeSurfer's own "no annotation" sentinel, and the INT32_MAX one some third-party
 # conversions (e.g. Gordon) use instead.
 _RAW_UNASSIGNED = {0, 2147483647}
