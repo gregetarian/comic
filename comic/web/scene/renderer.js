@@ -211,6 +211,14 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         parcLoaded = atlas ? name : null;
         parcAtlas = atlas || null;
         if (!atlas) return;
+        // Write the cortex mask onto every surface sheet (same fsaverage vertex order).
+        for (const tm of surfaceSheets) {
+            const labels = atlas[tm.meta.hemisphere];
+            const a = tm.mesh.geometry.attributes.aMask;
+            if (!labels || !a || labels.length !== a.count) continue;
+            for (let i = 0; i < labels.length; i++) a.array[i] = labels[i] >= 0 ? 1 : 0;
+            a.needsUpdate = true;
+        }
         for (const b of borderMeshes) {
             const labels = atlas[b.src.meta.hemisphere];
             if (!labels) continue;           // a template with no lh/rh split has no atlas to draw
@@ -886,6 +894,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
             u.uClusterMin.value = os.clusterMin ?? 0;
             u.uBaseApply.value = os.surfaceBase ? 1 : 0;
             if (os.surfaceBase) u.uBaseColor.value.set(os.surfaceBase);
+            u.uMaskApply.value = (parcLoaded && s.parcellation?.maskMedialWall) ? 1 : 0;
             const em = edgePasses[i].outlineMaterial.uniforms;
             em.uOpacity.value = os.edges.opacity;
             em.uLineWidth.value = os.edges.width;
