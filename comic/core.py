@@ -223,6 +223,8 @@ def cli():
     r.add_argument('--mask-medial-wall', action='store_true',
                    help='hide surface vertices the atlas marks as non-cortex. Needs --borders (or '
                         '--parcel-atlas) to say which atlas defines the wall')
+    r.add_argument('--mask-color', default=None, metavar='#RRGGBB',
+                   help='colour of the masked medial wall (default: --surface-base, else #dcdcdc)')
     r.add_argument('--surface-base', default=None, metavar='#RRGGBB',
                    help='in surface mode, fill cortex BELOW threshold with this colour instead of '
                         'letting the glass shell show through. Makes the cortical sheet solid, so an '
@@ -453,6 +455,7 @@ def cli():
                                  'which atlas defines the medial wall')
                 setp('parcellation.atlas', atlas)
                 setp('parcellation.maskMedialWall', True)
+            setp('parcellation.maskColor', args.mask_color)
             setp('parcellation.color', args.border_color)
             setp('parcellation.width', args.border_w)
             if args.no_edges:

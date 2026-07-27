@@ -184,6 +184,7 @@ export function makeSharedVoxelUniforms(style = {}) {
         uBaseApply: { value: 0.0 },
         // Medial-wall mask: 1 = hide vertices the active atlas marks as non-cortex.
         uMaskApply: { value: 0.0 },
+        uMaskColor: { value: new THREE.Color(0xdcdcdc) },
         uBaseColor: { value: new THREE.Color(0xcccccc) },
         // Per-panel slice (shared with this overlay's edge depth material in passes.js).
         ...sliceUniforms(),
@@ -270,6 +271,7 @@ export function makeSurfaceMaterial(style = {}, shared) {
             `uniform float uThreshold, uMaxAbs, uPositiveOnly, uNearZ, uFarZ, uVeilStrength, uVeilK, uEmissiveBoost, uGlintAmt, uGlintPow;
              uniform vec3 uVeilColor, uBaseColor;
              uniform float uBaseApply, uMaskApply;
+             uniform vec3 uMaskColor;
              varying float vThreshValue; varying float vMask; varying float vViewZ;
              ${SLICE_FRAG_PARS}\n` + shader.fragmentShader;
         // uBaseApply turns the sheet from a stencil into a SOLID surface: sub-threshold vertices
@@ -281,10 +283,16 @@ export function makeSurfaceMaterial(style = {}, shared) {
         shader.fragmentShader = shader.fragmentShader.replace('#include <color_fragment>',
             `#include <color_fragment>
              if (gbSliceDiscard(vWorldPos)) discard;
+             bool gbMasked = uMaskApply > 0.5 && vMask < 0.5;
              bool gbSub = abs(vThreshValue) < uThreshold
-                       || (uPositiveOnly > 0.5 && vThreshValue < 0.0)
-                       || (uMaskApply > 0.5 && vMask < 0.5);   // medial wall
-             if (gbSub) {
+                       || (uPositiveOnly > 0.5 && vThreshValue < 0.0);
+             // A masked vertex is painted flat, never discarded: discarding it would leave a HOLE
+             // in the sheet, and the far side of the folded hemisphere shows straight through it.
+             // Painting keeps the surface closed so it occludes by ordinary depth test — and a flat
+             // grey wall is how masked medial walls are conventionally drawn anyway.
+             if (gbMasked) {
+                 diffuseColor.rgb = uMaskColor;
+             } else if (gbSub) {
                  if (uBaseApply < 0.5) discard;                      // glass shows through (default)
                  diffuseColor.rgb = uBaseColor;
              }
