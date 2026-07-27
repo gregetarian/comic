@@ -7,6 +7,7 @@
  * identity, so both render identically in the browser and headlessly.
  */
 import { normalizeConfig } from './config-schema.js';
+import { VIEWS } from './views.js';
 
 const cortexVoxel = (hemisphere) => ({ roles: ['cortex', 'voxel'], hemisphere });
 // Cortex panels share one world scale so each brain is the same physical size.
@@ -90,8 +91,10 @@ export const OVERVIEW = {
     },
 };
 
-// Default Free Canvas figure: L Lateral, R Medial (orbited), Anterior, Dorsal in a
-// free arrangement. Authored in the editor; this is the boot default. The `style`
+// Default Free Canvas figure: L + Subcort, R Medial + Subcort (orbited), Anterior, Dorsal in a
+// free arrangement. The two profile panels use the cortex + CONTRALATERAL opaque-subcortex views,
+// so subcortical and cerebellar signal is visible in the default figure instead of being hidden
+// inside the cortex. Authored in the editor; this is the boot default. The `style`
 // carries only the global cosmetic look (the per-overlay data styling is left to
 // whatever NIfTIs get loaded, so the bundled demo still renders correctly).
 export const FREE_DEFAULT = {
@@ -100,8 +103,8 @@ export const FREE_DEFAULT = {
         grid: { rows: 2, cols: 4, rowWeights: [1, 1], colWeights: [1, 1, 1, 1] },
         canvas: { w: 1890, h: 676, bgAlpha: 1 },
         panels: [
-            { id: 'fc1', framing: { fit: 'auto', margin: 1.04 }, camera: { plane: 'left_lateral' }, content: { roles: ['cortex', 'voxel'], hemisphere: 'lh' }, title: 'L Lateral', view: 'left_lateral', anatomyOpacity: null, place: { x: 0.2116, y: 0.0710, w: 0.2794, h: 0.4142, z: 0 }, rotate: { yaw: -15.97, pitch: -2.06, roll: 0 } },
-            { id: 'fc4', framing: { fit: 'auto', margin: 1.04 }, camera: { plane: 'right_medial' }, content: { roles: ['cortex', 'voxel'], hemisphere: 'rh' }, title: 'R Medial', view: 'right_medial', anatomyOpacity: null, place: { x: 0.2751, y: 0.3432, w: 0.4952, h: 0.6746, z: 3 }, rotate: { yaw: 330, pitch: 0, roll: -30 } },
+            { id: 'fc1', framing: { fit: 'auto', margin: 1.04 }, camera: { plane: 'left_lateral' }, content: VIEWS.cortex_subcort_l.content, title: 'L + Subcort (opaque)', view: 'cortex_subcort_l', anatomyOpacity: null, place: { x: 0.2116, y: 0.0710, w: 0.2794, h: 0.4142, z: 0 }, rotate: { yaw: -15.97, pitch: -2.06, roll: 0 } },
+            { id: 'fc4', framing: { fit: 'auto', margin: 1.04 }, camera: { plane: 'right_medial' }, content: VIEWS.cortex_subcort_rm.content, title: 'R Medial + Subcort', view: 'cortex_subcort_rm', anatomyOpacity: null, place: { x: 0.2751, y: 0.3432, w: 0.4952, h: 0.6746, z: 3 }, rotate: { yaw: 330, pitch: 0, roll: -30 } },
             { id: 'fc6', framing: { fit: 'auto', margin: 1.04 }, camera: { plane: 'anterior' }, content: { roles: ['cortex', 'voxel'], hemisphere: 'both' }, title: 'Anterior', view: 'anterior', anatomyOpacity: null, place: { x: 0.3640, y: 0, w: 0.3090, h: 0.4852, z: 4 } },
             { id: 'fc7', framing: { fit: 'auto', margin: 1.04 }, camera: { plane: 'dorsal' }, content: { roles: ['cortex', 'voxel'], hemisphere: 'both' }, title: 'Dorsal', view: 'dorsal', anatomyOpacity: null, place: { x: 0.1651, y: 0.4142, w: 0.3945, h: 0.6036, z: 5 } },
         ],

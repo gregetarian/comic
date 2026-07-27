@@ -386,7 +386,7 @@ async function handleUpload(files) {
     const volumeFiles = files.filter((f) => !isSurfaceFile(f.name) && !isParcelValueFile(f.name) && VOL_RE.test(f.name));
     // isFinite (not `|| 2.3`): a deliberate threshold of 0 (unthresholded finite voxels)
     // is valid and must not be clobbered to the default.
-    const thr = (v => isFinite(v) ? v : 2.3)(parseFloat(document.getElementById('c-threshold').value));
+    const thr = (v => isFinite(v) ? v : 0)(parseFloat(document.getElementById('c-threshold').value));
     const note = 'First upload downloads the ~30 MB scientific stack once.';
     try {
         for (let k = 0; k < volumeFiles.length; k++) {

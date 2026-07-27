@@ -156,7 +156,8 @@ def cli():
                    help="path to a Free-Canvas figure JSON (the canvas document, as emitted by the "
                         "browser's Copy CLI). When given, it supplies the layout and overrides --grid/--views.")
     # Per-overlay flags accept a scalar (all maps) OR a comma list (one value per overlay).
-    r.add_argument('--threshold', default='2.3', help='voxel threshold; scalar or per-overlay comma list, e.g. 2.3,4.0')
+    r.add_argument('--threshold', default='0', help='voxel threshold; scalar or per-overlay comma list, e.g. 2.3,4.0. '
+                        'Default 0 = keep the map unthresholded')
     r.add_argument('-k', '--cluster-size', default='105',
                    help='cluster-extent threshold (voxels); scalar or per-overlay comma list')
     r.add_argument('--cmap', default='YlGnBu', help="colormap name(s), or 'auto'; scalar or per-overlay comma list, e.g. Reds,YlGnBu")
