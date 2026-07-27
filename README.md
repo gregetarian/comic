@@ -43,6 +43,8 @@ view pixel-for-pixel.
   **"bite"** out of the whole brain), and toggle a **transparent background**. It
   still **Copy-CLI**s to a self-contained `--spec figure.json` that reproduces the
   figure headlessly, pixel-faithful.
+- **Unthresholded by default** — the upload threshold and `--threshold` default to **0**, so a map
+  loads exactly as it is and you raise the cutoff if you want one.
 - **Statistical controls** — voxelwise threshold, **cluster-extent threshold**
   (drop clusters below *k* voxels), positive-only.
 - **Unthresholded whole-brain maps** — set the upload threshold to **0**. COMIC retains the

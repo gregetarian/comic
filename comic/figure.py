@@ -71,7 +71,7 @@ def build_style(n, *, base=None, cmap=None, colormapMode=None, gamma=None, clim=
     if not overlays:
         style.pop("overlays", None)
     # bake threshold (geometry cutoff): scalar broadcasts, list is per-overlay.
-    bake = list(threshold) if isinstance(threshold, (list, tuple)) else (threshold if threshold is not None else 2.3)
+    bake = list(threshold) if isinstance(threshold, (list, tuple)) else (threshold if threshold is not None else 0)
     return style, bake
 
 
@@ -149,7 +149,7 @@ def _layout_from(layout, views, grid):
 
 
 def render(nifti, *, out=None, layout=None, views=None, grid="2x4", style=None,
-           threshold=2.3, cmap="auto", clusterMin=None, colormapMode=None, gamma=None,
+           threshold=0, cmap="auto", clusterMin=None, colormapMode=None, gamma=None,
            clim=None, positiveOnly=None, voxels=None, units=None, names=None,
            width=1600, height=1000, scale=2, include_subcortical=True,
            background="#ffffff", background_alpha=1.0, crop="none", colorbar=True,
@@ -210,7 +210,7 @@ def render_spec(spec, nifti, *, out=None, session=None, width=None, height=None,
     nn = 1 if isinstance(nifti, (str, os.PathLike)) else len(nifti)
     gb_spec.validate_input_count(doc, nn, volume_only=True)
     thr = [(ov[i].get("threshold") if i < len(ov) and ov[i].get("threshold") is not None
-            else style.get("threshold") if style.get("threshold") is not None else 2.3)
+            else style.get("threshold") if style.get("threshold") is not None else 0)
            for i in range(nn)]
     sess = session or RenderSession()
     try:
