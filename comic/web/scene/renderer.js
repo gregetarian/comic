@@ -204,12 +204,25 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
     let parcLoaded = null;                   // name of the atlas currently written into aDist
     let parcAtlas = null;                    // its {lh, rh} label arrays, kept so `smooth` can re-derive
 
+    /** Push the medial-wall mask uniforms. Called from setParcellation as well as applyStyle,
+     *  because the headless path never calls applyStyle — it renders straight after loading the
+     *  atlas, so a mask wired only into applyStyle silently did nothing in every CLI render. */
+    function pushMaskUniforms() {
+        const parc = config.style.parcellation || {};
+        const on = (parcLoaded && parc.maskMedialWall) ? 1 : 0;
+        for (let i = 0; i < N; i++) {
+            uniforms[i].uMaskApply.value = on;
+            uniforms[i].uMaskColor.value.set(parc.maskColor ?? overlayStyle(config, i).surfaceBase ?? '#dcdcdc');
+        }
+    }
+
     /** Write an atlas's labels into every border geometry. `atlas` is {lh, rh} Int16Arrays.
      *  Pass null to detach. Cheap enough to call on every `smooth` change (~a few hundred ms for
      *  both hemispheres × the surface variants in the scene). */
     function setParcellation(name, atlas) {
         parcLoaded = atlas ? name : null;
         parcAtlas = atlas || null;
+        pushMaskUniforms();
         if (!atlas) return;
         // Write the cortex mask onto every surface sheet (same fsaverage vertex order).
         for (const tm of surfaceSheets) {
@@ -265,6 +278,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
                 tm.mesh.geometry.attributes.color.needsUpdate = true;
             }
         }
+        pushMaskUniforms();
         if (anatomyCap) anatomyCap.setOverlayStyles(resolvedCutOverlaySpecs());
     }
     recolor();
@@ -894,7 +908,6 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
             u.uClusterMin.value = os.clusterMin ?? 0;
             u.uBaseApply.value = os.surfaceBase ? 1 : 0;
             if (os.surfaceBase) u.uBaseColor.value.set(os.surfaceBase);
-            u.uMaskApply.value = (parcLoaded && s.parcellation?.maskMedialWall) ? 1 : 0;
             const em = edgePasses[i].outlineMaterial.uniforms;
             em.uOpacity.value = os.edges.opacity;
             em.uLineWidth.value = os.edges.width;
