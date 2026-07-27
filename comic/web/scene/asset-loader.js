@@ -201,6 +201,8 @@ export function buildOverlayMeshes(meta, buffers, oi) {
         attachValues(g, values);
         attachClusters(g, asF32(buffers[d.clu]));
         g.setAttribute('aCurv', new THREE.BufferAttribute(asF32(buffers[d.crv]), 1));
+        // 1 = show. An atlas overwrites this with its cortex mask (see renderer.setParcellation).
+        g.setAttribute('aMask', new THREE.BufferAttribute(new Float32Array(values.length).fill(1), 1));
         g.computeVertexNormals();
         const mesh = new THREE.Mesh(g);
         out.push({

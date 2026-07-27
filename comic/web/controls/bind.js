@@ -70,6 +70,7 @@ const TIPS = {
     'c-sil-color': "Colour of the brain's outer contour. Setting it splits the contour off from the fold lines, so you can lighten or hide the folds and still keep a dark outline.",
     'c-sil-width': 'Thickness of the outer contour, independent of the fold lines.',
     'c-parc': 'Draw atlas parcel boundaries on the cortical surface.',
+    'c-parc-mask': "Hide surface vertices the atlas calls non-cortex (the medial wall), so a map carrying values there doesn't paint it. Needs an atlas loaded.",
     'c-parc-color': 'Colour of the parcel boundary lines.',
     'c-parc-width': 'Parcel boundary thickness, in screen pixels — constant at any zoom.',
 };
@@ -417,6 +418,7 @@ export function bindGlobalControls({ config, colormaps, getEngine, preset, onUpl
     color('c-parc-color', p.color, (hex) => { p.color = hex; apply(); });
     slider('c-parc-width', p.width, (v) => { p.width = v; apply(); }, { min: 0.4, max: 8, step: 0.1 });
     toggle('c-parc', p.enabled, (on) => { onParcellation?.({ enabled: on }); });
+    toggle('c-parc-mask', p.maskMedialWall, (on) => { p.maskMedialWall = on; onParcellation?.({ mask: true }); });
     const atlasSel = $('c-parc-atlas');
     if (atlasSel) atlasSel.addEventListener('change', () => onParcellation?.({ atlas: atlasSel.value }));
 

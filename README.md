@@ -74,6 +74,9 @@ view pixel-for-pixel.
   In the browser, just drop the table in — the atlas is inferred from the row count and region
   names, and you are asked only when it genuinely cannot be known (every Schaefer size ships in
   both a 7- and a 17-network variant).
+- **Mask the medial wall** — **Mask wall** in the browser, or `--mask-medial-wall`, hides the
+  surface vertices the active atlas marks as non-cortex, so a map carrying values there doesn't
+  paint the wall. Independent of the borders: it uses the atlas's labels, not its lines.
 - **Per-line-set colours + a guaranteed outline** — set the colour of the cortical fold lines,
   the subcortical lines, the voxel/blob edges, and the brain's outer contour independently
   (`--line-color`, `--anat-line-color`, `--voxel-edge-color`, `--silhouette-color`,

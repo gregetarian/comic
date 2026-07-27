@@ -85,8 +85,10 @@ export const DEFAULTS = {
         // baked/fetched per-vertex label set; width is in device px and is constant at any zoom.
         // The contour is always smoothed by a fixed amount — see scene/parcellation.js for why that
         // is not a parameter and is never done by relabelling vertices.
+        // maskMedialWall hides surface vertices the atlas marks as non-cortex, so a map that
+        // carries values there (most whole-surface analyses do) does not paint the wall.
         parcellation: { enabled: false, atlas: null, color: '#1a1a1a', width: 2.0, opacity: 1.0,
-            medialWall: true },
+            medialWall: true, maskMedialWall: false },
         // Scene lights off by default — voxel colour comes from emissive (full flat
         // colormap) + the light-independent glint, so the colours stay saturated.
         lighting: { directional: 0, ambient: 0, headlight: true },

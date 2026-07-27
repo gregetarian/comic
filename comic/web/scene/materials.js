@@ -182,6 +182,8 @@ export function makeSharedVoxelUniforms(style = {}) {
         // Surface mode only: fill sub-threshold cortex with a flat colour instead of discarding it,
         // so the cortical sheet is a closed, occluding surface (see makeSurfaceMaterial).
         uBaseApply: { value: 0.0 },
+        // Medial-wall mask: 1 = hide vertices the active atlas marks as non-cortex.
+        uMaskApply: { value: 0.0 },
         uBaseColor: { value: new THREE.Color(0xcccccc) },
         // Per-panel slice (shared with this overlay's edge depth material in passes.js).
         ...sliceUniforms(),
@@ -259,16 +261,16 @@ export function makeSurfaceMaterial(style = {}, shared) {
         Object.assign(shader.uniforms, shared);
         shader.vertexShader = shader.vertexShader
             .replace('#include <common>',
-                `#include <common>\n attribute float aValue;\n varying float vThreshValue;\n varying float vViewZ;\n ${SLICE_VERT_PARS}`)
+                `#include <common>\n attribute float aValue;\n attribute float aMask;\n varying float vThreshValue;\n varying float vMask;\n varying float vViewZ;\n ${SLICE_VERT_PARS}`)
             .replace('#include <begin_vertex>',
-                `#include <begin_vertex>\n vThreshValue = aValue;`)
+                `#include <begin_vertex>\n vThreshValue = aValue;\n vMask = aMask;`)
             .replace('#include <project_vertex>',
                 `#include <project_vertex>\n vViewZ = -mvPosition.z;\n ${SLICE_VERT_ASSIGN}`);
         shader.fragmentShader =
             `uniform float uThreshold, uMaxAbs, uPositiveOnly, uNearZ, uFarZ, uVeilStrength, uVeilK, uEmissiveBoost, uGlintAmt, uGlintPow;
              uniform vec3 uVeilColor, uBaseColor;
-             uniform float uBaseApply;
-             varying float vThreshValue; varying float vViewZ;
+             uniform float uBaseApply, uMaskApply;
+             varying float vThreshValue; varying float vMask; varying float vViewZ;
              ${SLICE_FRAG_PARS}\n` + shader.fragmentShader;
         // uBaseApply turns the sheet from a stencil into a SOLID surface: sub-threshold vertices
         // are painted uBaseColor instead of discarded. Discarding leaves real holes in the
@@ -280,7 +282,8 @@ export function makeSurfaceMaterial(style = {}, shared) {
             `#include <color_fragment>
              if (gbSliceDiscard(vWorldPos)) discard;
              bool gbSub = abs(vThreshValue) < uThreshold
-                       || (uPositiveOnly > 0.5 && vThreshValue < 0.0);
+                       || (uPositiveOnly > 0.5 && vThreshValue < 0.0)
+                       || (uMaskApply > 0.5 && vMask < 0.5);   // medial wall
              if (gbSub) {
                  if (uBaseApply < 0.5) discard;                      // glass shows through (default)
                  diffuseColor.rgb = uBaseColor;

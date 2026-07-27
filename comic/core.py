@@ -220,6 +220,9 @@ def cli():
                         'that atlas and a display threshold of 0 unless you set --threshold')
     r.add_argument('--parcel-atlas', default=None, metavar='ATLAS',
                    help='atlas the --parcel-values region names index (default: whatever --borders uses)')
+    r.add_argument('--mask-medial-wall', action='store_true',
+                   help='hide surface vertices the atlas marks as non-cortex. Needs --borders (or '
+                        '--parcel-atlas) to say which atlas defines the wall')
     r.add_argument('--surface-base', default=None, metavar='#RRGGBB',
                    help='in surface mode, fill cortex BELOW threshold with this colour instead of '
                         'letting the glass shell show through. Makes the cortical sheet solid, so an '
@@ -442,6 +445,14 @@ def cli():
             if args.borders:
                 setp('parcellation.enabled', True)
                 setp('parcellation.atlas', args.borders)
+            if args.mask_medial_wall:
+                # Masking needs the atlas LABELS, not its borders — keep the two independent.
+                atlas = args.borders or args.parcel_atlas
+                if not atlas:
+                    parser.error('--mask-medial-wall needs --borders or --parcel-atlas to say '
+                                 'which atlas defines the medial wall')
+                setp('parcellation.atlas', atlas)
+                setp('parcellation.maskMedialWall', True)
             setp('parcellation.color', args.border_color)
             setp('parcellation.width', args.border_w)
             if args.no_edges:

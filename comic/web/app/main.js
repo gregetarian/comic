@@ -271,7 +271,8 @@ async function runHeadless() {
     // wrapped in a try: a figure that asked for an atlas and silently rendered without it would
     // be a wrong figure, so a missing/mismatched atlas must fail the render loudly.
     const parc = config.style.parcellation;
-    if (parc?.enabled && parc.atlas) engine.setParcellation(parc.atlas, await loadParcellation(parc.atlas, DATA));
+    if ((parc?.enabled || parc?.maskMedialWall) && parc.atlas)
+        engine.setParcellation(parc.atlas, await loadParcellation(parc.atlas, DATA));
 
     // Brain fills the full figure (no strip → never squashed); render.py hides/shows the
     // colorbar to screenshot it separately. Wait for the web font so colorbar ticks settle.
@@ -659,8 +660,19 @@ async function populateAtlasPicker() {
 
 /** Enable/disable borders, switch atlas, or re-derive after a `smooth` change.
  *  Fetches the label field on first use (~30-100 kB) and reverts the toggle if it fails. */
-async function setParcellationUI({ enabled, atlas }) {
+async function setParcellationUI({ enabled, atlas, mask }) {
     const p = config.style.parcellation;
+    // Masking needs the atlas labels but not the borders, so it loads them without enabling them.
+    if (mask) {
+        if (p.maskMedialWall && !parcAtlas && p.atlas) {
+            setLoading('Loading ' + p.atlas + '…');
+            parcAtlas = await loadParcellation(p.atlas, DATA);
+            engine.setParcellation(p.atlas, parcAtlas);
+            setLoading(null);
+        }
+        engine.applyStyle();
+        return;
+    }
     const btn = document.getElementById('c-parc');
     if (atlas) p.atlas = atlas;
     if (enabled != null) p.enabled = enabled;
@@ -700,7 +712,8 @@ function rebuild() {
     if ((config.style.sliceAnatomy || config.style.cutOverlay?.enabled) && anatomyVol) engine.setAnatomyVolume(anatomyVol);
     // Same for the parcellation: the new engine's border geometries start empty. The label
     // arrays are already in memory, so this only re-derives the distance field.
-    if (config.style.parcellation?.enabled && parcAtlas) engine.setParcellation(config.style.parcellation.atlas, parcAtlas);
+    if ((config.style.parcellation?.enabled || config.style.parcellation?.maskMedialWall) && parcAtlas)
+        engine.setParcellation(config.style.parcellation.atlas, parcAtlas);
     // Preserve the user's pan/zoom across rebuilds that KEEP the design size (overlay
     // add/remove). When the design size CHANGES (a preset switch), re-fit instead — a
     // carried-over view is centred/scaled for the old size and would overflow. The very
@@ -793,6 +806,7 @@ function syncGlobalControls() {
     setColor('c-sil-color', s.outline.silhouette?.color ?? s.outline.color);
     setRange('c-sil-width', s.outline.silhouette?.width ?? s.outline.width);
     setToggle('c-parc', s.parcellation?.enabled);
+    setToggle('c-parc-mask', s.parcellation?.maskMedialWall);
     setColor('c-parc-color', s.parcellation?.color);
     setRange('c-parc-width', s.parcellation?.width ?? 2.0);
 }
