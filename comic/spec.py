@@ -81,6 +81,11 @@ def validate(spec):
             errs.append(f"{path} must be null or a #rgb/#rrggbb colour, got {value!r}")
     if not _width_ok(silhouette.get("width")):
         errs.append(f"style.outline.silhouette.width must be null or a positive number, got {silhouette.get('width')!r}")
+    vox = style.get("voxel") or {}
+    for path, a in (("style.voxel.opacity", vox.get("opacity")),
+                    ("style.voxel.edges.opacity", (vox.get("edges") or {}).get("opacity"))):
+        if a is not None and not (isinstance(a, (int, float)) and 0 <= a <= 1):
+            errs.append(f"{path} must be 0..1, got {a!r}")
     parc = style.get("parcellation") or {}
     if parc:
         if not _color_ok(parc.get("color")):

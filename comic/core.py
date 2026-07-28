@@ -195,6 +195,12 @@ def cli():
     r.add_argument('--edge-thr', type=float, default=None)
     r.add_argument('--line-w', type=float, default=None)
     r.add_argument('--voxel-edge-w', type=float, default=None)
+    r.add_argument('--voxel-alpha', type=float, default=None,
+                   help='blob translucency 0..1 (default 1 = opaque, self-occluding). Below 1 the '
+                        'blobs stop writing depth so you can see through them, which gives up exact '
+                        'front/back sorting where blobs overlap')
+    r.add_argument('--voxel-edge-alpha', type=float, default=None,
+                   help='blob outline (edge line) opacity 0..1')
     r.add_argument('--line-color', default=None, metavar='#RRGGBB',
                    help='colour of the cortical fold (sulcal/gyral) lines (default #000000)')
     r.add_argument('--anat-line-color', default=None, metavar='#RRGGBB',
@@ -439,6 +445,8 @@ def cli():
             setp('outline.overVoxels', args.lines_over_voxels)
             setp('outline.overVoxelOpacity', args.over_voxel_opacity)
             setp('voxel.edges.width', args.voxel_edge_w)
+            setp('voxel.opacity', args.voxel_alpha)
+            setp('voxel.edges.opacity', args.voxel_edge_alpha)
             setp('outline.color', args.line_color)
             setp('outline.anatomyColor', args.anat_line_color)
             setp('voxel.edges.color', args.voxel_edge_color)

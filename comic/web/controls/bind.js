@@ -295,6 +295,14 @@ export function buildOverlayRows({ engine, config, colormaps, onRemove, onSurfac
         bindToggle(edges, os.edges.enabled !== false, (on) => set({ voxel: { edges: { enabled: on } } }), 'Per-voxel edge outlines.');
         g.append(edges);
 
+        const balpha = sw('blob \u03b1');
+        ovRange(balpha.range, os.opacity ?? 1, (v) => { set({ voxel: { opacity: v } }); engine.applyStyle(); }, { min: 0.05, max: 1, step: 0.05 }, 'Blob translucency. Below 1 you can see through the blobs, at the cost of exact front/back sorting where they overlap.', (v) => ({ voxel: { opacity: v } }));
+        g.append(balpha.wrap);
+
+        const ea = sw('edge \u03b1');
+        ovRange(ea.range, os.edges.opacity ?? 1, (v) => { set({ voxel: { edges: { opacity: v } } }); engine.applyStyle(); }, { min: 0, max: 1, step: 0.05 }, 'Blob outline (edge line) opacity.', (v) => ({ voxel: { edges: { opacity: v } } }));
+        g.append(ea.wrap);
+
         const ew = sw('edge w');
         ovRange(ew.range, os.edges.width, (v) => { set({ voxel: { edges: { width: v } } }); engine.applyStyle(); }, { min: 0.3, max: 3, step: 0.1 }, 'Voxel edge thickness.', (v) => ({ voxel: { edges: { width: v } } }));
         g.append(ew.wrap);

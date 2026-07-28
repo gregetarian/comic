@@ -45,6 +45,10 @@ view pixel-for-pixel.
   figure headlessly, pixel-faithful.
 - **Unthresholded by default** — the upload threshold and `--threshold` default to **0**, so a map
   loads exactly as it is and you raise the cutoff if you want one.
+- **Blob + line transparency** — per-overlay **blob α** and **edge α** sliders (or `--voxel-alpha`
+  / `--voxel-edge-alpha`) set how translucent the blobs and their outlines are, independently.
+  Blobs are opaque and self-occluding at 1.0; below that they stop writing depth so you can see
+  through them, which necessarily gives up exact front/back sorting where blobs overlap.
 - **Statistical controls** — voxelwise threshold, **cluster-extent threshold**
   (drop clusters below *k* voxels), positive-only.
 - **Unthresholded whole-brain maps** — set the upload threshold to **0**. COMIC retains the
