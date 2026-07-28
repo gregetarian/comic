@@ -199,10 +199,11 @@ export function makeVoxelMaterial(style = {}, shared) {
         specular: new THREE.Color(0, 0, 0), // Phong specular off; we use uGlint (light-independent)
         shininess: 1,
     });
-    // Voxels are ALWAYS opaque: they occlude each other via the depth buffer
-    // regardless of how faded they look against the surface. The "fade" is the
-    // colour-only depth veil — it never reduces occlusion. (No opacity control
-    // should ever make these transparent.)
+    // Voxels are opaque BY DEFAULT: they occlude each other via the depth buffer regardless of how
+    // faded they look against the surface, and the depth "veil" is a colour-only cue that never
+    // reduces occlusion. style.voxel.opacity < 1 deliberately opts out of that (see applyVoxelAlpha
+    // in renderer.js): translucency and exact self-occlusion cannot both hold, so asking to see
+    // through a blob means accepting order-dependent overlap between blobs.
     mat.transparent = false;
     mat.depthWrite = true;
     mat.depthTest = true;

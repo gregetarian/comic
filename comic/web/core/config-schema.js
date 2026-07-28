@@ -56,6 +56,11 @@ export const DEFAULTS = {
             // surface rather than a hole you can see the far side of the hemisphere through.
             surfaceBase: null,
             veil: { strength: 0.30, k: 7.4, color: '#ffffff' },   // depth veil low by default (was 0.66)
+            // Blob translucency. 1 = the opaque, self-occluding default. Below 1 the voxels stop
+            // writing depth so you can genuinely see through them; that necessarily gives up exact
+            // front/back sorting between overlapping blobs (the depth veil is the order-independent
+            // depth cue and is unaffected).
+            opacity: 1.0,
             edges: { enabled: true, color: '#808080', opacity: 1.0, width: 1.9, threshold: 0.003 },
         },
         // Per-NIfTI overrides. Each entry overrides the voxel/colour fields above
@@ -147,6 +152,7 @@ export function overlayStyle(config, i = 0) {
         representation: ov.representation ?? v.representation,
         subcortexRepresentation: ov.subcortexRepresentation ?? v.subcortexRepresentation,
         clusterMin: ov.clusterMin ?? v.clusterMin,
+        opacity: ov.opacity ?? v.opacity,
         smoothing: ov.smoothing ?? v.smoothing,
         shininess: ov.shininess ?? v.shininess,
         specular: ov.specular ?? v.specular,
@@ -194,6 +200,7 @@ const volumeRepOk = (r) => r == null || VOLUME_REPRESENTATIONS.has(r);
 // simply means "inherit", exactly as climOk/repOk/cutOk treat theirs.
 const colorOk = (c) => c == null || (typeof c === 'string' && /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(c));
 const widthOk = (w) => w == null || (typeof w === 'number' && w > 0);
+const alphaOk = (a) => a == null || (typeof a === 'number' && a >= 0 && a <= 1);
 const parcOk = (p) => !p || (colorOk(p.color) && widthOk(p.width)
     && (p.opacity == null || (typeof p.opacity === 'number' && p.opacity >= 0 && p.opacity <= 1)));
 const cutOk = (c) => !c || ((c.interpolation == null || c.interpolation === 'linear' || c.interpolation === 'nearest')
@@ -215,6 +222,8 @@ export function validateConfig(cfg) {
     if (!colorOk(cfg.style?.outline?.silhouette?.color)) errors.push('style.outline.silhouette.color must be null or a #rgb/#rrggbb colour');
     if (!widthOk(cfg.style?.outline?.silhouette?.width)) errors.push('style.outline.silhouette.width must be null or a positive number');
     if (!parcOk(cfg.style?.parcellation)) errors.push('style.parcellation needs a #rgb/#rrggbb color, width > 0, and opacity 0..1');
+    if (!alphaOk(cfg.style?.voxel?.opacity)) errors.push('style.voxel.opacity must be 0..1');
+    if (!alphaOk(cfg.style?.voxel?.edges?.opacity)) errors.push('style.voxel.edges.opacity must be 0..1');
     (cfg.style?.overlays || []).forEach((o, i) => {
         if (!o) return;
         if (!climOk(o.clim)) errors.push(`style.overlays[${i}].clim invalid (null | number | [vmin<vmax])`);

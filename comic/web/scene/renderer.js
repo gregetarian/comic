@@ -23,6 +23,17 @@ import { OutlinePass, makeThresholdDepthMaterial, makePlainDepthMaterial, DEPTH_
 const _clearScratch = new THREE.Color();   // save/restore around a depth-target clear
 const _colScratch = new THREE.Color();     // hex → linear RGB for the live line-colour uniforms
 
+/** Blob translucency. Below 1 the voxels stop writing depth — otherwise a nearer blob still hides
+ *  a farther one and the alpha only tints the background, which is not what "see through it" means.
+ *  The cost is order-dependent overlap between translucent blobs; the depth veil stays as the
+ *  order-independent depth cue. `transparent` changes the shader program, hence needsUpdate. */
+function applyVoxelAlpha(mat, alpha) {
+    const t = alpha < 1;
+    if (mat.transparent !== t) { mat.transparent = t; mat.needsUpdate = true; }
+    mat.opacity = alpha;
+    mat.depthWrite = !t;
+}
+
 /** Push a CSS hex colour into an OutlinePass's uColor (a vec3, not a THREE.Color). */
 function setPassColor(pass, hex) {
     _colScratch.set(hex);
@@ -109,6 +120,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         // later overlays back so the top row draws on top, without disturbing
         // genuine front/back occlusion at clearly different depths.
         mat.polygonOffset = true; mat.polygonOffsetFactor = 0; mat.polygonOffsetUnits = i * 6;
+        applyVoxelAlpha(mat, os.opacity ?? 1);
         voxelMats.push(mat);
         surfaceMats.push(makeSurfaceMaterial({}, u));   // variant:'surface' meshes (M8) share the uniforms
     }
@@ -908,6 +920,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
             u.uClusterMin.value = os.clusterMin ?? 0;
             u.uBaseApply.value = os.surfaceBase ? 1 : 0;
             if (os.surfaceBase) u.uBaseColor.value.set(os.surfaceBase);
+            applyVoxelAlpha(voxelMats[i], os.opacity ?? 1);
             const em = edgePasses[i].outlineMaterial.uniforms;
             em.uOpacity.value = os.edges.opacity;
             em.uLineWidth.value = os.edges.width;
