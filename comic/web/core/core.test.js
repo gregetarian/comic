@@ -504,3 +504,25 @@ test('validateConfig requires exactly one of cell / place', () => {
     assert.doesNotThrow(() => normalizeConfig({ layout: { panels: [{ id: 'a', camera, cell: { row: 0, col: 0 } }] } }));
     assert.doesNotThrow(() => normalizeConfig({ layout: { panels: [{ id: 'a', camera, place: { x: 0, y: 0, w: 1, h: 1 } }] } }));
 });
+
+test('voxel edges default OFF in surface mode, but a per-overlay setting still wins', () => {
+    // The edge pass finds depth steps in VOXEL geometry; a cortical sheet has none, so on a
+    // surface overlay it just traces the threshold boundary and reads as noise.
+    // built from DEFAULTS, i.e. the shape overlayStyle actually receives after normalizeConfig
+    const cfg = (rep, ov = {}) => ({
+        style: { ...DEFAULTS.style,
+                 voxel: { ...DEFAULTS.style.voxel, representation: rep },
+                 overlays: [ov] },
+    });
+    assert.equal(overlayStyle(cfg('smooth'), 0).edges.enabled, true, 'volumetric keeps its edges');
+    assert.equal(overlayStyle(cfg('surface'), 0).edges.enabled, false, 'surface mode drops them');
+    // per-overlay representation, not just the global one
+    assert.equal(overlayStyle(cfg('smooth', { voxel: { representation: 'surface' } }), 0).edges.enabled, false);
+    // an explicit per-overlay enable (what the Edges button writes) turns them back on
+    assert.equal(overlayStyle(cfg('surface', { voxel: { edges: { enabled: true } } }), 0).edges.enabled, true,
+        'explicit per-overlay wins');
+});
+
+test('the depth veil is off by default', () => {
+    assert.equal(DEFAULTS.style.voxel.veil.strength, 0);
+});
