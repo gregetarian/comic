@@ -55,7 +55,7 @@ export const DEFAULTS = {
             // solid, which is what an atlas figure wants — an unpainted medial wall is then a grey
             // surface rather than a hole you can see the far side of the hemisphere through.
             surfaceBase: null,
-            veil: { strength: 0.30, k: 7.4, color: '#ffffff' },   // depth veil low by default (was 0.66)
+            veil: { strength: 0.0, k: 7.4, color: '#ffffff' },   // depth veil OFF by default; raise to fade deep voxels
             // Blob translucency. 1 = the opaque, self-occluding default. Below 1 the voxels stop
             // writing depth so you can genuinely see through them; that necessarily gives up exact
             // front/back sorting between overlapping blobs (the depth veil is the order-independent
@@ -160,7 +160,16 @@ export function overlayStyle(config, i = 0) {
         surfaceDepth: ov.surfaceDepth ?? v.surfaceDepth,
         surfaceBase: ov.surfaceBase ?? v.surfaceBase,
         veil: { ...(v.veil || {}), ...(ov.veil || {}) },
-        edges: { ...(v.edges || {}), ...(ov.edges || {}) },
+        // Voxel edges default OFF in surface mode. The edge pass finds depth steps in VOXEL
+        // geometry; a continuous cortical sheet has none, so it just traces the threshold boundary
+        // and usually reads as noise. A per-overlay setting still wins, so the Edges button (which
+        // writes per-overlay) turns them back on for anyone who wants that outline.
+        edges: (() => {
+            const e = { ...(v.edges || {}), ...(ov.edges || {}) };
+            const rep = ov.representation ?? v.representation;
+            if (rep === 'surface' && ov.edges?.enabled === undefined) e.enabled = false;
+            return e;
+        })(),
         cutOverlay: { ...(s.cutOverlay || {}), ...(o.cutOverlay || {}) },
     };
 }

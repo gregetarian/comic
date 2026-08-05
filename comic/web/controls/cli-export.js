@@ -25,7 +25,7 @@ const PRESET_VIEWS = {
 // current value differs, so the command stays readable.
 const D = {
     cortexSurface: 'inflated', representation: 'smooth', gamma: 0.5,
-    veilStrength: 0.66, veilK: 7.4, emissive: 1.0, specular: 0.0, shininess: 200,
+    veilStrength: 0, veilK: 7.4, emissive: 1.0, specular: 0.0, shininess: 200,
     directional: 0, ambient: 0, glassMaxOpacity: 0.0, outlineThreshold: 0.018,
     edgeWidth: 1.9, colormapMode: 'auto', overVoxelOpacity: 0.4,
     lineColor: '#000000', edgeColor: '#808080',
