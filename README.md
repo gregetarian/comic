@@ -388,3 +388,8 @@ python tests/integration_test.py       # full app: demo, upload, preset switch, 
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+---
+
+COMIC is free and always will be. If it saved you an afternoon of fiddling with figures,
+you can [buy me a coffee](https://buymeacoffee.com/semilanceata).
