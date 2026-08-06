@@ -149,16 +149,16 @@ def _layout_from(layout, views, grid):
 
 
 def render(nifti, *, out=None, layout=None, views=None, grid="2x4", style=None,
-           threshold=0, cmap="auto", clusterMin=None, colormapMode=None, gamma=None,
+           threshold=0, cmap="auto", clusterMin=0, colormapMode=None, gamma=None,
            clim=None, positiveOnly=None, voxels=None, units=None, names=None,
            width=1600, height=1000, scale=2, include_subcortical=True,
            background="#ffffff", background_alpha=1.0, crop="none", colorbar=True,
            template=None, session=None):
     """Render a NIfTI to a Figure. `nifti` may be a path, an in-memory nibabel image, or an
     (array, affine) pair --- or a list of these for a multi-overlay figure. Per-overlay kwargs
-    accept a scalar (same for every overlay) or a list (one value per overlay). `template` is a
-    custom template dir (M9) or None. Pass an existing `session` (a RenderSession) to reuse one
-    browser."""
+    accept a scalar (same for every overlay) or a list (one value per overlay). Intensity and
+    cluster thresholds both default to zero. `template` is a custom template dir (M9) or None.
+    Pass an existing `session` (a RenderSession) to reuse one headless browser."""
     items = nifti if isinstance(nifti, list) else [nifti]
     paths, _tmpfiles = _to_paths(items)
     n = len(paths)

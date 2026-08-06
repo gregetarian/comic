@@ -1,4 +1,10 @@
 {
+  "provenance": {
+    "source": "Neurosynth association maps",
+    "url": "https://neurosynth.org/",
+    "license": "Open Database License (ODbL)",
+    "citation": "Yarkoni et al. (2011), Nature Methods, 8, 665-670"
+  },
   "overlays": [
     {
       "file": "faces.nii.gz",

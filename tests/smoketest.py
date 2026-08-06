@@ -1,6 +1,6 @@
 """Headless-browser smoke test: prove the in-browser Pyodide pipeline works.
 
-Serves comicbrains-in-browser/ over HTTP, loads smoketest.html in headless Chromium
+Serves the single `comic/web/` application over HTTP, loads `smoketest.html` in Chromium
 (which boots Pyodide, installs numpy/scipy/scikit-image + nibabel from CDN, runs
 pipeline.py on test_sphere.nii.gz), then asserts the result matches the ground truth
 captured from the native Python pipeline.

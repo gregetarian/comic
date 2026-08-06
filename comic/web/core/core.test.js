@@ -18,6 +18,16 @@ import { isFreeFigure, usesFigureSpec, buildSpec, buildRenderText } from '../con
 import { rotateAroundWorldAxis, snapPlaneForAxis, wrapDegrees } from './rotation.js';
 import { normalizeTemplateBundle, validateTemplateBundle } from './template-bundle.js';
 
+test('default display applies no intensity or cluster cutoff', () => {
+    assert.equal(DEFAULTS.style.voxel.clusterMin, 0);
+    const cfg = normalizeConfig({
+        style: { threshold: 0 },
+        layout: { panels: [{ id: 'a', camera: { plane: 'dorsal' }, cell: { row: 0, col: 0 } }] },
+    });
+    assert.equal(cfg.style.threshold, 0);
+    assert.equal(cfg.style.voxel.clusterMin, 0);
+});
+
 // --- cameras: every plane yields a right-handed (positive-determinant) basis ---
 test('camera bases are right-handed (no mirror → medials light correctly)', () => {
     for (const name of Object.keys(PLANES)) {

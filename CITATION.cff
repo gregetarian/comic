@@ -1,17 +1,24 @@
 cff-version: 1.2.0
-message: "If you use this software, please cite it as below."
-title: COMIC
+message: "If you use COMIC, please cite the software using this metadata."
+type: software
+title: "COMIC"
+abstract: >-
+  A browser-based and scriptable figure composer for volumetric, surface and
+  parcel-wise neuroimaging results, with reproducible layouts and a stylised
+  three-dimensional glass-brain rendering.
 authors:
-  - family-names: Cooper
-    given-names: Greg
-    email: gregcooper95@gmail.com
-    orcid: "https://orcid.org/0000-0000-0000-0000"
+  - family-names: "Cooper"
+    given-names: "Greg"
+    email: "greg.cooper@ucl.ac.uk"
 repository-code: "https://github.com/gregetarian/comic"
+url: "https://gregetarian.github.io/comic/"
 license: MIT
-version: 0.1.0
+version: "0.1.0"
 keywords:
   - neuroimaging
-  - fmri
-  - brain
-  - visualization
-  - glass-brain
+  - fMRI
+  - visualisation
+  - glass brain
+  - NIfTI
+  - fsaverage
+  - reproducible figures

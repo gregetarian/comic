@@ -48,9 +48,9 @@ export function usesFigureSpec(config, overlays = [], panelZoomUsed = false) {
     return isFreeFigure(config) || overlays.length > 1 || panelZoomUsed;
 }
 
-/** The self-contained canvas document the CLI reproduces with `--spec figure.json`.
+/** The portable display document the CLI reproduces with `--spec figure.json`.
  *  It bundles the layout (place/rotate/slice/canvas), the full style, and the render
- *  size/aspect — so `comic render <nifti> --spec figure.json` round-trips exactly. */
+ *  size/aspect. Input data and the COMIC version remain separate. */
 export function buildSpec(config, overlays = []) {
     const cv = config.layout && config.layout.canvas;
     const spec = {
@@ -88,7 +88,7 @@ function commandFor(config, i, meta, colormaps, preset) {
 
     const parts = [`comic render ${q(meta.name)} -o glassbrain.png`];
     parts.push(`--grid ${pv.grid} --views ${pv.views}`);
-    // data params — always explicit (the CLI's own defaults differ, e.g. -k 105)
+    // Data parameters are always explicit so the exported recipe survives future default changes.
     parts.push(`--threshold ${fmt(os.threshold ?? meta.threshold ?? 2.3)} -k ${fmt(os.clusterMin ?? 0)} --cmap ${cmap}`);
     if (os.colormapMode && os.colormapMode !== D.colormapMode) parts.push(`--colormap-mode ${os.colormapMode}`);
     // always override the CLI's print-look defaults so output matches the screen
@@ -135,7 +135,7 @@ export function buildRenderText({ config, overlays, preset, colormaps, panelZoom
     if (!overlays.length) return '# Load a NIfTI first — there is no overlay to reproduce.';
 
     // Free Canvas / per-panel edits and multi-overlay styles cannot be expressed compactly by
-    // --grid/--views flags — emit one self-contained recipe + one composite command instead.
+    // --grid/--views flags: emit one display recipe + one composite command instead.
     if (usesFigureSpec(config, overlays, panelZoomUsed)) {
         const spec = buildSpec(config, overlays);
         const names = overlays.map(inputName);

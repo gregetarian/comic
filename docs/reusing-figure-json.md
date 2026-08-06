@@ -1,6 +1,6 @@
 # Reuse a browser figure with new data
 
-`figure.json` is a reusable COMIC figure recipe. It records the panel positions and sizes,
+`figure.json` is a reusable COMIC display recipe. It records the panel positions and sizes,
 camera rotations, cuts, selected cortical surfaces, overlay colours, thresholds, line
 styling, transparency, and output dimensions. It deliberately does **not** contain a copy
 of the NIfTI data.
@@ -9,6 +9,11 @@ This separation is useful: design a figure once in the browser, then apply the s
 to one map, many subjects, or many sets of overlays from the terminal or Python.
 
 ## 1. Install the headless renderer once
+
+The terminal and Python rendering interfaces use the same Three.js renderer as the hosted
+viewer. They therefore launch Chromium through Playwright in headless mode, capture its
+canvas, and close it. No browser window appears, but both Playwright and the separate
+Chromium binary are required; this is not a native Python rasteriser.
 
 From a COMIC checkout:
 
@@ -69,7 +74,8 @@ gb.render_spec(
 ```
 
 In Jupyter or VS Code, leave off `.save(...)` and evaluate the returned figure to display
-it inline.
+it inline. Rendering still occurs in the invisible Chromium process before the PNG is
+shown in the notebook.
 
 ## 4. Understand overlay slots
 
@@ -147,6 +153,10 @@ change.
 The JSON fixes the presentation: layout, camera, styling, thresholds, colour limits, and
 render dimensions. The input data can change. If a colour limit was pinned in the browser,
 the same limit is reused; if it was automatic, COMIC derives it from each replacement map.
+
+For publication-grade reproducibility, retain the original data, the JSON, any custom
+template assets, and a pinned COMIC release or commit. The shared renderer keeps the display
+semantics aligned, but different WebGL backends may produce small pixel-level differences.
 
 For genuinely comparable figures, use maps in the same spatial template and keep the same
 slot meaning across jobs. A replacement map may have a different voxel size, but the 1-mm cut

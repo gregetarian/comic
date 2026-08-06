@@ -21,18 +21,10 @@ GT_SMOOTH = {'lh_cortex': 2268, 'rh_cortex': 1126, 'subcort_l': 924, 'subcort_r'
 GT_MAXABS, GT_MAXCLU, GT_DIVERGING = 4.58, 81, False
 
 
-def _find(*relpaths):
-    for r in relpaths:
-        p = ROOT / r
-        if p.exists():
-            return p
-    raise FileNotFoundError(relpaths)
-
-
 def test_pipeline_parity():
-    aseg_gz = _find('comic/web/data/aseg_uint8.bin.gz', 'comicbrains-in-browser/data/aseg_uint8.bin.gz')
-    aseg_json = _find('comic/web/data/aseg.json', 'comicbrains-in-browser/data/aseg.json')
-    nifti = _find('test_sphere.nii.gz', 'comicbrains-in-browser/test_sphere.nii.gz')
+    aseg_gz = ROOT / 'comic/web/data/aseg_uint8.bin.gz'
+    aseg_json = ROOT / 'comic/web/data/aseg.json'
+    nifti = ROOT / 'test_sphere.nii.gz'
 
     P.init_aseg(aseg_gz.read_bytes(), aseg_json.read_text())
     meta = json.loads(P.process_nifti(str(nifti), 'test_sphere.nii.gz', 2.3))
