@@ -1,4 +1,4 @@
-"""COMIC 2.0 — Interactive 3D glass brain viewer + headless/notebook renderer."""
+"""COMIC: interactive 3D brain figures and scripted headless rendering."""
 
 from .core import Comic, open_viewer
 from .figure import render, render_spec, Scene, Figure

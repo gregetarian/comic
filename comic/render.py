@@ -1,8 +1,9 @@
-"""Headless figure rendering — build a custom multi-panel PNG from a NIfTI.
+"""Headless figure rendering: build a custom multi-panel PNG from a NIfTI.
 
 Reuses the exact browser viewer (run in headless Chromium via Playwright), so
-the PNG matches the interactive look pixel-for-pixel. Fully customisable layout:
-any grid of any anatomical views, plus all style parameters.
+the interfaces share geometry, styling and rendering semantics. WebGL raster output
+may vary slightly across browsers, operating systems and graphics backends. Fully
+customisable layout: any grid of anatomical views, plus all style parameters.
 """
 
 import json
@@ -250,7 +251,7 @@ def _render_config(layout, style, *, cmap, width, height, scale, background, col
     """Build the render-config.json the headless viewer consumes (the exact dict the old
     render_to_png built inline). Returns (config, transparent)."""
     # Transparent background (Free Canvas): record bgAlpha in the layout so the WebGL clear is
-    # transparent; the screenshot then captures real alpha. Default 1 = opaque → byte-identical.
+    # transparent; the screenshot then captures real alpha. Default 1 preserves opaque output.
     transparent = background_alpha < 1
     if transparent:
         layout = {**layout, "canvas": {**layout.get("canvas", {}), "bgAlpha": background_alpha}}
@@ -275,8 +276,8 @@ def _render_config(layout, style, *, cmap, width, height, scale, background, col
 class RenderSession:
     """Holds ONE Playwright browser open across many renders (amortizes the ~0.7s launch) and
     can return PNG *bytes* (for inline notebook display) as well as write files. render_to_png,
-    the notebook API (M5), and render_batch all go through this one path, so the byte-identical
-    output guarantee holds for every front-end.
+    the notebook API (M5), and render_batch all go through this one path, so every scripted
+    interface uses the same renderer and configuration semantics.
 
     Args: gpu=True swaps swiftshader for the ANGLE GL backend (faster locally, no GPU on CI);
     template_dir overlays a custom/non-MNI template bundle (M9); keep_dirs leaves the staged
@@ -431,8 +432,8 @@ class RenderSession:
 
 
 def render_to_png(nifti, out_png, *, template_dir=None, **kwargs):
-    """Byte-identical one-shot wrapper over RenderSession. template_dir overlays a custom/non-MNI
-    template bundle (M9); omit it for the bundled fsaverage."""
+    """One-shot wrapper over RenderSession. template_dir overlays a custom/non-MNI template
+    bundle (M9); omit it for the bundled fsaverage."""
     with RenderSession(template_dir=template_dir) as s:
         s.render(nifti, out_png, **kwargs)
     return out_png

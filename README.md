@@ -1,395 +1,225 @@
-# COMIC 2.0
+# COMIC
 
-A **volumetric** glass-brain viewer + headless figure renderer for 3D neuroimaging
-results — **clusters, statistical blobs, parcellations** — in **MNI152 space**, with a
-cel-shaded comic aesthetic: a translucent fresnel cortex, opaque self-occluding stat
-voxels, live-threshold silhouette edges, and a depth "veil" that fades deep voxels
-toward white. It can render **the volume itself** (voxel cubes or marching-cubes
-isosurfaces), sample a volume onto the cortical sheet, or display native fsaverage
-surface maps.
+**Publication-ready 3D brain figures, directly in your browser.**
 
-### ▶ Try it in your browser (no install): **https://gregetarian.github.io/comic/**
-Drag in a NIfTI and it renders — the whole pipeline runs client-side via Pyodide, no backend.
+## [Open COMIC](https://gregetarian.github.io/comic/)
 
-**Plot multiple volumes at once, each with its own colormap and colorbar** — overlay
-several clusters / contrasts / network clades in one figure (top row drawn on top).
+No installation is required. Drop in a 3D NIfTI volume, an fsaverage surface map,
+or a table containing one value per cortical parcel. The data are processed on your
+own computer and are not uploaded to a server.
 
-One Python pipeline turns a NIfTI stat map into per-structure geometry; a single
-config-driven Three.js viewer renders multi-panel views **interactively in the browser**
-(locally or on GitHub Pages — meshing client-side via Pyodide) or **headlessly to a PNG**
-(`comic render`, same pipeline in-process) — so the figure matches the interactive
-view pixel-for-pixel.
+![Several statistical maps, each with its own colourmap, on one glass brain](figures/clusters_example.png)
 
-![Five cluster volumes, each its own colour, on one glass brain](figures/clusters_example.png)
+## Start here
 
----
+1. Open the [hosted viewer](https://gregetarian.github.io/comic/).
+2. Drop in a map, or click **Demo** to try the bundled examples.
+3. Choose the views, surfaces, colours and thresholds you need.
+4. Use **Save brain** for the figure, **Save bars** for its legends, or **GIF** for
+   a turntable.
 
-## Features
+The first file upload downloads the Pyodide scientific-Python runtime, approximately
+30 MB, and caches it in the browser. The application itself is a static website. Only
+its code and template assets are downloaded; the map you load stays in the browser.
 
-- **Volume or surface display** — draw NIfTI values as exposed voxel faces, smooth
-  marching-cubes geometry, or a pial-to-white cortical projection. Native fsaverage
-  GIFTI/MGH/MGZ maps can be drawn directly on pial, white, or inflated surfaces.
-- **One config, two renderers** — the same declarative config drives the
-  interactive browser viewer and the headless PNG renderer.
-- **Multiple volumes at once, distinct colorbars** — load several NIfTIs; each gets its
-  own control row **and its own colormap + colorbar**. **Row order = draw priority**: the
-  top row draws on top where overlays overlap. Add with **`+ map`**, remove with **✕**.
-- **Fully customisable layouts** — any grid of any anatomical views
-  (`left_lateral`, `right_medial`, `dorsal`/`axial`, `anterior`/`frontal`,
-  subcortical close-ups, …), 2×2 to N×M, from the CLI.
-- **Free Canvas** — a "Canva for brains" mode: drop panels anywhere on a free
-  2D canvas, **move / resize / overlap** them, **rotate** each view with the hover
-  MNI-axis gizmo (or shift-drag free orbit), **slice** any panel (a plane cut or a sphere/cube
-  **"bite"** out of the whole brain), and toggle a **transparent background**. It
-  still **Copy-CLI**s to a self-contained `--spec figure.json` that reproduces the
-  figure headlessly, pixel-faithful.
-- **Unthresholded by default** — the upload threshold and `--threshold` default to **0**, so a map
-  loads exactly as it is and you raise the cutoff if you want one.
-- **Blob + line transparency** — per-overlay **blob α** and **edge α** sliders (or `--voxel-alpha`
-  / `--voxel-edge-alpha`) set how translucent the blobs and their outlines are, independently.
-  Blobs are opaque and self-occluding at 1.0; below that they stop writing depth so you can see
-  through them, which necessarily gives up exact front/back sorting where blobs overlap.
-- **Statistical controls** — voxelwise threshold, **cluster-extent threshold**
-  (drop clusters below *k* voxels), positive-only.
-- **Unthresholded whole-brain maps** — set the upload threshold to **0**. COMIC retains the
-  continuous map, automatically disables the cluster cutoff for that overlay, and uses an
-  adaptive smooth-mesh resolution for dense 2–3 mm volumes so the browser does not manufacture
-  hundreds of megabytes of redundant 0.5 mm geometry. Sparse maps keep the original fine mesh.
-- **Faithful colour** — all ~156 matplotlib colormaps (every continuous map +
-  its `_r` reverse, RdPu/PuRd and the rest), auto sequential-vs-diverging
-  selection, and a positive-data washout guard; an on-screen colorbar (one per
-  overlay) runs the *same* shader pipeline so it matches the voxels. Step through
-  maps per overlay with **‹ ›**, or **Randomise** every loaded volume at once.
-  Colorbars are **off by default**; toggle them on with the **Colorbar** button
-  (or hide with the `✕`) so a stack of bars never squashes the brains.
-- **Blocky or smooth** voxels, pial or inflated cortex; an optional **`smooth+`** pass
-  (size-preserving Laplacian) that rounds rough cluster surfaces — most visible on
-  large/irregular blobs.
-- **Parcellation borders** — draw atlas parcel boundaries on the cortical surface with
-  `--borders schaefer400_7` (or the **Parcels** control group). Lines are a geodesic
-  distance field, so they hold a constant screen-pixel width at any zoom and look identical
-  on pial, white and inflated. Schaefer 100/200/400/1000 × 7/17 networks ship with COMIC;
-  `comic parcels bake aparc a2009s yeo7 yeo17 hcpmmp1` fetches the rest from your own
-  FreeSurfer/MNE fsaverage install. `comic parcels list` shows what is available.
-- **Plot one value per parcel** — `--parcel-values table.csv --parcel-atlas schaefer400_7`
-  takes a CSV of `region,value`, paints each parcel flat through the colormap, and turns the
-  borders on. Region names are matched against the atlas (a bare FreeSurfer name like
-  `bankssts` applies to both hemispheres; `lh_bankssts` to one), and **an unmatched name is an
-  error, not a warning**. The cortical sheet is drawn solid (`--surface-base`), so an unpainted
-  medial wall reads as grey surface rather than a window onto the far side of the hemisphere.
-  In the browser, just drop the table in — the atlas is inferred from the row count and region
-  names, and you are asked only when it genuinely cannot be known (every Schaefer size ships in
-  both a 7- and a 17-network variant).
-- **Mask the medial wall** — **Mask wall** in the browser, or `--mask-medial-wall`, hides the
-  surface vertices the active atlas marks as non-cortex, so a map carrying values there doesn't
-  paint the wall. Independent of the borders: it uses the atlas's labels, not its lines.
-- **Per-line-set colours + a guaranteed outline** — set the colour of the cortical fold lines,
-  the subcortical lines, the voxel/blob edges, and the brain's outer contour independently
-  (`--line-color`, `--anat-line-color`, `--voxel-edge-color`, `--silhouette-color`,
-  `--silhouette-w`). The outer contour is its own pass over everything visible, so you can
-  grey out the fold lines — or switch them off entirely with `--no-outline` — and the brain
-  still keeps its dark outline.
-- **Clickable help on every control** — tap a parameter's label (above its slider) or
-  the small **ⓘ** next to a toggle for a one-line explanation.
-- **Shared world scale** so every brain renders at the same physical size across
-  a figure, plus **per-panel zoom** (hover a panel for `+ / –`).
-- **Save brain** / **Save bars** — the brains export at full resolution with no
-  colorbars (never squashed); the colorbars export as a separate legend image you
-  place yourself.
-- **Comic SFX** — because brains rendered like comic panels deserve the
-  occasional *BOOM!* (toggle the **Kapow** checkbox).
+## What COMIC is for
 
----
+COMIC is a figure composer for already-computed human neuroimaging results. It is
+designed to make a polished static figure or short animation without requiring the
+user to write rendering code.
 
-## Install
+- Draw 3D NIfTI results as exposed voxel faces, smooth isosurfaces, or values sampled
+  onto the cortical sheet.
+- Load native fsaverage GIFTI, MGH, MGZ and morphometry maps.
+- Paint CSV or TSV parcel values onto the cortex and draw atlas boundaries. Schaefer
+  100, 200, 400 and 1000 parcel atlases, each in 7- and 17-network versions, are bundled.
+- Combine several overlays, each with its own threshold, colourmap, colour limits,
+  transparency and legend.
+- Arrange, resize, overlap and rotate panels on a Free Canvas.
+- Cut the brain with a plane, sphere or cube and show template T1 anatomy and source-map
+  values on the exposed face.
+- Export the figure styling and layout as a reusable `figure.json` display recipe.
+
+The application includes a built-in guide and clickable explanations for its controls.
+For implementation details, see [METHODS.md](METHODS.md).
+
+## Do I need to install anything?
+
+For ordinary interactive use, **no**. Use the hosted viewer.
+
+| Task | Recommended route | Local requirements |
+|---|---|---|
+| Make one figure interactively | Hosted viewer | None |
+| Serve the interactive viewer from a checkout | `comic open` | Python package; your normal browser |
+| Regenerate or batch-render figures | `comic render` or `comic.render(...)` | Python, Playwright and Chromium |
+| Rebuild template assets | `comic bake` | Additional maintainer dependencies |
+
+Local scripted rendering is useful when a figure must be regenerated from an analysis,
+the same design must be applied to many maps, output is being produced in a notebook or
+CI job, or a custom template is required. It is unnecessary for a one-off interactive
+figure.
+
+## Optional scripted and batch rendering
+
+COMIC uses one Three.js renderer. The browser displays it directly; the command-line and
+Python interfaces run the same renderer in an **invisible headless Chromium process** and
+capture its canvas as a PNG. No browser window appears, but Playwright and a Chromium binary
+are required. This is not a native Python rasteriser.
+
+Until COMIC has a packaged release, install it from a source checkout:
 
 ```bash
 git clone https://github.com/gregetarian/comic
 cd comic
-pip install -e .                 # runtime: nibabel/numpy/scipy/scikit-image (the pipeline)
-
-# Headless figure rendering (comic render):
 pip install -e ".[render]"
 python -m playwright install chromium
-
-# Only to RE-BAKE the fsaverage template (comic bake) — most users never need this:
-pip install -e ".[bake]"         # adds trimesh/mne/cmap
 ```
 
-The fsaverage template is **pre-baked** and committed under `comic/web/data/`,
-so normal use needs no `mne`/fsaverage download — only `comic bake` fetches
-fsaverage via MNE (cached under `~/mne_data/`).
+The Chromium installation is a one-time download for that Python environment. The bundled
+fsaverage/MNI152 template is already included; ordinary rendering does not download MNE or
+FreeSurfer data.
 
----
-
-## Browser figure → reproducible code
-
-The browser's **Copy CLI** button turns the current Free Canvas figure into a reusable
-recipe:
-
-1. Arrange the panels, rotations, cuts, surfaces, colours, thresholds, and output size
-   in the browser.
-2. Click **Copy CLI**. COMIC downloads **`figure.json`** and copies a ready-to-run
-   terminal command containing every loaded volume.
-3. Keep `figure.json` beside your analysis. It contains the figure recipe, **not the
-   image data**. Supply the NIfTIs when rendering.
-
-For one volume:
+### Command line
 
 ```bash
-comic render my_map.nii.gz --spec figure.json -o my_figure.png --crop content
+# Default eight-view figure. No intensity or cluster cutoff is applied unless requested.
+comic render zstat.nii.gz -o figure.png
+
+# Three named views with explicit inferential display thresholds.
+comic render zstat.nii.gz -o figure.png \
+  --grid 1x3 --views left_lateral,dorsal,right_lateral \
+  --threshold 3.1 -k 100 --cmap YlGnBu
+
+# Several independently styled overlays in one figure.
+comic render seed.nii.gz network_a.nii.gz network_b.nii.gz \
+  --grid 1x3 --views left_lateral,dorsal,right_lateral \
+  --cmap Reds,YlGnBu,Purples -o networks.png
+
+# Reuse a layout exported from the browser.
+comic render faces.nii.gz language.nii.gz \
+  --spec figure.json --crop content -o reused.png
 ```
 
-For several overlays, pass one volume per saved style slot, in the same order as the
-overlay rows in the browser:
+Run `comic render -h` for the complete CLI reference. The main brain image is written as
+a PNG. Colour bars are written separately by default, and can also be exported as SVG.
 
-```bash
-comic render first_map.nii.gz second_map.nii.gz third_map.nii.gz \
-  --spec figure.json -o my_figure.png --crop content
-```
-
-The equivalent Python is one line:
+### Python and notebooks
 
 ```python
 import comic as gb
-gb.render_spec("figure.json", ["first_map.nii.gz", "second_map.nii.gz", "third_map.nii.gz"]).save("my_figure.png")
+
+fig = gb.render(
+    "zstat.nii.gz",
+    views=["left_lateral", "dorsal", "right_lateral"],
+    grid="1x3",
+    threshold=3.1,
+    clusterMin=100,
+    cmap="YlGnBu",
+)
+fig.save("figure.png")
 ```
 
-Input order is the contract: the first file receives `style.overlays[0]`, the second
-receives `style.overlays[1]`, and so on. New browser exports also include a human-readable
-top-level `inputs` list so the original slot names are visible in the JSON. See
-**[Reuse a browser figure with new data](docs/reusing-figure-json.md)** for installation,
-batch rendering with one persistent browser, output/cropping behaviour, and troubleshooting.
+Evaluating `fig` displays it inline in Jupyter or VS Code. This Python API still uses
+headless Chromium internally; it does not open a visible browser window. Reuse one
+`gb.RenderSession()` when producing many figures so Chromium starts only once.
 
----
+## Reusing a browser figure
 
-## Quickstart
+The browser's **Copy CLI** action downloads `figure.json` and copies matching terminal
+and Python commands. The JSON records presentation state, including panel positions,
+cameras, cuts, surfaces, colours, thresholds and output dimensions.
+
+It is a self-contained **display recipe**, not a self-contained scientific record. It
+does not contain the NIfTI or surface data. Reproducing a published figure therefore
+requires:
+
+- the original input maps;
+- `figure.json`;
+- any non-default template assets; and
+- a pinned COMIC release or commit.
+
+Input order binds files to saved overlay styles. See
+[Reuse a browser figure with new data](docs/reusing-figure-json.md) for batch rendering,
+slot rules and troubleshooting.
+
+## Optional local interactive viewer
 
 ```bash
-# Interactive viewer — serves the local site + opens the browser. Drag NIfTIs in;
-# they're meshed in-browser via Pyodide (identical to the GitHub Pages site).
+git clone https://github.com/gregetarian/comic
+cd comic
+pip install -e .
 comic open
-
-# Headless figure → PNG (default: 9-panel, YlGnBu, smooth voxels). Writes a clean
-# full-size brain PNG + a separate <out>_colorbars.png legend.
-comic render zstat.nii.gz -o figure.png
-
-# Custom layout: L/R lateral on top, axial + frontal on the bottom; extra smoothing.
-comic render zstat.nii.gz -o figure.png \
-    --grid 2x2 --views left_lateral,right_lateral,axial,frontal \
-    --cmap YlGnBu -k 100 --smooth 6 --width 1600 --height 1000
-
-# Multiple volumes in ONE figure — each map is its own overlay with its own colormap +
-# colorbar (seed-based connectivity / multi-network). Pass several NIfTIs; each gets a
-# distinct default colormap, in argument order.
-comic render seed.nii.gz networkA.nii.gz networkB.nii.gz -o multi.png \
-    --grid 1x3 --views left_lateral,dorsal,right_lateral -k 100
-
-# Reuse a browser Free-Canvas figure with different data. File order binds to the
-# browser's overlay rows: first file -> first colour/style, second -> second, etc.
-comic render faces.nii.gz language.nii.gz \
-    --spec figure.json -o figure.png --crop content
-
-# Re-bake the fsaverage template assets into web/data/ (one-time; needs the [bake] extra)
-comic bake
 ```
 
-> **Hosted:** the same viewer is a static site at `comic/web/`, deployed to
-> GitHub Pages — upload a NIfTI in the browser, no install required.
+`comic open` serves the static application on `localhost` and opens it in your normal
+browser. It does not need Playwright or the separate Chromium download. Uploaded maps are
+still processed in that browser through Pyodide, which is fetched from jsDelivr on first
+use. This route is mainly useful for development or for pinning the application to a local
+checkout; it is not more private than the hosted static site.
 
----
+## Inputs and limits
 
-## The interactive viewer
+- Volumetric inputs must be 3D. Reduce 4D time series to a statistic or label map first.
+- The hosted template assumes MNI152-aligned volumes and fsaverage surface correspondence.
+  COMIC warns about obvious spatial mismatches but performs no registration.
+- The cortical shell and cut anatomy are group templates, not participant anatomy.
+- Volume-to-surface projection, smoothing and cut slabs are display operations, not
+  statistical analyses.
+- Cluster sizes are computed at the load threshold. Raising the live intensity threshold
+  does not relabel the surviving components.
+- Dense continuous maps may use a coarser smooth display mesh to protect browser memory.
+- The brain export is a raster PNG. WebGL output can vary slightly with browser, operating
+  system and graphics backend, although the same geometry, configuration and colour rules
+  are used in every interface.
 
-The control bar is split into a **global surface row** and **one row per loaded
-map**. Every slider has a type-in box; **tap a parameter's label (or the ⓘ next to a
-toggle) for a one-line explanation.**
-
-**Surface row (applies to the whole figure):**
-
-- **`+ map`** — load one or more NIfTI volumes or fsaverage surface maps (processed
-  in-browser via Pyodide; the first upload fetches the ~30 MB scientific stack once).
-  Each appends a new overlay row.
-- **Demo** — load the example Neurosynth maps (faces · addiction · default-network ·
-  language), meshed in-browser — a one-click showcase on the otherwise empty canvas.
-- **Copy CLI** — for Free Canvas, multi-overlay, or per-panel-zoom figures, download
-  `figure.json` and copy ready terminal/Python commands with every map in slot order.
-- **layout** — switch 4-panel / 9-panel / overview / **Free Canvas** (see below).
-- **Save brain** — high-res, print-tuned capture of the brains only (no colorbars,
-  full canvas — never squashed by a stack of bars).
-- **Save bars** — the colorbars on their own as a separate legend image.
-- **Colorbar** — show/hide the on-screen colorbars (off by default; also the `✕` on the bars).
-- **Randomise** — give every loaded volume a different random colormap (one click).
-- **Inflate / Outline** — inflated vs pial cortex; black silhouette on/off.
-- **cortex α / edge thr / line w** — cortex glass opacity, sulcal-line density, line width.
-- **Light: direct / ambient** — scene lighting (off by default; voxel colour
-  comes from emissive + a light-independent glint).
-- **Minimise** — the chevron at the top-right of the control strip collapses the whole
-  panel to a thin bar, handing the freed height back to the brains; click again to restore.
-
-**Per-overlay row (one per NIfTI):**
-
-- name + **✕** to remove · **colormap** (own colorbar; **‹ ›** to step through them) · **Smooth** (blocky↔smooth) ·
-  **thr** (threshold) · **cluster k** (cluster-extent) · **smooth+** (size-preserving
-  surface smoothing of the smooth mesh; 0 = off) · **+only** ·
-  **Edges** + **edge w** · **veil / veil log** (depth fade) ·
-  **emissive / specular / shine**.
-- **Row order = display priority** — drag-free: the higher row wins where
-  overlays overlap.
-
-**On the panels themselves:**
-
-- **Hover a panel** → a small **`+ / –`** appears top-left to rescale just that view.
-- **Kapow** (top-right checkbox) → comic SFX on click, for fun.
-
-### Free Canvas
-
-Pick **Free Canvas** in the layout menu (it seeds from your current layout, so the
-switch is seamless) to turn the figure into a free 2D canvas of brain panels:
-
-- **Move / resize** — drag a panel's brain (or its header bar) to move it; drag the
-  bottom-right **corner** to resize. Panels can overlap; **⤒** brings one to the front.
-- **Rotate** — hover a panel for a Blender-style MNI gizmo anchored just outside its
-  fixed pane (it does not chase the brain silhouette as the view turns):
-  **X red, Y green, Z blue**. Drag an arrow to lock rotation to that fixed world axis;
-  click an endpoint to snap to its orthogonal view. Arrow keys adjust the focused axis
-  by 5° (shift = 15°). **Shift-drag** remains available for free orbit.
-- **View** — the per-panel dropdown picks any named view (lateral/medial, anterior,
-  dorsal/axial, ventral, subcortical L/R, …).
-- **Slice (`✂`)** — cycles a cut on that panel: axial / coronal / sagittal plane →
-  **sphere bite** → **cube bite**. The cut goes through the *whole* brain (cortex shell
-  and overlay together) and the outlines follow it. Two handles appear — drag the
-  **orange** dot to move the cut (shift-drag for depth), the **teal** dot to resize it.
-- **Cut MRI** — paints an opaque, sharpened native-1-mm AFNI MNI2009c T1 cross-section on
-  the exposed face, clipped to the exact pial footprint. It disappears when viewed from
-  behind and occludes cortex/voxel line-art behind the cut.
-- **Cut map** — samples the original thresholded NIfTI grid in a thin max-absolute slab and
-  composites its current colormap over the T1 face. It honors each map's live threshold,
-  cluster cutoff, sign mode, and draw priority. **Map depth** is how far around the cut to
-  search for activation (0 mm means exactly on the plane); **map pixels** chooses smooth or
-  voxel-sharp resampling. Neither option changes the anatomical MRI. Ordinary 3D voxel meshes
-  remain geometrically clipped separately.
-- **Panel surface** — the panel menu can independently select pial, inflated, white, any
-  template-provided custom surface, or hide the cortex without changing the map representation.
-- **Map surface mode** — cortical voxels project onto the cortex. Voxels classified inside
-  subcortex/cerebellum/brainstem stay volumetric because there is no corresponding cortical
-  sheet; the adjacent **subcort: smooth / blocky** selector controls their fallback. In paired
-  cortex+subcortex views those voxels follow the displayed subcortical half, not the cortex half.
-- **Toolbar** — seed an *R × C* grid of panels, **+ panel**, or tick **transparent**
-  for a transparent figure background (exports a transparent PNG).
-- **Copy CLI** — emits `comic render … --spec figure.json`, including every loaded map,
-  and downloads `figure.json`; replace the filenames with paths if needed and run it.
-
-> Slicing supports arbitrary plane normals / sphere centres / cube bounds in the
-> `figure.json` (and `--spec`); the editor's `✂` offers the common presets one click
-> at a time. Overlapping panels paint in z-order (no cross-panel alpha blending).
-
-## CLI reference
-
-`comic render` takes **one or more** NIfTIs — each map becomes its own overlay
-(its own colormap + colorbar; argument order = overlay/draw order), so a single command
-renders a multi-volume figure. It is fully parameterised — `--grid RxC`, `--views ...`
-(row-major; `_` = blank cell; aliases like `axial=dorsal`, `frontal=anterior`), or
-**`--spec figure.json`** for a browser figure (a reusable recipe containing layout,
-style, and size, as emitted by the browser's *Copy CLI*; it overrides `--grid/--views`;
-with multiple maps the i-th map fills `style.overlays[i]`),
-plus `--bg-alpha 0` for a transparent PNG, plus style flags:
-`--surface`, `--voxels`, `--smooth` (extra surface smoothing),
-`--cmap`, `-k/--cluster-size`, `--threshold`, `--veil`, `--veil-k`, `--emissive`, `--specular`, `--shininess`,
-`--directional`, `--ambient`, `--cortex-alpha`, `--edge-thr`, `--line-w`,
-`--voxel-edge-w`, `--margin`, `--colorbar/--no-colorbar`, `--colorbar-font`,
-`--colorbar-fontsize`, `--shadows/--no-shadows`, `--positive-only`,
-`--no-edges`, `--no-outline`, `--no-subcortical`, and output `--width`,
-`--height`, `--scale`. Run `comic render -h` for the full list.
-
----
-
-## Scope & limitations
-
-- **The hosted volume workflow assumes MNI152 alignment.** COMIC warns about clear
-  mismatches but does not register data. Headless/Python rendering also supports a custom
-  template bundle or `--no-template` volume-only rendering in the map's own space.
-- **Volume inputs are 3D.** NIfTI maps may be thresholded or continuous (threshold `0`),
-  but 4D timeseries must first be reduced to a 3D statistic/label map. Native fsaverage
-  surface overlays are supported separately as GIFTI, MGH, MGZ, or morphometry files.
-- **Surface projection is for display.** Sampling a volume between pial and white is not a
-  substitute for a surface-based statistical analysis. Subcortical, cerebellar, and
-  brainstem values remain smooth or blocky volumes because they have no cortical sheet.
-- **Bundled anatomy is group anatomy.** The standard shell, internal meshes, and 1-mm cut
-  T1 are aligned template assets, not a subject-specific reconstruction. Custom template
-  users are responsible for supplying mutually aligned surfaces, anatomy, segmentation,
-  and maps.
-- **The cut MRI cannot add resolution to a statistical map.** Cut-map values are sampled
-  from the source NIfTI grid (nearest or linear, optionally through a thin max-absolute slab).
-- **First browser upload downloads ~30 MB** (the Pyodide scientific stack) before the
-  first map renders; cached afterwards. The viewer **boots empty** — upload your own NIfTIs,
-  or click **Demo** (or open `?demo=1`) to mesh the example Neurosynth maps in-browser.
-
----
+Command-line and Python rendering additionally support aligned custom template bundles and
+a volume-only mode for non-MNI data. Users are responsible for the alignment and scientific
+meaning of custom assets.
 
 ## How it works
 
-See [METHODS.md](METHODS.md) for the full pipeline: surface/subcortical
-extraction and MNI305→MNI152 alignment, per-structure voxel meshing (blocky
-exposed-face quads + smooth marching-cubes), colormap normalisation and the
-washout guard, connected-component cluster sizing, and the Three.js render
-pipeline (fresnel glass, opaque depth-veiled voxels, light-independent glint,
-depth-edge silhouette passes, headless Playwright capture).
+There is one per-upload Python pipeline and one Three.js renderer:
 
-```
-comic/
-  pipeline.py      THE backend: NIfTI → per-structure geometry ARRAYS. Pure
-                   numpy/scipy/scikit-image/nibabel — the SAME file runs in CPython
-                   (CLI) and in Pyodide (browser, a byte-identical copy in web/pyodide/).
-  arrays.py        write a processed overlay as one .bin + bufferLayout (for the CLI render)
-  core.py          Comic (template loader for the bake) + `open`/`bake`/`render` CLI
-  render.py        headless layout builder + Playwright PNG renderer (in-process pipeline)
-  bake.py          one-time fsaverage template bake → web/data/ (needs the [bake] extra)
-  surfaces.py / subcortical.py / colormaps.py / export.py   bake-only (mne/trimesh/cmap)
-  web/             THE single Three.js viewer — served by Pages, by `comic open`,
-                   and shipped in the wheel:
-    index.html · app/main.js (one shell; ?headless=1 for render)
-    core/          pure, unit-tested geometry/visibility/colour (node --test)
-    scene/         materials, passes, renderer, asset-loader (GLB template + array overlays)
-    controls/      UI bindings, colorbar, Copy-CLI, comic SFX
-    pyodide/       bootstrap.js + pipeline.py (copy of comic/pipeline.py)
-    data/          baked template (cortex/subcortical GLB, colormaps, aseg) + demo + nibabel wheel
-```
+- In the hosted and locally served viewer, Pyodide executes a byte-identical copy of
+  `comic/pipeline.py` inside the browser.
+- In the CLI and Python API, CPython executes `comic/pipeline.py` directly.
+- Both routes pass the resulting geometry arrays and the same declarative configuration to
+  `comic/web/`.
+- Interactive use renders in the user's browser. Scripted use renders in headless Chromium.
 
-**One backend, one renderer, three ways to run it.** `comic/pipeline.py` is the
-only per-upload meshing code; `comic/web/` is the only viewer. They power:
-`comic render` (headless PNG, pipeline in-process), `comic open` (local
-interactive — serves `web/`, meshing in-browser via Pyodide), and the GitHub Pages site
-(the same `web/`). The fixed fsaverage template is baked once (`comic bake`) and
-committed under `web/data/`.
+This shared implementation keeps geometry, colour normalisation and configuration semantics
+aligned. It does not imply that PNG files produced by different WebGL backends will be
+byte-for-byte identical.
 
 ## Development
 
 ```bash
-# Pure-core JS unit tests (no browser needed)
+pip install -e ".[dev,render]"
+python -m playwright install chromium
+
+# Pure JavaScript geometry, visibility and configuration tests
 cd comic/web && node --test
 
-# Python + headless-browser tests (Playwright):
-python tests/test_pipeline_parity.py   # CPython pipeline == browser ground truth
-python tests/test_cli_arrays.py        # render uses array overlays, not GLB
-python tests/test_pyodide_sync.py      # web/pyodide/pipeline.py == comic/pipeline.py
-python tests/test_smoothing.py         # smooth+ moves vertices, scales, restores, preserves aValue
-python tests/test_free_canvas.py       # Free Canvas: move/resize/rotate/view/slice + --spec round-trip
-python tests/smoketest.py              # Pyodide boots + meshes the demo in a browser
-python tests/integration_test.py       # full app: demo, upload, preset switch, remove
+# Python tests
+cd ../..
+pytest
 ```
 
-> `comic open` serves `web/` and opens it; `render`/`bake` are the headless +
-> asset-bake commands. The fsaverage download (`bake`) and figure rendering (`render`)
-> need the `[bake]` / `[render]` extras respectively.
+Rebuilding the bundled template is a maintainer operation:
 
----
+```bash
+pip install -e ".[bake]"
+comic bake
+```
 
-## License
+See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidance.
 
-MIT — see [LICENSE](LICENSE).
+## Citation, licence and support
 
----
+COMIC's original source code is licensed under the [MIT License](LICENSE). Bundled
+third-party software, fonts, template assets, atlas data and demonstration maps retain
+their own terms, recorded in [NOTICE.md](NOTICE.md). Citation metadata for COMIC are
+provided in [CITATION.cff](CITATION.cff).
 
 COMIC is free and always will be. If it saved you an afternoon of fiddling with figures,
 you can [buy me a coffee](https://buymeacoffee.com/semilanceata).

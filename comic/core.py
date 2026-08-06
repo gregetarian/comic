@@ -114,7 +114,7 @@ class Comic:
 
 def cli():
     import argparse
-    parser = argparse.ArgumentParser(description='COMIC 2.0 viewer')
+    parser = argparse.ArgumentParser(description='COMIC neuroimaging figure composer')
     sub = parser.add_subparsers(dest='command')
 
     op = sub.add_parser('open', aliases=['show'],
@@ -158,8 +158,9 @@ def cli():
     # Per-overlay flags accept a scalar (all maps) OR a comma list (one value per overlay).
     r.add_argument('--threshold', default='0', help='voxel threshold; scalar or per-overlay comma list, e.g. 2.3,4.0. '
                         'Default 0 = keep the map unthresholded')
-    r.add_argument('-k', '--cluster-size', default='105',
-                   help='cluster-extent threshold (voxels); scalar or per-overlay comma list')
+    r.add_argument('-k', '--cluster-size', default='0',
+                   help='cluster-extent threshold (voxels); scalar or per-overlay comma list. '
+                        'Default 0 = do not hide small clusters')
     r.add_argument('--cmap', default='YlGnBu', help="colormap name(s), or 'auto'; scalar or per-overlay comma list, e.g. Reds,YlGnBu")
     r.add_argument('--colormap-mode', default=None, help='auto|sequential|diverging; scalar or per-overlay comma list')
     r.add_argument('--clim', default=None, help="colour limit 'VMIN,VMAX' (or ',VMAX'); pins the colour scale")
@@ -372,7 +373,7 @@ def cli():
         names = [s.strip() for s in args.names.split(',')] if args.names else None
 
         if args.spec:
-            # --spec is self-contained (layout + style + size): reproduce it verbatim.
+            # --spec is authoritative for layout + style + size; input data stay separate.
             # CLI style flags are ignored here; --width/--height/--bg-alpha still override.
             layout, style, spec_render = load_spec(args.spec)
             from . import spec as gb_spec

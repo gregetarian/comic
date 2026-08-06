@@ -44,7 +44,7 @@ export const DEFAULTS = {
             // Surface projection exists only for the cortex. Subcortical/cerebellar/brainstem
             // activations remain volumetric in surface mode, using this representation.
             subcortexRepresentation: 'smooth', // 'smooth' (default) | 'blocky'
-            clusterMin: 105,          // cluster-extent threshold: hide clusters < N voxels
+            clusterMin: 0,            // no cluster-extent filtering unless the user requests it
             smoothing: 0,             // extra Taubin smoothing iterations on the 'smooth' (0.5mm-grid) mesh; 0 = off
             shininess: 200,
             specular: 0.0,   // light-independent glint amount (slider 0..0.6); off = flat matte

@@ -1,12 +1,12 @@
 [project]
 name = "comic"
 version = "0.1.0"
-description = "Interactive 3D glass-brain viewer and headless figure renderer with a cel-shaded aesthetic"
+description = "Browser-based and scriptable composer for reproducible 3D neuroimaging figures"
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.9"
-authors = [{ name = "Greg Cooper", email = "gregcooper95@gmail.com" }]
-keywords = ["neuroimaging", "fmri", "brain", "visualization", "glass-brain", "fsaverage", "three.js"]
+authors = [{ name = "Greg Cooper", email = "greg.cooper@ucl.ac.uk" }]
+keywords = ["neuroimaging", "fmri", "brain", "visualisation", "visualization", "glass-brain", "nifti", "fsaverage"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Programming Language :: Python :: 3",
@@ -40,8 +40,10 @@ dev = ["pytest", "pytest-xdist", "Pillow", "ruff"]
 comic = "comic.core:cli"
 
 [project.urls]
-Homepage = "https://github.com/gregetarian/comic"
-Repository = "https://github.com/gregetarian/comic"
+Homepage = "https://gregetarian.github.io/comic/"
+Source = "https://github.com/gregetarian/comic"
+Documentation = "https://github.com/gregetarian/comic#readme"
+Issues = "https://github.com/gregetarian/comic/issues"
 
 [tool.pytest.ini_options]
 # The headless-render tests (Playwright/Chromium golden images) are slow and swiftshader-flaky;
