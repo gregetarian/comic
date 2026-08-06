@@ -1,5 +1,6 @@
 """M5: the notebook/Python API — figure.render / render_spec / Figure / Scene, and the
 per-overlay scalar-or-list style builder shared with the CLI."""
+import inspect
 from pathlib import Path
 
 import comic as gb
@@ -8,6 +9,12 @@ from comic.figure import build_style
 ROOT = Path(__file__).resolve().parent.parent
 SPHERE = str(ROOT / "test_sphere.nii.gz")
 PNG = b"\x89PNG\r\n\x1a\n"
+
+
+def test_public_render_defaults_do_not_filter_data():
+    params = inspect.signature(gb.render).parameters
+    assert params["threshold"].default == 0
+    assert params["clusterMin"].default == 0
 
 
 def test_build_style_scalar_broadcast_vs_list():

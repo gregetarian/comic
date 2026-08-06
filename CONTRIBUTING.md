@@ -1,58 +1,80 @@
 # Contributing to COMIC
 
-Thanks for your interest in improving COMIC. This guide covers the dev setup,
-how to run the test suite, and two load-bearing invariants that every change
-must preserve.
+Bug reports, documentation corrections and focused pull requests are welcome. For a bug,
+please include the interface used, browser or operating system, input type, coordinate
+space, the smallest reproducible example you can share, and any console or terminal error.
+Do not upload identifiable participant data to a public issue.
 
-## Dev install
+## Development installation
+
+Clone the repository and install the development and rendering dependencies:
 
 ```bash
-pip install -e ".[render,dev]"
+git clone https://github.com/gregetarian/comic
+cd comic
+pip install -e ".[dev,render]"
 python -m playwright install chromium
 ```
 
-The `render` extra pulls in the headless render backend; `dev` pulls in the test
-tooling. `playwright install chromium` provisions the browser used by the
-end-to-end viewer tests.
-
-## Running the tests
+Template rebuilding is a maintainer task and needs the separate `bake` extra:
 
 ```bash
-pytest -q                              # Python unit + integration tests
-node --test comic/web/core/*.test.js   # JS core tests (colormap, config, visibility, …)
-ruff check                             # lint
+pip install -e ".[dev,bake]"
 ```
 
-Run all three before opening a pull request.
+## Checks
 
-## Load-bearing invariants
+Run the fast checks before opening a pull request:
 
-These two invariants keep the CLI, the headless renderer, and the in-browser
-viewer producing identical output. A change that breaks either is a bug, even if
-the tests happen to pass locally.
+```bash
+ruff check .
+pytest -q
+node --test comic/web/core/*.test.js
+```
 
-### 1. `comic/pipeline.py` is byte-identical to `comic/web/pyodide/pipeline.py`
+Some Python tests launch Playwright and require the Chromium installation above. The
+continuous-integration workflow separates pure tests from slower render tests so failures
+are easier to diagnose.
 
-The meshing pipeline runs live in two places: in-process for the CLI/renderer,
-and in the browser via Pyodide. Both must run the *same* code. The Pyodide copy
-is a byte-for-byte duplicate of the canonical `comic/pipeline.py`.
+## Architecture rules
 
-- The canonical source is `comic/pipeline.py`. **Edit only this file.**
-- Regenerate the Pyodide copy with `comic bake` (it copies `pipeline.py` into
-  `comic/web/pyodide/`).
-- `tests/test_pyodide_sync.py` guards the invariant and will fail if the two
-  files drift.
+Two constraints prevent the public interfaces from drifting apart.
 
-Never hand-edit `comic/web/pyodide/pipeline.py`.
+### Keep one processing pipeline
 
-### 2. JS is the single colour authority
+`comic/pipeline.py` is the canonical per-input processing code. The browser copy at
+`comic/web/pyodide/pipeline.py` must remain byte-for-byte identical.
 
-There is exactly one value→colour code path, and it lives in JavaScript:
-`colorizeValues` in `comic/web/core/colormap.js`. Every value that becomes a
-pixel — voxels, colorbars, the CLI render — resolves its colour through that
-function.
+- Edit `comic/pipeline.py`, not the Pyodide copy.
+- Regenerate the browser copy through the existing bake/synchronisation step.
+- Run `PYTHONPATH=. python tests/test_pyodide_sync.py` after changing the pipeline.
 
-- Do not add a parallel Python (or other) colormapping path.
-- Do not duplicate the map lookup / normalisation logic elsewhere.
-- New colormaps are baked to data and consumed by `colorizeValues`; the
-  colouring math stays in that single function.
+### Keep one rendering and colour path
+
+`comic/web/` is the sole figure renderer. Scripted output runs that application in
+headless Chromium rather than implementing a second Python renderer. Value-to-colour
+normalisation belongs in `comic/web/core/colormap.js`; do not add a parallel Python colour
+path.
+
+Shared source does not make PNG bytes portable across every graphics backend. Tests should
+assert geometry, configuration and bounded visual behaviour rather than claiming universal
+pixel identity.
+
+## Generated and third-party assets
+
+Do not hand-edit baked geometry, atlas binaries, colormap lookup tables or the vendored
+Pyodide pipeline. Explain any intentional asset regeneration in the pull request and run
+the relevant provenance and synchronisation tests.
+
+Only assets with redistribution terms compatible with the repository may be committed.
+Update [NOTICE.md](NOTICE.md) whenever a bundled third-party component or dataset changes.
+Atlases that COMIC fetches from a user's local installation must remain untracked.
+
+## Pull requests
+
+Keep changes focused, describe their user-facing effect, and report the checks actually
+run. Include before-and-after figures for visual changes. Do not re-bless golden images
+without inspecting the difference and explaining why it is intentional.
+
+By contributing, you agree that your contribution is distributed under the repository's
+MIT licence. Third-party material remains under its original terms.
