@@ -2,9 +2,9 @@
  * passes.js — depth-edge outline pass + its depth materials. Browser side.
  *
  * Renders a layer's view-space depth into a device-resolution target, then a
- * screen-space quad detects depth discontinuities → silhouette lines. Used for
- * the black cortex outline (layer 0) and the faint per-depth voxel edges
- * (layer 1, with a threshold-aware depth material so edges track the slider).
+ * screen-space quad detects depth discontinuities → silhouette lines. Separate
+ * passes draw cortex and subcortex line art; per-overlay passes draw faint voxel edges
+ * with threshold-aware depth materials so those edges track the live slider.
  *
  * DEPTH-TARGET ENCODING (every material that writes into one of these targets):
  *   R = view-space depth / 500   (the cut cap writes it NEGATED, as its own marker)
@@ -173,11 +173,6 @@ export class OutlinePass {
                 uBgMode: { value: opts.bgMode ?? 0.0 },
             },
         });
-        /** Optional override for how this pass fills its depth target. Default (null) renders the
-         *  single configured layer with `depthMaterial`. The silhouette pass sets this to composite
-         *  cortex + subcortex + every overlay + the cut cap into ONE depth buffer, so the contour it
-         *  strokes is the outline of everything visible rather than of the cortex alone. */
-        this.renderDepth = null;
         this.quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.outlineMaterial);
         this.quadScene = new THREE.Scene(); this.quadScene.add(this.quad);
         this.quadCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
@@ -202,13 +197,9 @@ export class OutlinePass {
         const prevClear = r.getClearColor(_prevClear), prevAlpha = r.getClearAlpha();
         r.setClearColor(DEPTH_CLEAR, 1);
         r.clear();
-        if (this.renderDepth) {
-            this.renderDepth(this.depthCamera, this.scene);
-        } else {
-            this.depthCamera.layers.set(this.layer);
-            this.scene.overrideMaterial = this.depthMaterial;
-            r.render(this.scene, this.depthCamera);
-        }
+        this.depthCamera.layers.set(this.layer);
+        this.scene.overrideMaterial = this.depthMaterial;
+        r.render(this.scene, this.depthCamera);
         r.setClearColor(prevClear, prevAlpha);
         this.scene.overrideMaterial = prevOverride;
         r.setRenderTarget(null);

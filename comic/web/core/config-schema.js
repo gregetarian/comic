@@ -78,11 +78,10 @@ export const DEFAULTS = {
         // the voxel it crosses (so the line reads as passing under the blob). Default false = the
         // depth-correct look (voxels occlude the lines behind them).
         // anatomyColor: null = the subcortex line inherits `color`; set it to stroke the subcortical
-        // structures in their own colour. silhouette: the OUTER contour of the figure, split out of
-        // this pass so it survives whatever you do to the interior fold lines — recolour them, thin
-        // them, or switch them off, and the brain still gets its dark outline. `color`/`width` null
-        // means "inherit from the fold lines", and in that case (with folds on) the separate pass is
-        // skipped entirely and the single historical pass draws both — so default output is unchanged.
+        // structures in their own colour. silhouette controls the OUTER contours of the cortex and
+        // subcortex as separate anatomical groups. Statistical overlays never define either contour,
+        // so a thick silhouette cannot follow a jagged voxel blob. `color`/`width` null means "inherit
+        // from the fold lines"; with folds on, each anatomical pass draws its folds and contour together.
         outline: { enabled: true, color: '#000000', width: 7.0, threshold: 0.018, anatomyWidthMul: 1.0,
             overVoxels: true, overVoxelOpacity: 0.4, anatomyColor: null,
             silhouette: { enabled: true, color: null, width: null } },

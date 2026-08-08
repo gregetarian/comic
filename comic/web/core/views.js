@@ -14,7 +14,8 @@ const subcort = (hemi, cats) => ({ roles: ['anatomy', 'voxel'], hemisphere: hemi
 // stays null so cortex AND all subcortical of that hemisphere show.
 const cortexSubcortOpaque = (hemi) => ({ roles: ['cortex', 'anatomy', 'voxel'], hemisphere: hemi, categories: null, anatomyStyle: 'opaque' });
 // Cortex of one hemisphere + the CONTRALATERAL subcortex (left subcortex with the right
-// hemisphere, and vice versa) so the subcortex sits in front of that hemisphere's volume.
+// hemisphere, and vice versa). The visibility layer keeps cortical surface painting but suppresses
+// that cortex's blocky/smooth volume, leaving only voxels within the selected internal hemisphere.
 // Keep the category lists explicit: this view is deliberately asymmetric, so a single broad
 // hemisphere/category filter cannot describe it without leaking the wrong cerebellar half.
 const cortexSubcortContra = (cortexHemi, subHemi) => {
@@ -42,7 +43,7 @@ export const VIEWS = {
     ventral:       { plane: 'ventral',       title: 'Ventral',   content: cortex('both') },
     subcortical_l: { plane: 'left_lateral',  title: 'Subcort L', content: subcort('lh', ['subcort_l', 'cereb_l', 'brainstem']), anatomyOpacity: 0.55 },
     subcortical_r: { plane: 'right_lateral', title: 'Subcort R', content: subcort('rh', ['subcort_r', 'cereb_r', 'brainstem']), anatomyOpacity: 0.55 },
-    // Each hemisphere's cortex is paired with the CONTRALATERAL subcortex (in front of it).
+    // Each cortical surface is paired with the CONTRALATERAL subcortex; only surface paint and internal voxels remain.
     cortex_subcort_l:  { plane: 'left_lateral',  title: 'L + Subcort (opaque)', content: cortexSubcortContra('lh', 'rh') },
     cortex_subcort_r:  { plane: 'right_lateral', title: 'R + Subcort (opaque)', content: cortexSubcortContra('rh', 'lh') },
     cortex_subcort:    { plane: 'dorsal',        title: 'Cortex + Subcort (opaque)', content: cortexSubcortOpaque('both') },
