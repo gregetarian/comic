@@ -5,6 +5,8 @@
  * separately styled silhouette therefore runs once for each group, never over
  * the union of anatomy and statistical overlays. This keeps thick contours on
  * the anatomy and prevents voxel geometry from becoming the figure outline.
+ * Keeping this rule in a pure planner gives the renderer and unit tests the same
+ * definition of which pass owns each anatomical edge.
  */
 
 /** Resolve the per-panel outline passes from the global style. */
