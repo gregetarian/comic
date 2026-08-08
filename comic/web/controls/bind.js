@@ -67,8 +67,8 @@ const TIPS = {
     'c-ambient': 'Ambient light intensity — global.',
     'c-line-color': 'Colour of the cortical fold (sulcal/gyral) lines.',
     'c-line-anat-color': 'Colour of the subcortical structure lines. Defaults to the cortex line colour.',
-    'c-sil-color': "Colour of the brain's outer contour. Setting it splits the contour off from the fold lines, so you can lighten or hide the folds and still keep a dark outline.",
-    'c-sil-width': 'Thickness of the outer contour, independent of the fold lines.',
+    'c-sil-color': "Colour of the cortex and subcortex outer contours. Setting it splits both anatomical contours from their fold lines; statistical blobs never become the silhouette.",
+    'c-sil-width': 'Thickness of the separate cortex and subcortex outer contours, independent of the fold lines.',
     'c-parc': 'Draw atlas parcel boundaries on the cortical surface.',
     'c-parc-mask': "Hide surface vertices the atlas calls non-cortex (the medial wall), so a map carrying values there doesn't paint it. Needs an atlas loaded.",
     'c-parc-color': 'Colour of the parcel boundary lines.',
@@ -400,9 +400,9 @@ export function bindGlobalControls({ config, colormaps, getEngine, preset, onUpl
     slider('c-ambient', s.lighting.ambient, (v) => { s.lighting.ambient = v; apply(); }, { min: 0, max: 4, step: 0.05 });
 
     // --- line colours -----------------------------------------------------------------
-    // Touching the outer-contour colour or width SPLITS it off from the fold lines (see
-    // style.outline.silhouette in config-schema). Until then both are null and one pass draws
-    // both, exactly as before — so simply opening the panel changes nothing.
+    // Touching the silhouette colour or width splits each anatomical group's outer contour
+    // from its fold lines (see style.outline.silhouette in config-schema). Until then both
+    // values inherit and each group draws folds + contour in a single pass.
     const sil = (s.outline.silhouette ||= { enabled: true, color: null, width: null });
     color('c-line-color', s.outline.color, (hex) => { s.outline.color = hex; apply(); });
     color('c-line-anat-color', s.outline.anatomyColor ?? s.outline.color, (hex) => { s.outline.anatomyColor = hex; apply(); });

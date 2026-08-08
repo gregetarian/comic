@@ -10,6 +10,7 @@ import { resolveCamera, cameraBasis, PLANES } from './cameras.js';
 import { aabbOfPositions, mergeAABB, frameContent } from './framing.js';
 import { layoutGrid, freeRect } from './grid.js';
 import { visible } from './visibility.js';
+import { outlinePlan } from './outline-plan.js';
 import { valueToT, resolveColormap, loadColormaps, sampleLUT, deriveMaxAbs } from './colormap.js';
 import { normalizeConfig, validateConfig, overlayStyle, DEFAULTS } from './config-schema.js';
 import { applyView, panelViewName, VIEWS } from './views.js';
@@ -145,17 +146,28 @@ test('subcort panel shows only its categories; representation gate works', () =>
         { voxel: { representation: 'blocky' } }), false);
 });
 
-test('paired medial views allow only the named cortex and contralateral internal categories', () => {
+test('paired cortex + contralateral-interior views keep surface paint and only internal volumes', () => {
     const blocky = { voxel: { representation: 'blocky' } };
+    const surface = { voxel: { representation: 'surface', subcortexRepresentation: 'smooth' } };
     for (const [view, cortexHemi, internalHemi, cortexCat, subCat, cerebCat, wrongSub, wrongCereb] of [
+        ['cortex_subcort_l', 'lh', 'rh', 'lh_cortex', 'subcort_r', 'cereb_r', 'subcort_l', 'cereb_l'],
+        ['cortex_subcort_r', 'rh', 'lh', 'rh_cortex', 'subcort_l', 'cereb_l', 'subcort_r', 'cereb_r'],
         ['cortex_subcort_lm', 'lh', 'rh', 'lh_cortex', 'subcort_r', 'cereb_r', 'subcort_l', 'cereb_l'],
         ['cortex_subcort_rm', 'rh', 'lh', 'rh_cortex', 'subcort_l', 'cereb_l', 'subcort_r', 'cereb_r'],
     ]) {
         const content = VIEWS[view].content;
         assert.deepEqual(content.voxelCategories, [cortexCat, subCat, cerebCat, 'brainstem']);
         assert.deepEqual(content.anatomyCategories, [subCat, cerebCat, 'brainstem']);
-        assert.equal(visible(content, { role: 'voxel', hemisphere: cortexHemi, category: cortexCat, variant: 'blocky' }, blocky), true);
+
+        // The cortex remains available as a surface projection/native surface map, while its
+        // blocky/smooth volume is removed from this paired view.
+        assert.equal(visible(content, { role: 'voxel', hemisphere: cortexHemi, category: cortexCat, variant: 'blocky' }, blocky), false);
+        assert.equal(visible(content, { role: 'voxel', hemisphere: cortexHemi, category: cortexCat, variant: 'smooth' },
+            { voxel: { representation: 'smooth' } }), false);
+        assert.equal(visible(content, { role: 'voxel', hemisphere: cortexHemi, category: cortexCat, variant: 'surface' }, surface), true);
+
         assert.equal(visible(content, { role: 'voxel', hemisphere: internalHemi, category: subCat, variant: 'blocky' }, blocky), true);
+        assert.equal(visible(content, { role: 'voxel', hemisphere: internalHemi, category: subCat, variant: 'smooth' }, surface), true);
         assert.equal(visible(content, { role: 'voxel', hemisphere: internalHemi, category: cerebCat, variant: 'blocky' }, blocky), true);
         assert.equal(visible(content, { role: 'anatomy', hemisphere: internalHemi, category: subCat }, blocky), true);
         assert.equal(visible(content, { role: 'anatomy', hemisphere: internalHemi, category: cerebCat }, blocky), true);
@@ -163,6 +175,54 @@ test('paired medial views allow only the named cortex and contralateral internal
         assert.equal(visible(content, { role: 'voxel', hemisphere: internalHemi === 'lh' ? 'rh' : 'lh', category: wrongCereb, variant: 'blocky' }, blocky), false);
         assert.equal(visible(content, { role: 'anatomy', hemisphere: internalHemi === 'lh' ? 'rh' : 'lh', category: wrongCereb }, blocky), false);
     }
+});
+
+// --- anatomical outline planning: cortex and subcortex remain independent groups ---
+test('outline plan keeps the inherited default in combined fold + silhouette passes', () => {
+    const p = outlinePlan({
+        enabled: true, color: '#111111', width: 4, threshold: 0.01,
+        anatomyWidthMul: 0.75, anatomyColor: '#222222',
+        silhouette: { enabled: true, color: null, width: null },
+    }, { widthMul: 1.5, thresholdMul: 2 });
+    assert.equal(p.folds, true);
+    assert.equal(p.splitSilhouettes, false);
+    assert.equal(p.foldBgMode, 0);
+    assert.equal(p.threshold, 0.02);
+    assert.deepEqual(p.cortexFold, { color: '#111111', width: 6 });
+    assert.deepEqual(p.anatomyFold, { color: '#222222', width: 4.5 });
+});
+
+test('outline plan splits custom silhouettes into cortex and subcortex styles', () => {
+    const p = outlinePlan({
+        enabled: false, color: '#111111', width: 3, threshold: 0.005,
+        anatomyWidthMul: 0.5, anatomyColor: '#333333',
+        silhouette: { enabled: true, color: '#abcdef', width: 8 },
+    });
+    assert.equal(p.folds, false);
+    assert.equal(p.splitSilhouettes, true);
+    assert.equal(p.foldBgMode, 1);
+    assert.deepEqual(p.cortexSilhouette, { color: '#abcdef', width: 8 });
+    assert.deepEqual(p.anatomySilhouette, { color: '#abcdef', width: 4 });
+});
+
+test('outline plan gives custom silhouettes ownership of background edges', () => {
+    const p = outlinePlan({
+        enabled: true, color: '#000000', width: 2,
+        silhouette: { enabled: true, color: null, width: 6 },
+    });
+    assert.equal(p.folds, true);
+    assert.equal(p.splitSilhouettes, true);
+    assert.equal(p.foldBgMode, 1);
+});
+
+test('outline plan can disable silhouettes while retaining interior folds only', () => {
+    const p = outlinePlan({
+        enabled: true, color: '#000000', width: 2,
+        silhouette: { enabled: false, color: null, width: null },
+    });
+    assert.equal(p.folds, true);
+    assert.equal(p.splitSilhouettes, false);
+    assert.equal(p.foldBgMode, 1);
 });
 
 // --- colormap: positive-only data never collapses onto a diverging white centre ---

@@ -14,6 +14,7 @@ import { cameraBasis } from '../core/cameras.js';
 import { visible } from '../core/visibility.js';
 import { resolveColormap, colorizeValues, deriveMaxAbs } from '../core/colormap.js';
 import { overlayStyle } from '../core/config-schema.js';
+import { outlinePlan } from '../core/outline-plan.js';
 import { meshLayer, anatomyLayer } from '../core/mesh-meta.js';
 import { createAnatomyCap } from './anatomy-cap.js';
 import { makeGlassMaterial, makeAnatomyMaterial, makeOpaqueAnatomyMaterial, makeVoxelMaterial, makeSurfaceMaterial, makeSharedVoxelUniforms } from './materials.js';
@@ -428,15 +429,6 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         width: config.style.outline.width, threshold: config.style.outline.threshold,
         depthMaterial: anatomyDepthMat,
     });
-    // The outer silhouette of the WHOLE figure. Its depth buffer is the union of cortex, subcortex,
-    // every overlay's supra-threshold voxels and the cut cap, so the contour follows whatever is
-    // actually visible from this angle — not the cortex alone. bgMode 2 = stroke ONLY where a tap
-    // touches empty background, so it draws the outer contour and nothing else.
-    const silhouettePass = new OutlinePass(renderer, scene, maxCellW, maxCellH, {
-        layer: 0, color: config.style.outline.silhouette?.color ?? config.style.outline.color,
-        width: config.style.outline.silhouette?.width ?? config.style.outline.width,
-        threshold: config.style.outline.threshold, bgMode: 2,
-    });
     // Per-overlay voxel edge passes (each its own layer + edge style + veil).
     const edgePasses = [];
     for (let i = 0; i < N; i++) {
@@ -459,37 +451,11 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
     let clipTarget = makeDepthTarget(maxCellW, maxCellH);
     const clipCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 800);
     cortexOutline.outlineMaterial.uniforms.uClipDepth.value = clipTarget.texture;
-    // The subcortex outline is on its own layer, so it lost the shared-depth occlusion by the
-    // cortex (a near cortex wall would otherwise show the far subcortex through it in a lateral
-    // view). Clip it against the cortex's depth pre-pass (cortexOutline renders it each panel just
-    // before this pass): hidden where the cortex is genuinely in front, still drawn where the
-    // subcortex is the nearer structure (medial views).
-    anatomyOutline.outlineMaterial.uniforms.uClipDepth.value = cortexOutline.depthTarget.texture;
+    // Subcortical outlines are anatomical annotations. They deliberately remain legible through
+    // the glass cortex in paired lateral and medial views rather than being clipped by its depth.
     // Voxel edges clip against the SAME combined depth, so an overlay's edges are
     // occluded where a closer overlay's volume covers them (no longer see-through).
     for (const ep of edgePasses) ep.outlineMaterial.uniforms.uClipDepth.value = clipTarget.texture;
-
-    // The silhouette pass composites EVERY visible layer into its own depth target. Nothing can
-    // occlude an outer contour (it is by definition the frontmost boundary), so it never clips.
-    let silCapActive = false;   // set per panel in renderFrame, read by the hook below
-    silhouettePass.renderDepth = (cam, sc) => {
-        cam.layers.set(0);
-        sc.overrideMaterial = cortexOutline.depthMaterial;
-        renderer.render(sc, cam);
-        cam.layers.set(ANATOMY_LAYER);
-        sc.overrideMaterial = anatomyDepthMat;
-        renderer.render(sc, cam);
-        for (let i = 0; i < N; i++) {
-            cam.layers.set(1 + i);
-            sc.overrideMaterial = edgePasses[i].depthMaterial;   // threshold-aware: matches what's drawn
-            renderer.render(sc, cam);
-        }
-        if (silCapActive && anatomyCap) {
-            cam.layers.set(CAP_LAYER);
-            sc.overrideMaterial = anatomyCap.depthMaterial;
-            renderer.render(sc, cam);
-        }
-    };
 
     function renderClipDepth(camera, opaqueAnat, anyEdges, capActive) {
         const prev = scene.overrideMaterial;
@@ -803,58 +769,62 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
                 edgePasses[i].outlineMaterial.uniforms.uClipApply.value = clip ? 1.0 : 0.0;
                 edgePasses[i].update(camera, rect.x, rect.y, rect.w, rect.h);
             }
-            // Does the OUTER contour need its own pass this frame? Only when it would differ from
-            // what the cortex pass already draws: the fold lines are off, or the silhouette has been
-            // given its own colour/width. When it inherits both and the folds are on, the single
-            // historical pass draws contour + folds exactly as before — so a default figure renders
-            // through the identical code path and stays pixel-for-pixel unchanged.
-            const sil = config.style.outline.silhouette || {};
-            const inheritsLook = sil.color == null && sil.width == null;
-            const wantSilhouette = sil.enabled !== false
-                && !(config.style.outline.enabled && inheritsLook);
-            silCapActive = capActive;
-            // Black cortex outline on top — clipped so any voxel genuinely in front shows.
-            // Per-panel `def.outline` MULTIPLIES the global width/threshold (default 1) so e.g. a
-            // dorsal panel — whose densely-folded superior surface is seen face-on and merges into
-            // thick strokes — can thin its line / shed shallow folds without touching the others.
-            if (config.style.outline.enabled) {
-                const po = def.outline, ou = cortexOutline.outlineMaterial.uniforms;
-                ou.uLineWidth.value = config.style.outline.width * outlineSaveScale * ((po && po.widthMul) || 1);
-                ou.uThreshold.value = config.style.outline.threshold * ((po && po.thresholdMul) || 1);
-                // overVoxels: where a blob sits in front of a cortex line, draw the line at
-                // outline.overVoxelOpacity instead of hiding it. overVoxels=false → 0 (occluded,
-                // the depth-correct default); true → overVoxelOpacity (1 = full black on top,
-                // <1 = a muted/greyed stroke that blends with the voxel it crosses).
+            // Plan cortex and subcortex as separate anatomical outline groups. A custom/thick
+            // silhouette is never computed from the union with voxel geometry, so jagged blobs
+            // cannot become the figure contour and the subcortex keeps its own boundary.
+            const op = outlinePlan(config.style.outline, def.outline);
+            const showsAnatomy = (def.content?.roles || []).includes('anatomy');
+            const overVoxelAlpha = config.style.outline.overVoxels
+                ? (config.style.outline.overVoxelOpacity ?? 1.0) : 0.0;
+
+            // Fold/depth lines. When a separately styled silhouette follows, these passes omit
+            // background-touching edges so the contour is not drawn twice.
+            if (op.folds) {
+                const ou = cortexOutline.outlineMaterial.uniforms;
+                setPassColor(cortexOutline, op.cortexFold.color);
+                ou.uLineWidth.value = op.cortexFold.width * outlineSaveScale;
+                ou.uThreshold.value = op.threshold;
                 ou.uClipApply.value = clip ? 1.0 : 0.0;
-                ou.uOverVoxelAlpha.value = config.style.outline.overVoxels
-                    ? (config.style.outline.overVoxelOpacity ?? 1.0) : 0.0;
-                // Hand the outer contour to the silhouette pass when it is running, so the two
-                // never stroke the same pixels in two different colours.
-                ou.uBgMode.value = wantSilhouette ? 1.0 : 0.0;
+                ou.uOverVoxelAlpha.value = overVoxelAlpha;
+                ou.uBgMode.value = op.foldBgMode;
                 cortexOutline.update(camera, rect.x, rect.y, rect.w, rect.h);
-                // Subcortex on top, on its own pass at the reduced anatomyWidthMul — only when this
-                // panel actually shows anatomy (else the empty layer-pass is skipped).
-                if (def.content && def.content.roles && def.content.roles.includes('anatomy')) {
-                    const aMul = config.style.outline.anatomyWidthMul ?? 1.0, au = anatomyOutline.outlineMaterial.uniforms;
-                    au.uLineWidth.value = config.style.outline.width * outlineSaveScale * aMul * ((po && po.widthMul) || 1);
-                    au.uThreshold.value = config.style.outline.threshold * ((po && po.thresholdMul) || 1);
-                    // Always clip against the cortex (just rendered into cortexOutline.depthTarget) so the
-                    // subcortex outline is occluded where the cortex wall is in front of it.
-                    au.uClipDepth.value = cortexOutline.depthTarget.texture;
-                    au.uClipApply.value = 1.0;
-                    au.uBgMode.value = wantSilhouette ? 1.0 : 0.0;
+
+                if (showsAnatomy) {
+                    const au = anatomyOutline.outlineMaterial.uniforms;
+                    setPassColor(anatomyOutline, op.anatomyFold.color);
+                    au.uLineWidth.value = op.anatomyFold.width * outlineSaveScale;
+                    au.uThreshold.value = op.threshold;
+                    // Subcortical anatomy is intentionally legible through the glass cortex.
+                    au.uClipApply.value = 0.0;
+                    au.uOverVoxelAlpha.value = 1.0;
+                    au.uBgMode.value = op.foldBgMode;
                     anatomyOutline.update(camera, rect.x, rect.y, rect.w, rect.h);
                 }
             }
-            // Outer contour LAST, so it sits on top of every fill, edge and fold line. It is the one
-            // stroke that must survive whatever the rest of the style does.
-            if (wantSilhouette) {
-                const su = silhouettePass.outlineMaterial.uniforms, po = def.outline;
-                su.uLineWidth.value = (sil.width ?? config.style.outline.width)
-                    * outlineSaveScale * ((po && po.widthMul) || 1);
-                su.uThreshold.value = config.style.outline.threshold * ((po && po.thresholdMul) || 1);
-                su.uClipApply.value = 0.0;
-                silhouettePass.update(camera, rect.x, rect.y, rect.w, rect.h);
+
+            // Separately styled silhouettes run once per anatomical group, last. Cortex remains
+            // depth-correct against opaque anatomy/voxels/caps; the subcortex contour is an
+            // annotation and stays visible through the transparent cortical shell.
+            if (op.splitSilhouettes) {
+                const ou = cortexOutline.outlineMaterial.uniforms;
+                setPassColor(cortexOutline, op.cortexSilhouette.color);
+                ou.uLineWidth.value = op.cortexSilhouette.width * outlineSaveScale;
+                ou.uThreshold.value = op.threshold;
+                ou.uClipApply.value = clip ? 1.0 : 0.0;
+                ou.uOverVoxelAlpha.value = overVoxelAlpha;
+                ou.uBgMode.value = 2.0;
+                cortexOutline.update(camera, rect.x, rect.y, rect.w, rect.h);
+
+                if (showsAnatomy) {
+                    const au = anatomyOutline.outlineMaterial.uniforms;
+                    setPassColor(anatomyOutline, op.anatomySilhouette.color);
+                    au.uLineWidth.value = op.anatomySilhouette.width * outlineSaveScale;
+                    au.uThreshold.value = op.threshold;
+                    au.uClipApply.value = 0.0;
+                    au.uOverVoxelAlpha.value = 1.0;
+                    au.uBgMode.value = 2.0;
+                    anatomyOutline.update(camera, rect.x, rect.y, rect.w, rect.h);
+                }
             }
         }
     }
@@ -866,7 +836,6 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         // so the brains keep a fixed size; only the view transform's screen mapping changes.
         cortexOutline.setSize(w, h);
         anatomyOutline.setSize(w, h);
-        silhouettePass.setSize(w, h);
         for (const ep of edgePasses) ep.setSize(w, h);
         clipTarget.setSize(Math.round(w * renderer.getPixelRatio()), Math.round(h * renderer.getPixelRatio()));
     }
@@ -876,7 +845,6 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         renderer.setSize(width, height, false);
         cortexOutline.pr = pr; cortexOutline.setSize(width, height);
         anatomyOutline.pr = pr; anatomyOutline.setSize(width, height);
-        silhouettePass.pr = pr; silhouettePass.setSize(width, height);
         for (const ep of edgePasses) { ep.pr = pr; ep.setSize(width, height); }
         clipTarget.setSize(Math.round(width * pr), Math.round(height * pr));
     }
@@ -899,7 +867,6 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         // colour fields in the schema had no UI at all.
         setPassColor(cortexOutline, s.outline.color);
         setPassColor(anatomyOutline, s.outline.anatomyColor ?? s.outline.color);
-        setPassColor(silhouettePass, s.outline.silhouette?.color ?? s.outline.color);
         const parc = s.parcellation || {};
         _colScratch.set(parc.color ?? '#1a1a1a');
         borderMat.uniforms.uColor.value.set(_colScratch.r, _colScratch.g, _colScratch.b);
@@ -1021,7 +988,6 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         for (const m of voxelMats) m.dispose();
         cortexOutline.dispose();
         anatomyOutline.dispose();
-        silhouettePass.dispose();
         anatomyDepthMat.dispose();
         borderMat.dispose();
         // Only the border geometries' own aDist buffers are freed — position/index are the cortex
