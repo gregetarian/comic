@@ -40,7 +40,7 @@ export const DEFAULTS = {
         margin: 0.95,
         cortexSurface: 'inflated', // 'pial' | 'inflated'
         voxel: {
-            representation: 'smooth', // 'blocky' (voxelwise) | 'smooth' | 'surface' (project onto the cortex, M8)
+            representation: 'blocky', // 'blocky' (voxelwise) | 'smooth' | 'surface' (project onto the cortex, M8)
             // Surface projection exists only for the cortex. Subcortical/cerebellar/brainstem
             // activations remain volumetric in surface mode, using this representation.
             subcortexRepresentation: 'smooth', // 'smooth' (default) | 'blocky'
@@ -75,15 +75,14 @@ export const DEFAULTS = {
         // overVoxels: when true the black cortex outline is drawn over the (opaque) voxels instead
         // of being masked where a blob sits in front. overVoxelOpacity (0..1) is the stroke strength
         // for the buried portion: 1 = full black on top, <1 = a muted/greyed stroke that blends with
-        // the voxel it crosses (so the line reads as passing under the blob). Default false = the
-        // depth-correct look (voxels occlude the lines behind them).
+        // the voxel it crosses. The default is 0, so a nearer voxel fully hides the buried cortex line.
         // anatomyColor: null = the subcortex line inherits `color`; set it to stroke the subcortical
         // structures in their own colour. silhouette controls the OUTER contours of the cortex and
         // subcortex as separate anatomical groups. Statistical overlays never define either contour,
         // so a thick silhouette cannot follow a jagged voxel blob. `color`/`width` null means "inherit
         // from the fold lines"; with folds on, each anatomical pass draws its folds and contour together.
         outline: { enabled: true, color: '#000000', width: 7.0, threshold: 0.018, anatomyWidthMul: 1.0,
-            overVoxels: true, overVoxelOpacity: 0.4, anatomyColor: null,
+            overVoxels: true, overVoxelOpacity: 0.0, anatomyColor: null,
             silhouette: { enabled: true, color: null, width: null } },
         // Parcellation boundary lines (atlas borders drawn on the cortical surface). `atlas` names a
         // baked/fetched per-vertex label set; width is in device px and is constant at any zoom.
