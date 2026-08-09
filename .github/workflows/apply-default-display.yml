@@ -24,64 +24,25 @@ jobs:
           python - <<'PY'
           from pathlib import Path
 
+          def replace_once(text, old, new, label):
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected one match, found {count}")
+              return text.replace(old, new, 1)
+
           cfg_path = Path("comic/web/core/config-schema.js")
           cfg = cfg_path.read_text()
-          replacements = [
-              (
-                  "representation: 'smooth', // 'blocky' (voxelwise) | 'smooth' | 'surface' (project onto the cortex, M8)",
-                  "representation: 'blocky', // 'blocky' (voxelwise) | 'smooth' | 'surface' (project onto the cortex, M8)",
-              ),
-              (
-                  """        // for the buried portion: 1 = full black on top, <1 = a muted/greyed stroke that blends with
-        // the voxel it crosses (so the line reads as passing under the blob). Default false = the
-        // depth-correct look (voxels occlude the lines behind them).
-""",
-                  """        // for the buried portion: 1 = full black on top, <1 = a muted/greyed stroke that blends with
-        // the voxel it crosses. The default is 0, so a nearer voxel fully hides the buried cortex line.
-""",
-              ),
-              (
-                  "overVoxels: true, overVoxelOpacity: 0.4, anatomyColor: null,",
-                  "overVoxels: true, overVoxelOpacity: 0.0, anatomyColor: null,",
-              ),
-          ]
-          for old, new in replacements:
-              count = cfg.count(old)
-              if count != 1:
-                  raise SystemExit(f"config replacement expected once, found {count}: {old[:90]!r}")
-              cfg = cfg.replace(old, new, 1)
+          cfg = replace_once(cfg, "representation: 'smooth', // 'blocky' (voxelwise) | 'smooth' | 'surface' (project onto the cortex, M8)", "representation: 'blocky', // 'blocky' (voxelwise) | 'smooth' | 'surface' (project onto the cortex, M8)", "representation default")
+          cfg = replace_once(cfg, "        // the voxel it crosses (so the line reads as passing under the blob). Default false = the\n        // depth-correct look (voxels occlude the lines behind them).", "        // the voxel it crosses. The default is 0, so a nearer voxel fully hides the buried cortex line.", "over-voxel comment")
+          cfg = replace_once(cfg, "overVoxels: true, overVoxelOpacity: 0.4, anatomyColor: null,", "overVoxels: true, overVoxelOpacity: 0.0, anatomyColor: null,", "over-voxel alpha default")
           cfg_path.write_text(cfg)
 
           test_path = Path("comic/web/core/core.test.js")
           tests = test_path.read_text()
-          old = """test('default display applies no intensity or cluster cutoff', () => {
-    assert.equal(DEFAULTS.style.voxel.clusterMin, 0);
-    const cfg = normalizeConfig({
-        style: { threshold: 0 },
-        layout: { panels: [{ id: 'a', camera: { plane: 'dorsal' }, cell: { row: 0, col: 0 } }] },
-    });
-    assert.equal(cfg.style.threshold, 0);
-    assert.equal(cfg.style.voxel.clusterMin, 0);
-});
-"""
-          new = """test('default display is blocky, depth-correct, and has no intensity or cluster cutoff', () => {
-    assert.equal(DEFAULTS.style.voxel.representation, 'blocky');
-    assert.equal(DEFAULTS.style.outline.overVoxelOpacity, 0);
-    assert.equal(DEFAULTS.style.voxel.clusterMin, 0);
-    const cfg = normalizeConfig({
-        style: { threshold: 0 },
-        layout: { panels: [{ id: 'a', camera: { plane: 'dorsal' }, cell: { row: 0, col: 0 } }] },
-    });
-    assert.equal(cfg.style.threshold, 0);
-    assert.equal(cfg.style.voxel.representation, 'blocky');
-    assert.equal(cfg.style.outline.overVoxelOpacity, 0);
-    assert.equal(cfg.style.voxel.clusterMin, 0);
-});
-"""
-          count = tests.count(old)
-          if count != 1:
-              raise SystemExit(f"test replacement expected once, found {count}")
-          test_path.write_text(tests.replace(old, new, 1))
+          tests = replace_once(tests, "test('default display applies no intensity or cluster cutoff', () => {", "test('default display is blocky, depth-correct, and has no intensity or cluster cutoff', () => {", "default test title")
+          tests = replace_once(tests, "    assert.equal(DEFAULTS.style.voxel.clusterMin, 0);", "    assert.equal(DEFAULTS.style.voxel.representation, 'blocky');\n    assert.equal(DEFAULTS.style.outline.overVoxelOpacity, 0);\n    assert.equal(DEFAULTS.style.voxel.clusterMin, 0);", "default assertions")
+          tests = replace_once(tests, "    assert.equal(cfg.style.threshold, 0);\n    assert.equal(cfg.style.voxel.clusterMin, 0);", "    assert.equal(cfg.style.threshold, 0);\n    assert.equal(cfg.style.voxel.representation, 'blocky');\n    assert.equal(cfg.style.outline.overVoxelOpacity, 0);\n    assert.equal(cfg.style.voxel.clusterMin, 0);", "normalised assertions")
+          test_path.write_text(tests)
           PY
 
           git diff --check
