@@ -19,13 +19,17 @@ import { isFreeFigure, usesFigureSpec, buildSpec, buildRenderText } from '../con
 import { rotateAroundWorldAxis, snapPlaneForAxis, wrapDegrees } from './rotation.js';
 import { normalizeTemplateBundle, validateTemplateBundle } from './template-bundle.js';
 
-test('default display applies no intensity or cluster cutoff', () => {
+test('default display is blocky, depth-correct, and has no intensity or cluster cutoff', () => {
+    assert.equal(DEFAULTS.style.voxel.representation, 'blocky');
+    assert.equal(DEFAULTS.style.outline.overVoxelOpacity, 0);
     assert.equal(DEFAULTS.style.voxel.clusterMin, 0);
     const cfg = normalizeConfig({
         style: { threshold: 0 },
         layout: { panels: [{ id: 'a', camera: { plane: 'dorsal' }, cell: { row: 0, col: 0 } }] },
     });
     assert.equal(cfg.style.threshold, 0);
+    assert.equal(cfg.style.voxel.representation, 'blocky');
+    assert.equal(cfg.style.outline.overVoxelOpacity, 0);
     assert.equal(cfg.style.voxel.clusterMin, 0);
 });
 
