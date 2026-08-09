@@ -451,8 +451,9 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
     let clipTarget = makeDepthTarget(maxCellW, maxCellH);
     const clipCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 800);
     cortexOutline.outlineMaterial.uniforms.uClipDepth.value = clipTarget.texture;
-    // Subcortical outlines are anatomical annotations. They deliberately remain legible through
-    // the glass cortex in paired lateral and medial views rather than being clipped by its depth.
+    // Subcortical lines clip against the cortex depth field. This preserves their independent
+    // anatomical outline while letting whichever surface is nearer to the camera occlude the other.
+    anatomyOutline.outlineMaterial.uniforms.uClipDepth.value = cortexOutline.depthTarget.texture;
     // Voxel edges clip against the SAME combined depth, so an overlay's edges are
     // occluded where a closer overlay's volume covers them (no longer see-through).
     for (const ep of edgePasses) ep.outlineMaterial.uniforms.uClipDepth.value = clipTarget.texture;
@@ -794,17 +795,18 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
                     setPassColor(anatomyOutline, op.anatomyFold.color);
                     au.uLineWidth.value = op.anatomyFold.width * outlineSaveScale;
                     au.uThreshold.value = op.threshold;
-                    // Subcortical anatomy is intentionally legible through the glass cortex.
-                    au.uClipApply.value = 0.0;
-                    au.uOverVoxelAlpha.value = 1.0;
+                    // The cortex depth target was rendered immediately above. Hide this line
+                    // only where cortex is genuinely nearer; keep it where subcortex is in front.
+                    au.uClipApply.value = 1.0;
+                    au.uOverVoxelAlpha.value = 0.0;
                     au.uBgMode.value = op.foldBgMode;
                     anatomyOutline.update(camera, rect.x, rect.y, rect.w, rect.h);
                 }
             }
 
-            // Separately styled silhouettes run once per anatomical group, last. Cortex remains
-            // depth-correct against opaque anatomy/voxels/caps; the subcortex contour is an
-            // annotation and stays visible through the transparent cortical shell.
+            // Separately styled silhouettes run once per anatomical group, last. Each contour
+            // retains its own depth field, and the cortex depth-clips the subcortex wherever it
+            // is nearer to the camera.
             if (op.splitSilhouettes) {
                 const ou = cortexOutline.outlineMaterial.uniforms;
                 setPassColor(cortexOutline, op.cortexSilhouette.color);
@@ -820,8 +822,8 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
                     setPassColor(anatomyOutline, op.anatomySilhouette.color);
                     au.uLineWidth.value = op.anatomySilhouette.width * outlineSaveScale;
                     au.uThreshold.value = op.threshold;
-                    au.uClipApply.value = 0.0;
-                    au.uOverVoxelAlpha.value = 1.0;
+                    au.uClipApply.value = 1.0;
+                    au.uOverVoxelAlpha.value = 0.0;
                     au.uBgMode.value = 2.0;
                     anatomyOutline.update(camera, rect.x, rect.y, rect.w, rect.h);
                 }
