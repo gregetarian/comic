@@ -36,6 +36,7 @@ def _cortex_subcort_contra(cortex_hemi, sub_hemi):
     anatomy_categories = [f"subcort_{side}", f"cereb_{side}", "brainstem"]
     return {"roles": ["cortex", "anatomy", "voxel"], "hemisphere": cortex_hemi,
             "anatomyHemisphere": sub_hemi,
+            "representation": "surface",
             "anatomyCategories": anatomy_categories,
             "voxelCategories": [f"{cortex_hemi}_cortex", *anatomy_categories],
             "anatomyStyle": "opaque"}
@@ -167,8 +168,14 @@ def to_volume_layout(layout):
     return out
 
 
-def _wants_surface(style):
-    """True if any overlay's resolved representation is 'surface' (surface-projection mode, M8)."""
+def _wants_surface(style, layout=None):
+    """True when any overlay or panel needs volume-to-surface projection geometry."""
+    for panel in ((layout or {}).get("panels") or []):
+        if ((panel.get("content") or {}).get("representation") == "surface"):
+            return True
+        view = panel.get("view")
+        if view in VIEWS and VIEWS[view][1].get("representation") == "surface":
+            return True
     if not style:
         return False
     if ((style.get("voxel") or {}).get("representation")) == "surface":
@@ -308,7 +315,7 @@ class RenderSession:
         n_overlays = n_vol + len(surface_maps or [])
         out_dir = prepare_render_dir(nifti, threshold, include_subcortical, names=names,
                                      template_dir=self.template_dir, classify=classify,
-                                     surface=_wants_surface(style), surface_maps=surface_maps)
+                                     surface=_wants_surface(style, layout), surface_maps=surface_maps)
         config, transparent = _render_config(
             layout, style, cmap=cmap, width=width, height=height, scale=scale,
             background=background, colorbar=colorbar, colorbar_font=colorbar_font,
@@ -386,7 +393,7 @@ class RenderSession:
             names = [(o or {}).get("name") for o in style["overlays"]] or None
         out_dir = prepare_render_dir(nifti, threshold, include_subcortical, names=names,
                                      template_dir=self.template_dir, classify=classify,
-                                     surface=_wants_surface(style))
+                                     surface=_wants_surface(style, layout))
         config, transparent = _render_config(
             layout, style, cmap=cmap, width=width, height=height, scale=scale, background=background,
             colorbar=False, colorbar_font=None, colorbar_fontsize=None, background_alpha=background_alpha)

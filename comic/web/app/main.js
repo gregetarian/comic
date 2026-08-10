@@ -45,10 +45,17 @@ let anatomyVol = null;   // the cut-cap volume asset {data,dims,affine}, loaded 
 let parcAtlas = null;    // the active parcellation's {lh,rh} label arrays, kept across rebuilds
 let zoomEls = [];
 let fcEditor = null;   // Free Canvas editor overlay (only in layout.mode === 'free')
+let surfaceLayoutPromise = null; // coalesce rapid switches into a view that needs surface geometry
 let container, canvas;
 
 function makeOverlay(meta, buffers, oi, src) {
-    return { meta, meshObjs: buildOverlayMeshes(meta, buffers, oi), cutVolume: buildCutVolume(meta, buffers), src };
+    return {
+        meta,
+        meshObjs: buildOverlayMeshes(meta, buffers, oi),
+        cutVolume: buildCutVolume(meta, buffers),
+        src,
+        _surfaced: !!meta.surface || !!meta.surfaceOnly,
+    };
 }
 
 async function fetchJSON(url, fb) {
@@ -315,6 +322,68 @@ async function loadBakedFixture() {
     addOverlay(meta, buffers);
 }
 
+/** Whether the current composition contains a hybrid panel that paints cortical statistics on
+ *  the surface while retaining subcortical voxels as a volume. This is panel-specific: the same
+ *  overlay can remain blocky in an ordinary lateral panel and surface-painted in a paired panel. */
+function layoutNeedsSurface() {
+    return (config.layout?.panels || []).some((p) => p.content?.representation === 'surface');
+}
+
+/** Ensure one volume overlay owns a cortical surface projection, without changing its global
+ *  representation. Paired cortex+subcortex panels consume this geometry through their own
+ *  content.representation='surface'; ordinary panels continue to use the overlay's chosen mode. */
+async function ensureOverlaySurfaceGeometry(i, automatic = false) {
+    const o = overlays[i];
+    if (!o) return false;
+    if (o._surfaced || o.meta?.surface || o.meta?.surfaceOnly) { o._surfaced = true; return false; }
+    if (!o.src?.file) return false;
+    if (o._surfacePromise) return o._surfacePromise;
+
+    o._surfacePromise = (async () => {
+        const note = automatic
+            ? 'Combined cortex + subcortex views paint cortical values on the surface.'
+            : 'First use loads the cortical surface (~11 MB), then re-meshes.';
+        const { meta, buffers } = await processNifti(o.src.file, o.src.threshold,
+            (m) => setLoading(m, note), true);
+        if (o.meta?.name) meta.name = o.meta.name;
+        for (const mo of o.meshObjs) mo.mesh.geometry.dispose();
+        o.meta = meta;
+        o.meshObjs = buildOverlayMeshes(meta, buffers, i);
+        o.cutVolume = buildCutVolume(meta, buffers);
+        o._surfaced = true;
+        return true;
+    })();
+    try { return await o._surfacePromise; }
+    finally { o._surfacePromise = null; }
+}
+
+/** Lazily add surface geometry when a layout/view begins to require it. Several quick view
+ *  changes share one job; the engine is rebuilt once after every eligible overlay is ready. */
+async function ensureLayoutSurfaces() {
+    if (!layoutNeedsSurface() || !overlays.length) return false;
+    if (surfaceLayoutPromise) return surfaceLayoutPromise;
+    surfaceLayoutPromise = (async () => {
+        let changed = false;
+        let failed = false;
+        try {
+            for (let i = 0; i < overlays.length; i++)
+                changed = (await ensureOverlaySurfaceGeometry(i, true)) || changed;
+            if (changed) rebuild();
+            return changed;
+        } catch (err) {
+            failed = true;
+            console.error(err);
+            setLoading('Cortical surface projection failed: ' + (err && err.message));
+            setTimeout(() => setLoading(null), 3000);
+            return false;
+        } finally {
+            surfaceLayoutPromise = null;
+            if (!failed) setLoading(null);
+        }
+    })();
+    return surfaceLayoutPromise;
+}
+
 /** Load the example Neurosynth maps (data/defaults/manifest.json) — the "Demo" figure.
  *  These are the raw NIfTIs (tiny), meshed in-browser via the SAME Pyodide path as a
  *  user upload (so the result is identical to dragging them in). The first one boots
@@ -329,7 +398,7 @@ async function loadNeurosynthDemo() {
         try {
             const blob = await fetch(DATA + 'defaults/' + ov.file).then((r) => r.blob());
             const { meta, buffers } = await processNifti(new File([blob], ov.file), ov.threshold ?? 2.3,
-                (m) => setLoading(m + ' — ' + (ov.name || ov.file), note));
+                (m) => setLoading(m + ' — ' + (ov.name || ov.file), note), layoutNeedsSurface());
             if (ov.name) meta.name = ov.name;
             overlays.push(makeOverlay(meta, buffers, overlays.length,
                 { file: new File([blob], ov.file), threshold: ov.threshold ?? 2.3 }));
@@ -354,20 +423,14 @@ async function setOverlaySurface(i, repSel) {
     const o = overlays[i];
     if (!o) return;
     try {
-        if (!o.src || !o.src.file) {
+        if (!o._surfaced && (!o.src || !o.src.file)) {
             setLoading('Surface mode needs a re-meshable map (drag a NIfTI in, or use Demo).');
             setTimeout(() => setLoading(null), 2600);
             if (repSel) repSel.value = o.meta && o.meta.surface ? 'surface' : 'smooth';
             return;
         }
-        if (!o._surfaced) {
-            const { meta, buffers } = await processNifti(o.src.file, o.src.threshold,
-                (m) => setLoading(m, 'First use loads the cortical surface (~11 MB), then re-meshes.'), true);
-            for (const mo of o.meshObjs) mo.mesh.geometry.dispose();
-            o.meta = meta; o.meshObjs = buildOverlayMeshes(meta, buffers, i);
-            o.cutVolume = buildCutVolume(meta, buffers); o._surfaced = true;
-            setLoading(null);
-        }
+        await ensureOverlaySurfaceGeometry(i, false);
+        setLoading(null);
         setOverlayStyle(config, i, { voxel: { representation: 'surface' } });
         rebuild();
     } catch (err) {
@@ -391,7 +454,8 @@ async function handleUpload(files) {
     try {
         for (let k = 0; k < volumeFiles.length; k++) {
             const tag = volumeFiles.length > 1 ? ` (${k + 1}/${volumeFiles.length})` : '';
-            const { meta, buffers } = await processNifti(volumeFiles[k], thr, (m) => setLoading(m + tag, note));
+            const { meta, buffers } = await processNifti(volumeFiles[k], thr,
+                (m) => setLoading(m + tag, note), layoutNeedsSurface());
             if (!meta.structures || Object.keys(meta.structures).length === 0) {
                 setLoading('No brain voxels classified for ' + meta.name + '.',
                     'Maps must be in MNI152 space and survive the threshold.');
@@ -461,6 +525,7 @@ function setPreset(nameOrLayout) {
         state.preset = 'custom';
         config.layout = resolveConfig({ layout: nameOrLayout }).layout;
         rebuild();
+        void ensureLayoutSurfaces();
         return;
     }
     const name = nameOrLayout;
@@ -472,6 +537,7 @@ function setPreset(nameOrLayout) {
         ? toFreeCanvas(config.layout, engine.getPanelDesignRects(), v.W0, v.H0)
         : resolveConfig(name).layout;
     rebuild();
+    void ensureLayoutSurfaces();
 }
 
 /** Bake a grid layout into a Free Canvas document: each panel keeps its camera/content
@@ -744,7 +810,10 @@ function rebuild() {
             // Free Canvas: the per-panel editor frames replace the hover +/- zoom.
             zoomEls.forEach((el) => el.remove()); zoomEls = [];
             if (!fcEditor) fcEditor = createFreeCanvasEditor({
-                container, canvas, config, getEngine: () => engine, onStructureChange: rebuild, onBgAlpha: setBgAlpha,
+                container, canvas, config, getEngine: () => engine,
+                onStructureChange: () => { rebuild(); void ensureLayoutSurfaces(); },
+                onViewChange: () => { void ensureLayoutSurfaces(); },
+                onBgAlpha: setBgAlpha,
             });
             fcEditor.refresh();
         } else {

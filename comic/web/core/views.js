@@ -25,6 +25,12 @@ const cortexSubcortContra = (cortexHemi, subHemi) => {
         roles: ['cortex', 'anatomy', 'voxel'],
         hemisphere: cortexHemi,
         anatomyHemisphere: subHemi,
+        // This is a hybrid view: cortical statistics are painted on the displayed sheet,
+        // while only the selected contralateral interior remains volumetric. Without this
+        // panel-level override the visibility rule correctly removes the cortical volume,
+        // but has no surface projection to replace it, which can look sign-specific when
+        // one sign happens to be predominantly cortical.
+        representation: 'surface',
         categories: null,
         anatomyCategories,
         voxelCategories: [`${cortexHemi}_cortex`, ...anatomyCategories],

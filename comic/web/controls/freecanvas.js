@@ -117,7 +117,7 @@ const screenDeltaToWorld = (view, dx, dy) => add(scale(view.r, dx * view.mmPerPx
 let _uid = 0;
 const newPanelId = () => `fc${++_uid}`;
 
-export function createFreeCanvasEditor({ container, canvas, config, getEngine, onStructureChange, onBgAlpha }) {
+export function createFreeCanvasEditor({ container, canvas, config, getEngine, onStructureChange, onViewChange, onBgAlpha }) {
     let frames = [];
     // The "active" panel is the one you last pressed; it STAYS lifted + interactive until you
     // press another, so reaching for its resize corner (which overhangs into a neighbour) can't
@@ -265,7 +265,10 @@ export function createFreeCanvasEditor({ container, canvas, config, getEngine, o
         view.value = panelViewName(panel);
         attachTip(view, 'View shown in this panel');
         view.addEventListener('pointerdown', (e) => e.stopPropagation());
-        view.addEventListener('change', () => { applyView(panel, view.value); });
+        view.addEventListener('change', () => {
+            applyView(panel, view.value);
+            onViewChange?.(panel, view.value);
+        });
 
         const mkBtn = (txt, tip, fn) => {
             const b = el('button', null, txt); b.type = 'button'; attachTip(b, tip);
