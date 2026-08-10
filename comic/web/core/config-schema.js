@@ -55,7 +55,10 @@ export const DEFAULTS = {
             // solid, which is what an atlas figure wants — an unpainted medial wall is then a grey
             // surface rather than a hole you can see the far side of the hemisphere through.
             surfaceBase: null,
-            veil: { strength: 0.0, k: 7.4, color: '#ffffff' },   // depth veil OFF by default; raise to fade deep voxels
+            // Viewer-relative front-depth gate. 0 shows the full anatomical depth; higher values
+            // discard farther overlay fragments independently in each panel/view.
+            depthCut: 0.0,
+            veil: { strength: 0.0, k: 7.4, color: '#ffffff' },   // depth colour veil OFF by default
             // Blob translucency. 1 = the opaque, self-occluding default. Below 1 the voxels stop
             // writing depth so you can genuinely see through them; that necessarily gives up exact
             // front/back sorting between overlapping blobs (the depth veil is the order-independent
@@ -150,6 +153,7 @@ export function overlayStyle(config, i = 0) {
         representation: ov.representation ?? v.representation,
         subcortexRepresentation: ov.subcortexRepresentation ?? v.subcortexRepresentation,
         clusterMin: ov.clusterMin ?? v.clusterMin,
+        depthCut: ov.depthCut ?? v.depthCut,
         opacity: ov.opacity ?? v.opacity,
         smoothing: ov.smoothing ?? v.smoothing,
         shininess: ov.shininess ?? v.shininess,
@@ -230,6 +234,7 @@ export function validateConfig(cfg) {
     if (!widthOk(cfg.style?.outline?.silhouette?.width)) errors.push('style.outline.silhouette.width must be null or a positive number');
     if (!parcOk(cfg.style?.parcellation)) errors.push('style.parcellation needs a #rgb/#rrggbb color, width > 0, and opacity 0..1');
     if (!alphaOk(cfg.style?.voxel?.opacity)) errors.push('style.voxel.opacity must be 0..1');
+    if (!alphaOk(cfg.style?.voxel?.depthCut)) errors.push('style.voxel.depthCut must be 0..1');
     if (!alphaOk(cfg.style?.voxel?.edges?.opacity)) errors.push('style.voxel.edges.opacity must be 0..1');
     (cfg.style?.overlays || []).forEach((o, i) => {
         if (!o) return;
@@ -237,6 +242,7 @@ export function validateConfig(cfg) {
         if (!repOk(o.voxel?.representation)) errors.push(`style.overlays[${i}].voxel.representation invalid`);
         if (!volumeRepOk(o.voxel?.subcortexRepresentation))
             errors.push(`style.overlays[${i}].voxel.subcortexRepresentation invalid`);
+        if (!alphaOk(o.voxel?.depthCut)) errors.push(`style.overlays[${i}].voxel.depthCut must be 0..1`);
         if (!cutOk(o.cutOverlay)) errors.push(`style.overlays[${i}].cutOverlay invalid`);
     });
     const panels = cfg.layout?.panels || [];

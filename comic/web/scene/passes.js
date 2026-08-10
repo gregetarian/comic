@@ -110,6 +110,9 @@ export function makeThresholdDepthMaterial(sharedUniforms) {
             uThreshold: s.uThreshold,
             uPositiveOnly: s.uPositiveOnly,
             uClusterMin: s.uClusterMin,
+            uDepthNearZ: s.uDepthNearZ,
+            uDepthFarZ: s.uDepthFarZ,
+            uDepthCut: s.uDepthCut,
             // share the overlay's slice uniforms so the voxel edges follow the cut too
             uSliceType: s.uSliceType, uSliceMode: s.uSliceMode,
             uSliceNormal: s.uSliceNormal, uSliceOffset: s.uSliceOffset,
@@ -119,9 +122,9 @@ export function makeThresholdDepthMaterial(sharedUniforms) {
         vertexShader: `attribute float aValue; attribute float aClusterSize; varying float vDepth; varying float vT; varying float vC;
             ${SLICE_VERT_PARS}
             void main(){ vec4 p = modelViewMatrix*vec4(position,1.); vDepth=-p.z; vT=aValue; vC=aClusterSize; ${SLICE_VERT_ASSIGN} gl_Position=projectionMatrix*p; }`,
-        fragmentShader: `uniform float uThreshold, uPositiveOnly, uClusterMin; varying float vDepth; varying float vT; varying float vC;
+        fragmentShader: `uniform float uThreshold, uPositiveOnly, uClusterMin, uDepthNearZ, uDepthFarZ, uDepthCut; varying float vDepth; varying float vT; varying float vC;
             ${SLICE_FRAG_PARS}
-            void main(){ if (gbSliceDiscard(vWorldPos)) discard; if(abs(vT)<uThreshold) discard; if(uPositiveOnly>0.5 && vT<0.0) discard; if(vC<uClusterMin) discard; gl_FragColor=vec4(vDepth/500.,1.,0.,1.); }`,
+            void main(){ if (gbSliceDiscard(vWorldPos)) discard; if(abs(vT)<uThreshold) discard; if(uPositiveOnly>0.5 && vT<0.0) discard; if(vC<uClusterMin) discard; float gateZf=clamp((vDepth-uDepthNearZ)/max(uDepthFarZ-uDepthNearZ,1e-3),0.0,1.0); float keepDepth=max(0.02,1.0-clamp(uDepthCut,0.0,1.0)); if(uDepthCut>0.0001 && gateZf>keepDepth) discard; gl_FragColor=vec4(vDepth/500.,1.,0.,1.); }`,
     });
 }
 
