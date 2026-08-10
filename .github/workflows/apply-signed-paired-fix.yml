@@ -22,10 +22,23 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          sha256sum .github/patches/signed-paired-fix.*
-          cat .github/patches/signed-paired-fix.* | base64 -d > /tmp/fix.patch
-          wc -c /tmp/fix.patch
-          sha256sum /tmp/fix.patch
+          cat \
+            .github/patches/signed-paired-fix.aa \
+            .github/patches/signed-paired-fix.ab \
+            .github/patches/signed-paired-fix.ac \
+            .github/patches/signed-paired-fix.ad \
+            .github/patches/signed-paired-fix.ae \
+            .github/patches/signed-paired-fix.af \
+            .github/patches/signed-paired-fix.ag \
+            .github/patches/signed-paired-fix.ah0 \
+            .github/patches/signed-paired-fix.ah1 \
+            .github/patches/signed-paired-fix.ah2 \
+            .github/patches/signed-paired-fix.ah3 \
+            .github/patches/signed-paired-fix.ai \
+            .github/patches/signed-paired-fix.aj \
+            | base64 -d > /tmp/fix.patch
+          test "$(wc -c < /tmp/fix.patch)" -eq 23686
+          echo "03760bd292114c4f6bf2da883992eb4b7959aeafbaa61beed7f3c90ff02d951d  /tmp/fix.patch" | sha256sum -c -
           git apply --check /tmp/fix.patch
           git apply /tmp/fix.patch
 
