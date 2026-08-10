@@ -163,8 +163,8 @@ test('subcort panel shows only its categories; representation gate works', () =>
 });
 
 test('paired cortex + contralateral-interior views keep surface paint and only internal volumes', () => {
-    const blocky = { voxel: { representation: 'blocky' } };
-    const surface = { voxel: { representation: 'surface', subcortexRepresentation: 'smooth' } };
+    const blocky = { voxel: { representation: 'blocky', subcortexRepresentation: 'blocky' } };
+    const smoothInterior = { voxel: { representation: 'blocky', subcortexRepresentation: 'smooth' } };
     for (const [view, cortexHemi, internalHemi, cortexCat, subCat, cerebCat, wrongSub, wrongCereb] of [
         ['cortex_subcort_l', 'lh', 'rh', 'lh_cortex', 'subcort_r', 'cereb_r', 'subcort_l', 'cereb_l'],
         ['cortex_subcort_r', 'rh', 'lh', 'rh_cortex', 'subcort_l', 'cereb_l', 'subcort_r', 'cereb_r'],
@@ -172,6 +172,7 @@ test('paired cortex + contralateral-interior views keep surface paint and only i
         ['cortex_subcort_rm', 'rh', 'lh', 'rh_cortex', 'subcort_l', 'cereb_l', 'subcort_r', 'cereb_r'],
     ]) {
         const content = VIEWS[view].content;
+        assert.equal(content.representation, 'surface');
         assert.deepEqual(content.voxelCategories, [cortexCat, subCat, cerebCat, 'brainstem']);
         assert.deepEqual(content.anatomyCategories, [subCat, cerebCat, 'brainstem']);
 
@@ -180,10 +181,11 @@ test('paired cortex + contralateral-interior views keep surface paint and only i
         assert.equal(visible(content, { role: 'voxel', hemisphere: cortexHemi, category: cortexCat, variant: 'blocky' }, blocky), false);
         assert.equal(visible(content, { role: 'voxel', hemisphere: cortexHemi, category: cortexCat, variant: 'smooth' },
             { voxel: { representation: 'smooth' } }), false);
-        assert.equal(visible(content, { role: 'voxel', hemisphere: cortexHemi, category: cortexCat, variant: 'surface' }, surface), true);
+        // The panel-level representation overrides the overlay's ordinary blocky mode only here.
+        assert.equal(visible(content, { role: 'voxel', hemisphere: cortexHemi, category: cortexCat, variant: 'surface' }, blocky), true);
 
         assert.equal(visible(content, { role: 'voxel', hemisphere: internalHemi, category: subCat, variant: 'blocky' }, blocky), true);
-        assert.equal(visible(content, { role: 'voxel', hemisphere: internalHemi, category: subCat, variant: 'smooth' }, surface), true);
+        assert.equal(visible(content, { role: 'voxel', hemisphere: internalHemi, category: subCat, variant: 'smooth' }, smoothInterior), true);
         assert.equal(visible(content, { role: 'voxel', hemisphere: internalHemi, category: cerebCat, variant: 'blocky' }, blocky), true);
         assert.equal(visible(content, { role: 'anatomy', hemisphere: internalHemi, category: subCat }, blocky), true);
         assert.equal(visible(content, { role: 'anatomy', hemisphere: internalHemi, category: cerebCat }, blocky), true);
@@ -526,7 +528,7 @@ test('DEFAULTS carry the M2 additions with backward-compatible identities', () =
     assert.equal(DEFAULTS.style.clim, null);                 // null = derive from data (today's behaviour)
     assert.equal(DEFAULTS.style.units.cluster, 'voxels');
     assert.equal(DEFAULTS.style.voxel.surfaceDepth, 6);
-    assert.equal(DEFAULTS.style.voxel.subcortexRepresentation, 'smooth');
+    assert.equal(DEFAULTS.style.voxel.subcortexRepresentation, 'blocky');
     assert.equal(DEFAULTS.layout.view.s, 1);                 // identity → existing renders unchanged
 });
 

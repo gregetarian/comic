@@ -43,7 +43,7 @@ export const DEFAULTS = {
             representation: 'blocky', // 'blocky' (voxelwise) | 'smooth' | 'surface' (project onto the cortex, M8)
             // Surface projection exists only for the cortex. Subcortical/cerebellar/brainstem
             // activations remain volumetric in surface mode, using this representation.
-            subcortexRepresentation: 'smooth', // 'smooth' (default) | 'blocky'
+            subcortexRepresentation: 'blocky', // 'smooth' | 'blocky' (default)
             clusterMin: 0,            // no cluster-extent filtering unless the user requests it
             smoothing: 0,             // extra Taubin smoothing iterations on the 'smooth' (0.5mm-grid) mesh; 0 = off
             shininess: 200,
