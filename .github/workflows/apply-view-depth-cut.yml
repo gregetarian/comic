@@ -1,0 +1,390 @@
+name: Apply viewer-relative depth cut
+
+on:
+  push:
+    branches: [automation/view-relative-depth-cut]
+    paths: [".github/workflows/apply-view-depth-cut.yml"]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: automation/view-relative-depth-cut
+          fetch-depth: 0
+
+      - name: Add independent viewer-relative depth gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(text, old, new, label):
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected one match, found {count}")
+              return text.replace(old, new, 1)
+
+          # ------------------------------------------------------------------
+          # Config: preserve the existing colour veil and add a separate cut.
+          path = Path("comic/web/core/config-schema.js")
+          text = path.read_text()
+          text = replace_once(
+              text,
+              """            surfaceBase: null,
+            veil: { strength: 0.0, k: 7.4, color: '#ffffff' },   // depth veil OFF by default; raise to fade deep voxels
+""",
+              """            surfaceBase: null,
+            // Viewer-relative front-depth gate. 0 shows the full anatomical depth; higher values
+            // discard farther overlay fragments independently in each panel/view.
+            depthCut: 0.0,
+            veil: { strength: 0.0, k: 7.4, color: '#ffffff' },   // depth colour veil OFF by default
+""",
+              "config default",
+          )
+          text = replace_once(
+              text,
+              """        clusterMin: ov.clusterMin ?? v.clusterMin,
+        opacity: ov.opacity ?? v.opacity,
+""",
+              """        clusterMin: ov.clusterMin ?? v.clusterMin,
+        depthCut: ov.depthCut ?? v.depthCut,
+        opacity: ov.opacity ?? v.opacity,
+""",
+              "overlay resolution",
+          )
+          text = replace_once(
+              text,
+              """    if (!alphaOk(cfg.style?.voxel?.opacity)) errors.push('style.voxel.opacity must be 0..1');
+    if (!alphaOk(cfg.style?.voxel?.edges?.opacity)) errors.push('style.voxel.edges.opacity must be 0..1');
+""",
+              """    if (!alphaOk(cfg.style?.voxel?.opacity)) errors.push('style.voxel.opacity must be 0..1');
+    if (!alphaOk(cfg.style?.voxel?.depthCut)) errors.push('style.voxel.depthCut must be 0..1');
+    if (!alphaOk(cfg.style?.voxel?.edges?.opacity)) errors.push('style.voxel.edges.opacity must be 0..1');
+""",
+              "global validation",
+          )
+          text = replace_once(
+              text,
+              """        if (!volumeRepOk(o.voxel?.subcortexRepresentation))
+            errors.push(`style.overlays[${i}].voxel.subcortexRepresentation invalid`);
+        if (!cutOk(o.cutOverlay)) errors.push(`style.overlays[${i}].cutOverlay invalid`);
+""",
+              """        if (!volumeRepOk(o.voxel?.subcortexRepresentation))
+            errors.push(`style.overlays[${i}].voxel.subcortexRepresentation invalid`);
+        if (!alphaOk(o.voxel?.depthCut)) errors.push(`style.overlays[${i}].voxel.depthCut must be 0..1`);
+        if (!cutOk(o.cutOverlay)) errors.push(`style.overlays[${i}].cutOverlay invalid`);
+""",
+              "overlay validation",
+          )
+          path.write_text(text)
+
+          # ------------------------------------------------------------------
+          # Materials: hard-discard fragments beyond the viewer-relative gate.
+          path = Path("comic/web/scene/materials.js")
+          text = path.read_text()
+          text = replace_once(
+              text,
+              """        uNearZ: { value: 200.0 },   // set per-panel from framing
+        uFarZ: { value: 400.0 },
+        uVeilStrength: { value: veil.strength ?? 0.40 },
+""",
+              """        uNearZ: { value: 200.0 },   // overlay-relative range for the colour veil
+        uFarZ: { value: 400.0 },
+        uDepthNearZ: { value: 200.0 }, // anatomical/panel range for the hard depth gate
+        uDepthFarZ: { value: 400.0 },
+        uDepthCut: { value: v.depthCut ?? 0.0 },
+        uVeilStrength: { value: veil.strength ?? 0.40 },
+""",
+              "shared depth uniforms",
+          )
+          text = replace_once(
+              text,
+              """            `uniform float uThreshold, uMaxAbs, uPositiveOnly, uClusterMin, uNearZ, uFarZ, uVeilStrength, uVeilK, uEmissiveBoost, uGlintAmt, uGlintPow;
+""",
+              """            `uniform float uThreshold, uMaxAbs, uPositiveOnly, uClusterMin, uNearZ, uFarZ, uDepthNearZ, uDepthFarZ, uDepthCut, uVeilStrength, uVeilK, uEmissiveBoost, uGlintAmt, uGlintPow;
+""",
+              "volume uniform declaration",
+          )
+          text = replace_once(
+              text,
+              """             if (uPositiveOnly > 0.5 && vThreshValue < 0.0) discard;
+             if (vClusterSize < uClusterMin) discard;
+             float zf = clamp((vViewZ - uNearZ) / max(uFarZ - uNearZ, 1e-3), 0.0, 1.0);
+""",
+              """             if (uPositiveOnly > 0.5 && vThreshValue < 0.0) discard;
+             if (vClusterSize < uClusterMin) discard;
+             float gateZf = clamp((vViewZ - uDepthNearZ) / max(uDepthFarZ - uDepthNearZ, 1e-3), 0.0, 1.0);
+             float keepDepth = max(0.02, 1.0 - clamp(uDepthCut, 0.0, 1.0));
+             if (uDepthCut > 0.0001 && gateZf > keepDepth) discard;
+             float zf = clamp((vViewZ - uNearZ) / max(uFarZ - uNearZ, 1e-3), 0.0, 1.0);
+""",
+              "volume gate",
+          )
+          text = replace_once(
+              text,
+              """            `uniform float uThreshold, uMaxAbs, uPositiveOnly, uNearZ, uFarZ, uVeilStrength, uVeilK, uEmissiveBoost, uGlintAmt, uGlintPow;
+""",
+              """            `uniform float uThreshold, uMaxAbs, uPositiveOnly, uNearZ, uFarZ, uDepthNearZ, uDepthFarZ, uDepthCut, uVeilStrength, uVeilK, uEmissiveBoost, uGlintAmt, uGlintPow;
+""",
+              "surface uniform declaration",
+          )
+          text = replace_once(
+              text,
+              """            `#include <color_fragment>
+             if (gbSliceDiscard(vWorldPos)) discard;
+             bool gbMasked = uMaskApply > 0.5 && vMask < 0.5;
+""",
+              """            `#include <color_fragment>
+             if (gbSliceDiscard(vWorldPos)) discard;
+             float gateZf = clamp((vViewZ - uDepthNearZ) / max(uDepthFarZ - uDepthNearZ, 1e-3), 0.0, 1.0);
+             float keepDepth = max(0.02, 1.0 - clamp(uDepthCut, 0.0, 1.0));
+             if (uDepthCut > 0.0001 && gateZf > keepDepth) discard;
+             bool gbMasked = uMaskApply > 0.5 && vMask < 0.5;
+""",
+              "surface gate",
+          )
+          path.write_text(text)
+
+          # ------------------------------------------------------------------
+          # Edge/depth pre-pass: invisible deep voxels must not leave edge lines
+          # or continue occluding the cortex outline.
+          path = Path("comic/web/scene/passes.js")
+          text = path.read_text()
+          text = replace_once(
+              text,
+              """            uClusterMin: s.uClusterMin,
+            // share the overlay's slice uniforms so the voxel edges follow the cut too
+""",
+              """            uClusterMin: s.uClusterMin,
+            uDepthNearZ: s.uDepthNearZ,
+            uDepthFarZ: s.uDepthFarZ,
+            uDepthCut: s.uDepthCut,
+            // share the overlay's slice uniforms so the voxel edges follow the cut too
+""",
+              "edge uniforms",
+          )
+          text = replace_once(
+              text,
+              """        fragmentShader: `uniform float uThreshold, uPositiveOnly, uClusterMin; varying float vDepth; varying float vT; varying float vC;
+            ${SLICE_FRAG_PARS}
+            void main(){ if (gbSliceDiscard(vWorldPos)) discard; if(abs(vT)<uThreshold) discard; if(uPositiveOnly>0.5 && vT<0.0) discard; if(vC<uClusterMin) discard; gl_FragColor=vec4(vDepth/500.,1.,0.,1.); }`,
+""",
+              """        fragmentShader: `uniform float uThreshold, uPositiveOnly, uClusterMin, uDepthNearZ, uDepthFarZ, uDepthCut; varying float vDepth; varying float vT; varying float vC;
+            ${SLICE_FRAG_PARS}
+            void main(){ if (gbSliceDiscard(vWorldPos)) discard; if(abs(vT)<uThreshold) discard; if(uPositiveOnly>0.5 && vT<0.0) discard; if(vC<uClusterMin) discard; float gateZf=clamp((vDepth-uDepthNearZ)/max(uDepthFarZ-uDepthNearZ,1e-3),0.0,1.0); float keepDepth=max(0.02,1.0-clamp(uDepthCut,0.0,1.0)); if(uDepthCut>0.0001 && gateZf>keepDepth) discard; gl_FragColor=vec4(vDepth/500.,1.,0.,1.); }`,
+""",
+              "edge gate",
+          )
+          path.write_text(text)
+
+          # ------------------------------------------------------------------
+          # Renderer: colour veil remains overlay-relative; hard gate is anchored
+          # to visible cortex/anatomy so an isolated deep blob is still recognised
+          # as anatomically deep rather than becoming its own 'front'.
+          path = Path("comic/web/scene/renderer.js")
+          text = path.read_text()
+          text = replace_once(
+              text,
+              "import { frameContent, mergeAABB } from '../core/framing.js';",
+              "import { frameContent, mergeAABB, viewDepthRange } from '../core/framing.js';",
+              "framing import",
+          )
+          text = replace_once(
+              text,
+              """            voxel: { veil: os.veil, emissive: os.emissive, specular: os.specular, shininess: os.shininess, clusterMin: os.clusterMin },
+""",
+              """            voxel: { veil: os.veil, depthCut: os.depthCut, emissive: os.emissive, specular: os.specular, shininess: os.shininess, clusterMin: os.clusterMin },
+""",
+              "initial uniform style",
+          )
+          text = replace_once(
+              text,
+              """    function panelAABB(content) {
+        const boxes = [];
+        for (const tm of sceneModel.meshes) if (meshVisible(content, tm.meta)) boxes.push(tm.aabb);
+        return mergeAABB(boxes);
+    }
+    function applyVisibility(content) {
+""",
+              """    function panelAABB(content) {
+        const boxes = [];
+        for (const tm of sceneModel.meshes) if (meshVisible(content, tm.meta)) boxes.push(tm.aabb);
+        return mergeAABB(boxes);
+    }
+    // The hard depth gate is relative to the visible anatomical shell, not to the overlay's own
+    // nearest voxel. Thus a thalamus-only map remains deep in a dorsal view instead of redefining
+    // itself as depth zero. Volume-only panels fall back to the panel content range below.
+    function anatomicalDepthRange(content, position, lookAt) {
+        const boxes = [];
+        for (const tm of sceneModel.meshes) {
+            if (tm.meta.role !== 'cortex' && tm.meta.role !== 'anatomy') continue;
+            if (meshVisible(content, tm.meta)) boxes.push(tm.aabb);
+        }
+        return boxes.length ? viewDepthRange(mergeAABB(boxes), position, lookAt) : null;
+    }
+    function applyVisibility(content) {
+""",
+              "anatomical depth helper",
+          )
+          text = replace_once(
+              text,
+              """            // Per-overlay depth-veil range anchored to that overlay's nearest voxel.
+            const fwd = normalize(sub(fr.lookAt, fr.position));
+            for (let i = 0; i < N; i++) {
+                const drng = voxelDepthRange(def.content, i, fr.position, fwd);
+                if (isFinite(drng.near)) { uniforms[i].uNearZ.value = drng.near; uniforms[i].uFarZ.value = Math.max(drng.far, drng.near + 1e-3); }
+                else { uniforms[i].uNearZ.value = fr.nearZ; uniforms[i].uFarZ.value = fr.farZ; }
+            }
+""",
+              """            // The colour veil stays anchored to each overlay's own depth range. The separate hard
+            // gate uses the visible anatomical shell (or the panel range for volume-only figures).
+            const fwd = normalize(sub(fr.lookAt, fr.position));
+            const gateRange = anatomicalDepthRange(def.content, fr.position, fr.lookAt)
+                || { nearZ: fr.nearZ, farZ: fr.farZ };
+            for (let i = 0; i < N; i++) {
+                const drng = voxelDepthRange(def.content, i, fr.position, fwd);
+                if (isFinite(drng.near)) { uniforms[i].uNearZ.value = drng.near; uniforms[i].uFarZ.value = Math.max(drng.far, drng.near + 1e-3); }
+                else { uniforms[i].uNearZ.value = fr.nearZ; uniforms[i].uFarZ.value = fr.farZ; }
+                uniforms[i].uDepthNearZ.value = gateRange.nearZ;
+                uniforms[i].uDepthFarZ.value = Math.max(gateRange.farZ, gateRange.nearZ + 1e-3);
+            }
+""",
+              "per-panel depth ranges",
+          )
+          text = replace_once(
+              text,
+              """            u.uPositiveOnly.value = os.positiveOnly ? 1 : 0;
+            u.uClusterMin.value = os.clusterMin ?? 0;
+            u.uBaseApply.value = os.surfaceBase ? 1 : 0;
+""",
+              """            u.uPositiveOnly.value = os.positiveOnly ? 1 : 0;
+            u.uClusterMin.value = os.clusterMin ?? 0;
+            u.uDepthCut.value = os.depthCut ?? 0;
+            u.uBaseApply.value = os.surfaceBase ? 1 : 0;
+""",
+              "live uniform update",
+          )
+          path.write_text(text)
+
+          # ------------------------------------------------------------------
+          # UI: retain veil + veil log as the colour fade, and add a hard gate.
+          path = Path("comic/web/controls/bind.js")
+          text = path.read_text()
+          text = replace_once(
+              text,
+              """        const ew = sw('edge w');
+        ovRange(ew.range, os.edges.width, (v) => { set({ voxel: { edges: { width: v } } }); engine.applyStyle(); }, { min: 0.3, max: 3, step: 0.1 }, 'Voxel edge thickness.', (v) => ({ voxel: { edges: { width: v } } }));
+        g.append(ew.wrap);
+
+        const veil = sw('veil');
+""",
+              """        const ew = sw('edge w');
+        ovRange(ew.range, os.edges.width, (v) => { set({ voxel: { edges: { width: v } } }); engine.applyStyle(); }, { min: 0.3, max: 3, step: 0.1 }, 'Voxel edge thickness.', (v) => ({ voxel: { edges: { width: v } } }));
+        g.append(ew.wrap);
+
+        const depthCut = sw('depth cut');
+        ovRange(depthCut.range, os.depthCut ?? 0, (v) => { set({ voxel: { depthCut: v } }); engine.applyStyle(); },
+                { min: 0, max: 0.98, step: 0.02 },
+                'Viewer-relative depth gate. 0 shows the full anatomical depth; higher values keep only overlay fragments nearest the viewer (for example, dorsal cortex while suppressing thalamus).',
+                (v) => ({ voxel: { depthCut: v } }));
+        g.append(depthCut.wrap);
+
+        const veil = sw('veil');
+""",
+              "depth slider",
+          )
+          text = replace_once(
+              text,
+              """        ovRange(veil.range, os.veil.strength, (v) => { set({ voxel: { veil: { strength: v } } }); engine.applyStyle(); }, { min: 0, max: 1, step: 0.02 }, 'Depth veil strength — fades deeper voxels toward white.', (v) => ({ voxel: { veil: { strength: v } } }));
+""",
+              """        ovRange(veil.range, os.veil.strength, (v) => { set({ voxel: { veil: { strength: v } } }); engine.applyStyle(); }, { min: 0, max: 1, step: 0.02 }, 'Depth colour veil — fades deeper voxels toward white without hiding them.', (v) => ({ voxel: { veil: { strength: v } } }));
+""",
+              "veil tooltip",
+          )
+          text = replace_once(
+              text,
+              """        ovRange(veilk.range, os.veil.k, (v) => { set({ voxel: { veil: { k: v } } }); engine.applyStyle(); }, { min: 0.1, max: 20, step: 0.1 }, 'Veil steepness.', (v) => ({ voxel: { veil: { k: v } } }));
+""",
+              """        ovRange(veilk.range, os.veil.k, (v) => { set({ voxel: { veil: { k: v } } }); engine.applyStyle(); }, { min: 0.1, max: 20, step: 0.1 }, 'Colour-veil depth curve (log steepness).', (v) => ({ voxel: { veil: { k: v } } }));
+""",
+              "veil curve tooltip",
+          )
+          path.write_text(text)
+
+          # ------------------------------------------------------------------
+          # Core regression guards.
+          path = Path("comic/web/core/core.test.js")
+          text = path.read_text()
+          text = replace_once(
+              text,
+              """    assert.equal(DEFAULTS.style.outline.overVoxelOpacity, 0);
+    assert.equal(DEFAULTS.style.voxel.clusterMin, 0);
+""",
+              """    assert.equal(DEFAULTS.style.outline.overVoxelOpacity, 0);
+    assert.equal(DEFAULTS.style.voxel.depthCut, 0);
+    assert.equal(DEFAULTS.style.voxel.clusterMin, 0);
+""",
+              "default depth assertion",
+          )
+          text = replace_once(
+              text,
+              """    assert.equal(cfg.style.outline.overVoxelOpacity, 0);
+    assert.equal(cfg.style.voxel.clusterMin, 0);
+});
+
+// --- cameras: every plane yields a right-handed (positive-determinant) basis ---
+""",
+              """    assert.equal(cfg.style.outline.overVoxelOpacity, 0);
+    assert.equal(cfg.style.voxel.depthCut, 0);
+    assert.equal(cfg.style.voxel.clusterMin, 0);
+});
+
+test('viewer-relative depth cut resolves per overlay and validates as a 0..1 amount', () => {
+    const cfg = { style: { voxel: { depthCut: 0.25 }, overlays: [{ voxel: { depthCut: 0.75 } }] } };
+    assert.equal(overlayStyle(cfg, 0).depthCut, 0.75);
+    assert.equal(overlayStyle(cfg, 1).depthCut, 0.25);
+    const panel = { id: 'a', camera: { plane: 'dorsal' }, cell: { row: 0, col: 0 } };
+    assert.equal(validateConfig({ style: { voxel: { depthCut: 1 } }, layout: { panels: [panel] } }).ok, true);
+    assert.equal(validateConfig({ style: { voxel: { depthCut: 1.01 } }, layout: { panels: [panel] } }).ok, false);
+    assert.equal(validateConfig({ style: { overlays: [{ voxel: { depthCut: -0.01 } }] }, layout: { panels: [panel] } }).ok, false);
+});
+
+// --- cameras: every plane yields a right-handed (positive-determinant) basis ---
+""",
+              "depth resolution test",
+          )
+          path.write_text(text)
+          PY
+
+          git diff --check
+          node --check comic/web/core/config-schema.js
+          node --check comic/web/scene/materials.js
+          node --check comic/web/scene/passes.js
+          node --check comic/web/scene/renderer.js
+          node --check comic/web/controls/bind.js
+          node --test comic/web/core/*.test.js
+
+          grep -Fq "depthCut: 0.0" comic/web/core/config-schema.js
+          grep -Fq "const depthCut = sw('depth cut')" comic/web/controls/bind.js
+          grep -Fq "uDepthCut" comic/web/scene/materials.js
+          grep -Fq "anatomicalDepthRange" comic/web/scene/renderer.js
+          grep -Fq "uDepthCut: s.uDepthCut" comic/web/scene/passes.js
+
+      - name: Commit change to branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/apply-view-depth-cut.yml
+          git config user.name "gregetarian"
+          git config user.email "78038105+gregetarian@users.noreply.github.com"
+          git add comic/web/core/config-schema.js comic/web/core/core.test.js \
+                  comic/web/scene/materials.js comic/web/scene/passes.js \
+                  comic/web/scene/renderer.js comic/web/controls/bind.js
+          git commit -m "feat: add viewer-relative overlay depth cut"
+          git push origin HEAD:automation/view-relative-depth-cut
