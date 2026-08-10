@@ -22,6 +22,7 @@ import { normalizeTemplateBundle, validateTemplateBundle } from './template-bund
 test('default display is blocky, depth-correct, and has no intensity or cluster cutoff', () => {
     assert.equal(DEFAULTS.style.voxel.representation, 'blocky');
     assert.equal(DEFAULTS.style.outline.overVoxelOpacity, 0);
+    assert.equal(DEFAULTS.style.voxel.depthCut, 0);
     assert.equal(DEFAULTS.style.voxel.clusterMin, 0);
     const cfg = normalizeConfig({
         style: { threshold: 0 },
@@ -30,7 +31,18 @@ test('default display is blocky, depth-correct, and has no intensity or cluster 
     assert.equal(cfg.style.threshold, 0);
     assert.equal(cfg.style.voxel.representation, 'blocky');
     assert.equal(cfg.style.outline.overVoxelOpacity, 0);
+    assert.equal(cfg.style.voxel.depthCut, 0);
     assert.equal(cfg.style.voxel.clusterMin, 0);
+});
+
+test('viewer-relative depth cut resolves per overlay and validates as a 0..1 amount', () => {
+    const cfg = { style: { voxel: { depthCut: 0.25 }, overlays: [{ voxel: { depthCut: 0.75 } }] } };
+    assert.equal(overlayStyle(cfg, 0).depthCut, 0.75);
+    assert.equal(overlayStyle(cfg, 1).depthCut, 0.25);
+    const panel = { id: 'a', camera: { plane: 'dorsal' }, cell: { row: 0, col: 0 } };
+    assert.equal(validateConfig({ style: { voxel: { depthCut: 1 } }, layout: { panels: [panel] } }).ok, true);
+    assert.equal(validateConfig({ style: { voxel: { depthCut: 1.01 } }, layout: { panels: [panel] } }).ok, false);
+    assert.equal(validateConfig({ style: { overlays: [{ voxel: { depthCut: -0.01 } }] }, layout: { panels: [panel] } }).ok, false);
 });
 
 // --- cameras: every plane yields a right-handed (positive-determinant) basis ---

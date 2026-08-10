@@ -8,7 +8,7 @@
  */
 import * as THREE from 'three';
 import { layoutGrid, freeRect } from '../core/grid.js';
-import { frameContent, mergeAABB } from '../core/framing.js';
+import { frameContent, mergeAABB, viewDepthRange } from '../core/framing.js';
 import { normalize, sub } from '../core/units.js';
 import { cameraBasis } from '../core/cameras.js';
 import { visible } from '../core/visibility.js';
@@ -108,7 +108,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         const os = overlayStyle(config, i);
         const u = makeSharedVoxelUniforms({
             positiveOnly: os.positiveOnly,
-            voxel: { veil: os.veil, emissive: os.emissive, specular: os.specular, shininess: os.shininess, clusterMin: os.clusterMin },
+            voxel: { veil: os.veil, depthCut: os.depthCut, emissive: os.emissive, specular: os.specular, shininess: os.shininess, clusterMin: os.clusterMin },
         });
         u.uMaxAbs.value = deriveMaxAbs(os.clim, overlays[i].maxAbsValue ?? 1.0);   // clim pins the scale
         u.uThreshold.value = os.threshold ?? overlays[i].threshold ?? 0;
@@ -521,6 +521,17 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         for (const tm of sceneModel.meshes) if (meshVisible(content, tm.meta)) boxes.push(tm.aabb);
         return mergeAABB(boxes);
     }
+    // The hard depth gate is relative to the visible anatomical shell, not to the overlay's own
+    // nearest voxel. Thus a thalamus-only map remains deep in a dorsal view instead of redefining
+    // itself as depth zero. Volume-only panels fall back to the panel content range below.
+    function anatomicalDepthRange(content, position, lookAt) {
+        const boxes = [];
+        for (const tm of sceneModel.meshes) {
+            if (tm.meta.role !== 'cortex' && tm.meta.role !== 'anatomy') continue;
+            if (meshVisible(content, tm.meta)) boxes.push(tm.aabb);
+        }
+        return boxes.length ? viewDepthRange(mergeAABB(boxes), position, lookAt) : null;
+    }
     function applyVisibility(content) {
         const ov = config.style.overlays || [];
         for (const tm of sceneModel.meshes) {
@@ -729,12 +740,17 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
             const opaqueAnat = def.content && def.content.anatomyStyle === 'opaque';
             for (const m of anatomyMeshes) m.material = opaqueAnat ? anatomyOpaqueMat : anatomyMat;
 
-            // Per-overlay depth-veil range anchored to that overlay's nearest voxel.
+            // The colour veil stays anchored to each overlay's own depth range. The separate hard
+            // gate uses the visible anatomical shell (or the panel range for volume-only figures).
             const fwd = normalize(sub(fr.lookAt, fr.position));
+            const gateRange = anatomicalDepthRange(def.content, fr.position, fr.lookAt)
+                || { nearZ: fr.nearZ, farZ: fr.farZ };
             for (let i = 0; i < N; i++) {
                 const drng = voxelDepthRange(def.content, i, fr.position, fwd);
                 if (isFinite(drng.near)) { uniforms[i].uNearZ.value = drng.near; uniforms[i].uFarZ.value = Math.max(drng.far, drng.near + 1e-3); }
                 else { uniforms[i].uNearZ.value = fr.nearZ; uniforms[i].uFarZ.value = fr.farZ; }
+                uniforms[i].uDepthNearZ.value = gateRange.nearZ;
+                uniforms[i].uDepthFarZ.value = Math.max(gateRange.farZ, gateRange.nearZ + 1e-3);
             }
 
             if (L.headlight) {
@@ -887,6 +903,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
             u.uThreshold.value = os.threshold ?? overlays[i].threshold ?? 0;
             u.uPositiveOnly.value = os.positiveOnly ? 1 : 0;
             u.uClusterMin.value = os.clusterMin ?? 0;
+            u.uDepthCut.value = os.depthCut ?? 0;
             u.uBaseApply.value = os.surfaceBase ? 1 : 0;
             if (os.surfaceBase) u.uBaseColor.value.set(os.surfaceBase);
             applyVoxelAlpha(voxelMats[i], os.opacity ?? 1);

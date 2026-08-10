@@ -166,8 +166,11 @@ export function makeSharedVoxelUniforms(style = {}) {
         uMaxAbs: { value: 1.0 },
         uPositiveOnly: { value: style.positiveOnly ? 1.0 : 0.0 },
         uClusterMin: { value: v.clusterMin ?? 0.0 }, // cluster-extent filter (min voxels)
-        uNearZ: { value: 200.0 },   // set per-panel from framing
+        uNearZ: { value: 200.0 },   // overlay-relative range for the colour veil
         uFarZ: { value: 400.0 },
+        uDepthNearZ: { value: 200.0 }, // anatomical/panel range for the hard depth gate
+        uDepthFarZ: { value: 400.0 },
+        uDepthCut: { value: v.depthCut ?? 0.0 },
         uVeilStrength: { value: veil.strength ?? 0.40 },
         uVeilColor: { value: new THREE.Color(veil.color ?? 0xffffff) },
         uVeilK: { value: veil.k ?? 6.0 },
@@ -217,7 +220,7 @@ export function makeVoxelMaterial(style = {}, shared) {
             .replace('#include <project_vertex>',
                 `#include <project_vertex>\n vViewZ = -mvPosition.z;\n ${SLICE_VERT_ASSIGN}`);
         shader.fragmentShader =
-            `uniform float uThreshold, uMaxAbs, uPositiveOnly, uClusterMin, uNearZ, uFarZ, uVeilStrength, uVeilK, uEmissiveBoost, uGlintAmt, uGlintPow;
+            `uniform float uThreshold, uMaxAbs, uPositiveOnly, uClusterMin, uNearZ, uFarZ, uDepthNearZ, uDepthFarZ, uDepthCut, uVeilStrength, uVeilK, uEmissiveBoost, uGlintAmt, uGlintPow;
              uniform vec3 uVeilColor;
              varying float vThreshValue; varying float vClusterSize; varying float vViewZ;
              ${SLICE_FRAG_PARS}\n` + shader.fragmentShader;
@@ -227,6 +230,9 @@ export function makeVoxelMaterial(style = {}, shared) {
              if (abs(vThreshValue) < uThreshold) discard;
              if (uPositiveOnly > 0.5 && vThreshValue < 0.0) discard;
              if (vClusterSize < uClusterMin) discard;
+             float gateZf = clamp((vViewZ - uDepthNearZ) / max(uDepthFarZ - uDepthNearZ, 1e-3), 0.0, 1.0);
+             float keepDepth = max(0.02, 1.0 - clamp(uDepthCut, 0.0, 1.0));
+             if (uDepthCut > 0.0001 && gateZf > keepDepth) discard;
              float zf = clamp((vViewZ - uNearZ) / max(uFarZ - uNearZ, 1e-3), 0.0, 1.0);
              float veil = log(1.0 + uVeilK * zf) / log(1.0 + uVeilK);
              diffuseColor.rgb = mix(diffuseColor.rgb, uVeilColor, veil * uVeilStrength);
@@ -269,7 +275,7 @@ export function makeSurfaceMaterial(style = {}, shared) {
             .replace('#include <project_vertex>',
                 `#include <project_vertex>\n vViewZ = -mvPosition.z;\n ${SLICE_VERT_ASSIGN}`);
         shader.fragmentShader =
-            `uniform float uThreshold, uMaxAbs, uPositiveOnly, uNearZ, uFarZ, uVeilStrength, uVeilK, uEmissiveBoost, uGlintAmt, uGlintPow;
+            `uniform float uThreshold, uMaxAbs, uPositiveOnly, uNearZ, uFarZ, uDepthNearZ, uDepthFarZ, uDepthCut, uVeilStrength, uVeilK, uEmissiveBoost, uGlintAmt, uGlintPow;
              uniform vec3 uVeilColor, uBaseColor;
              uniform float uBaseApply, uMaskApply;
              uniform vec3 uMaskColor;
@@ -284,6 +290,9 @@ export function makeSurfaceMaterial(style = {}, shared) {
         shader.fragmentShader = shader.fragmentShader.replace('#include <color_fragment>',
             `#include <color_fragment>
              if (gbSliceDiscard(vWorldPos)) discard;
+             float gateZf = clamp((vViewZ - uDepthNearZ) / max(uDepthFarZ - uDepthNearZ, 1e-3), 0.0, 1.0);
+             float keepDepth = max(0.02, 1.0 - clamp(uDepthCut, 0.0, 1.0));
+             if (uDepthCut > 0.0001 && gateZf > keepDepth) discard;
              bool gbMasked = uMaskApply > 0.5 && vMask < 0.5;
              bool gbSub = abs(vThreshValue) < uThreshold
                        || (uPositiveOnly > 0.5 && vThreshValue < 0.0);
