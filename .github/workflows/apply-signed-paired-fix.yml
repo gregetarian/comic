@@ -22,7 +22,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          sha256sum .github/patches/signed-paired-fix.*
           cat .github/patches/signed-paired-fix.* | base64 -d > /tmp/fix.patch
+          wc -c /tmp/fix.patch
+          sha256sum /tmp/fix.patch
           git apply --check /tmp/fix.patch
           git apply /tmp/fix.patch
 
