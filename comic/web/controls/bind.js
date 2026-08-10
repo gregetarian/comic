@@ -238,7 +238,7 @@ export function buildOverlayRows({ engine, config, colormaps, onRemove, onSurfac
             for (const r of ['smooth', 'blocky']) {
                 const o = document.createElement('option'); o.value = r; o.textContent = `subcort: ${r}`; subcortSel.append(o);
             }
-            subcortSel.value = os.subcortexRepresentation || 'smooth';
+            subcortSel.value = os.subcortexRepresentation || 'blocky';
             subcortWrap.hidden = repSel.value !== 'surface';
             subcortSel.addEventListener('change', () => {
                 set({ voxel: { subcortexRepresentation: subcortSel.value } });
@@ -255,7 +255,7 @@ export function buildOverlayRows({ engine, config, colormaps, onRemove, onSurfac
             });
             g.append(repSel, subcortWrap);
             infoIcon(repSel, 'Voxel representation: blocky, smooth (marching cubes), or surface (project onto the cortex — keeps the glass-brain look).');
-            infoIcon(subcortSel, 'Subcortical voxels cannot project onto the cortical surface. Keep them as a smooth volume (default), or show their original blocky voxel shape.');
+            infoIcon(subcortSel, 'Subcortical voxels cannot project onto the cortical surface. Show their original blocky voxel shape (default), or use a smooth volume.');
         }
 
         const thr = sw('thr');

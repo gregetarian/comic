@@ -6,6 +6,7 @@ from pathlib import Path
 import numpy as np
 
 from comic import pipeline as P
+from comic.render import _wants_surface
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "comic" / "web" / "data"
@@ -38,6 +39,30 @@ def test_no_surface_when_not_requested():
     _init()
     meta = json.loads(P.process_nifti(str(DEF / "faces.nii.gz"), "faces", 2.3))  # surface=False default
     assert "surface" not in meta
+
+
+def test_hybrid_panel_requests_surface_geometry_without_changing_global_voxel_mode():
+    layout = {"panels": [{"content": {
+        "roles": ["cortex", "anatomy", "voxel"],
+        "representation": "surface",
+    }}]}
+    assert _wants_surface({"voxel": {"representation": "blocky"}}, layout) is True
+    assert _wants_surface({}, {"panels": [{"view": "cortex_subcort_l", "content": {}}]}) is True
+    assert _wants_surface({"voxel": {"representation": "blocky"}}, {"panels": []}) is False
+
+
+def test_negative_cortical_values_survive_surface_projection(tmp_path):
+    import nibabel as nib
+
+    _init()
+    src = nib.load(str(DEF / "faces.nii.gz"))
+    data = -np.abs(np.asarray(src.dataobj, dtype=np.float32))
+    path = tmp_path / "negative_faces.nii.gz"
+    nib.save(nib.Nifti1Image(data, src.affine, src.header), path)
+    meta = json.loads(P.process_nifti(str(path), "negative faces", 2.3, surface=True))
+    bufs = P.get_all_buffers()
+    values = [np.frombuffer(bufs[d["val"]], dtype=np.float32) for d in meta["surface"].values()]
+    assert values and any(np.any(v < -2.3) for v in values)
 
 
 def test_surface_render_is_nonblank_and_differs_from_voxel():

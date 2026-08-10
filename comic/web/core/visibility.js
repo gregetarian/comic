@@ -69,9 +69,9 @@ export function visible(panelContent, meshMeta, style = {}) {
             const requested = meshMeta.surfaceOnly ? 'surface'
                 : (c.representation || (style.voxel && style.voxel.representation) || 'blocky');
             // Only cortical voxels can be projected onto a cortical surface. In surface mode keep
-            // anatomy-classified voxels volumetric, smooth by default (or blocky when selected).
+            // anatomy-classified voxels volumetric, blocky by default (or smooth when selected).
             const rep = requested === 'surface' && isAnatomyVoxel(meshMeta)
-                ? ((style.voxel && style.voxel.subcortexRepresentation) || 'smooth')
+                ? ((style.voxel && style.voxel.subcortexRepresentation) || 'blocky')
                 : requested;
             if (meshMeta.variant !== rep) return false;
         } else if (meshMeta.role === 'cortex') {

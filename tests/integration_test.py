@@ -54,6 +54,14 @@ def main():
         page.wait_for_function(f"window.__engine().overlays.length >= {n0 + 1}", timeout=300_000)
         assert n_overlays() == n0 + 1, f"upload should add one overlay ({n0} -> {n_overlays()})"
         assert n_voxel_meshes() > m0, f"upload should add voxel meshes ({m0} -> {n_voxel_meshes()})"
+        # The boot Free Canvas contains paired cortex+subcortex panels. Those panels suppress
+        # cortical blocky/smooth volumes and paint the same signed values on a cortical sheet,
+        # so an uploaded volume must be processed with surface geometry immediately.
+        n_surface = page.evaluate(
+            f"window.__engine().sceneModel.meshes.filter(m=>m.meta.role==='voxel'"
+            f"&&(m.meta.overlay??0)==={n0}&&m.meta.variant==='surface').length"
+        )
+        assert n_surface > 0, "hybrid cortex+subcortex layout did not request cortical surface geometry"
         page.wait_for_timeout(800)
         page.screenshot(path=str(SHOTS / "2_after_upload.png"))
         print(f"[2] upload via Pyodide: {n_overlays()} overlays, {n_voxel_meshes()} voxel meshes  ✓")
