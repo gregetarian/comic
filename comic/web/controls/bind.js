@@ -307,12 +307,19 @@ export function buildOverlayRows({ engine, config, colormaps, onRemove, onSurfac
         ovRange(ew.range, os.edges.width, (v) => { set({ voxel: { edges: { width: v } } }); engine.applyStyle(); }, { min: 0.3, max: 3, step: 0.1 }, 'Voxel edge thickness.', (v) => ({ voxel: { edges: { width: v } } }));
         g.append(ew.wrap);
 
+        const depthCut = sw('depth cut');
+        ovRange(depthCut.range, os.depthCut ?? 0, (v) => { set({ voxel: { depthCut: v } }); engine.applyStyle(); },
+                { min: 0, max: 0.98, step: 0.02 },
+                'Viewer-relative depth gate. 0 shows the full anatomical depth; higher values keep only overlay fragments nearest the viewer (for example, dorsal cortex while suppressing thalamus).',
+                (v) => ({ voxel: { depthCut: v } }));
+        g.append(depthCut.wrap);
+
         const veil = sw('veil');
-        ovRange(veil.range, os.veil.strength, (v) => { set({ voxel: { veil: { strength: v } } }); engine.applyStyle(); }, { min: 0, max: 1, step: 0.02 }, 'Depth veil strength — fades deeper voxels toward white.', (v) => ({ voxel: { veil: { strength: v } } }));
+        ovRange(veil.range, os.veil.strength, (v) => { set({ voxel: { veil: { strength: v } } }); engine.applyStyle(); }, { min: 0, max: 1, step: 0.02 }, 'Depth colour veil — fades deeper voxels toward white without hiding them.', (v) => ({ voxel: { veil: { strength: v } } }));
         g.append(veil.wrap);
 
         const veilk = sw('veil log');
-        ovRange(veilk.range, os.veil.k, (v) => { set({ voxel: { veil: { k: v } } }); engine.applyStyle(); }, { min: 0.1, max: 20, step: 0.1 }, 'Veil steepness.', (v) => ({ voxel: { veil: { k: v } } }));
+        ovRange(veilk.range, os.veil.k, (v) => { set({ voxel: { veil: { k: v } } }); engine.applyStyle(); }, { min: 0.1, max: 20, step: 0.1 }, 'Colour-veil depth curve (log steepness).', (v) => ({ voxel: { veil: { k: v } } }));
         g.append(veilk.wrap);
 
         const em = sw('emissive');
