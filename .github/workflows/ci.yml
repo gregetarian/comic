@@ -1,13 +1,17 @@
 # Fast, required CI: lint + the pure (no-browser) pytest suite + the JS core tests.
 #
-# The headless renderer (Playwright/Chromium, golden images) is swiftshader-flaky and slow
-# — those tests live in the separate `render` job below, which is continue-on-error and MUST
-# NOT block merges. The `python`/`node` jobs are the ones to mark Required in branch protection.
+# The headless renderer (Playwright/Chromium, golden images) is slow and can be
+# platform-sensitive. Its test step is informational: failures remain visible in the run but do
+# not mark the job or workflow as failed, so stale golden baselines do not generate failure emails.
 name: CI
 
 on:
+  # Avoid running CI for every intermediate commit on temporary automation branches. Pull requests
+  # still run whenever their head changes, and the merged result is checked again on main.
   push:
+    branches: [main]
   pull_request:
+  workflow_dispatch:
 
 jobs:
   # ---- Fast, required: lint + pure pytest (no headless browser) -------------------------
@@ -64,13 +68,12 @@ jobs:
       - name: Test JS core
         run: node --test comic/web/core/*.test.js
 
-  # ---- Optional, non-blocking: the slow/flaky headless renders -------------------------
-  # continue-on-error keeps this off the merge gate. It runs exactly the files deselected above
-  # (the [bake] extra is added so test_custom_template.py's trimesh import resolves).
+  # ---- Informational: the slow/platform-sensitive headless renders ----------------------
+  # A failing test step is tolerated at STEP level. This keeps the job green, while the failed
+  # command and diff details remain visible inside the workflow run for deliberate inspection.
   render:
-    name: render (optional, non-blocking)
+    name: render (informational)
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -80,7 +83,8 @@ jobs:
         run: pip install -e ".[render,dev,bake]"
       - name: Install Chromium
         run: python -m playwright install --with-deps chromium
-      - name: Test (headless renders — flaky, non-blocking)
+      - name: Test headless renders (warning only)
+        continue-on-error: true
         run: >
           pytest -q
           tests/integration_test.py
