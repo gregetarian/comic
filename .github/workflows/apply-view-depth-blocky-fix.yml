@@ -21,11 +21,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          echo "93123bc2c6ee5c07807cc9ebb7043692791c86589582c7a8d32d18db54930e68  .github/patches/view-depth-blocky.00" | sha256sum -c -
-          echo "2df5dfd17d661202ff991bce67ee72b3ab44a087b74fb2aab7f08208a4176cdf  .github/patches/view-depth-blocky.01" | sha256sum -c -
-          echo "1b792c509814bb1d008ecf10fbb5f5dc9e4a8661eb710b9cb3664496cd9b45c1  .github/patches/view-depth-blocky.02" | sha256sum -c -
-          echo "d3e6802c376c10a43e08e9cce4702f2ef814fe12179bd4a7f534df25ecc7e047  .github/patches/view-depth-blocky.03" | sha256sum -c -
-          cat .github/patches/view-depth-blocky.* > /tmp/fix.patch.b64
+          : > /tmp/fix.patch.b64
+          for f in .github/patches/view-depth-blocky.*; do
+            tr -d '\r\n' < "$f" >> /tmp/fix.patch.b64
+          done
           test "$(wc -c < /tmp/fix.patch.b64)" -eq 27928
           echo "c8da519758dbcff1bb8de73e1af651620348bc2420f031351db362620cdfde05  /tmp/fix.patch.b64" | sha256sum -c -
           base64 -d /tmp/fix.patch.b64 > /tmp/fix.patch
