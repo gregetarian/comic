@@ -1,0 +1,62 @@
+name: Apply view-relative depth and blocky paired-view fix
+
+on:
+  push:
+    branches: [automation/fix-view-relative-depth-blocky-paired]
+    paths: [".github/workflows/apply-view-depth-blocky-fix.yml"]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: automation/fix-view-relative-depth-blocky-paired
+          fetch-depth: 0
+
+      - name: Verify and apply fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "93123bc2c6ee5c07807cc9ebb7043692791c86589582c7a8d32d18db54930e68  .github/patches/view-depth-blocky.00" | sha256sum -c -
+          echo "2df5dfd17d661202ff991bce67ee72b3ab44a087b74fb2aab7f08208a4176cdf  .github/patches/view-depth-blocky.01" | sha256sum -c -
+          echo "1b792c509814bb1d008ecf10fbb5f5dc9e4a8661eb710b9cb3664496cd9b45c1  .github/patches/view-depth-blocky.02" | sha256sum -c -
+          echo "d3e6802c376c10a43e08e9cce4702f2ef814fe12179bd4a7f534df25ecc7e047  .github/patches/view-depth-blocky.03" | sha256sum -c -
+          cat .github/patches/view-depth-blocky.* > /tmp/fix.patch.b64
+          test "$(wc -c < /tmp/fix.patch.b64)" -eq 27928
+          echo "c8da519758dbcff1bb8de73e1af651620348bc2420f031351db362620cdfde05  /tmp/fix.patch.b64" | sha256sum -c -
+          base64 -d /tmp/fix.patch.b64 > /tmp/fix.patch
+          test "$(wc -c < /tmp/fix.patch)" -eq 20945
+          echo "0d33f5b69a31c4c2340f5dddb0ec7f5a1a89543e668fdccfb30a889110fe5a1a  /tmp/fix.patch" | sha256sum -c -
+
+          # Undo the previous hybrid-surface implementation, then apply the narrower correction.
+          git revert --no-commit 5d828c773c3f483002ccfc2a36ba2bb59d37681b
+          git apply --check /tmp/fix.patch
+          git apply /tmp/fix.patch
+
+      - name: Check and test
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          node --check comic/web/scene/renderer.js
+          node --check comic/web/core/framing.js
+          node --check comic/web/core/views.js
+          node --check comic/web/core/visibility.js
+          node --test comic/web/core/*.test.js
+          python -m py_compile comic/render.py
+
+      - name: Commit fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/apply-view-depth-blocky-fix.yml
+          git rm .github/patches/view-depth-blocky.*
+          git config user.name "gregetarian"
+          git config user.email "78038105+gregetarian@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: depth-cut by each panel view and keep paired voxels blocky"
+          git push origin HEAD:automation/fix-view-relative-depth-blocky-paired
