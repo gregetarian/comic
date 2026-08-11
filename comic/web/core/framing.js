@@ -62,6 +62,25 @@ export function viewDepthRange(aabb, position, lookAt) {
 }
 
 /**
+ * Exact view-space depth range of sampled WORLD positions for the current panel camera.
+ * This avoids the empty-corner error of projecting an axis-aligned bounding box in an oblique
+ * view. Re-evaluating the same samples against each panel pose makes the gate follow that panel's
+ * live yaw/pitch/world-axis rotation.
+ */
+export function viewDepthRangeOfPositions(positions, position, lookAt) {
+    const fwd = normalize(sub(lookAt, position));
+    let nearZ = Infinity, farZ = -Infinity;
+    for (let i = 0; i + 2 < positions.length; i += 3) {
+        const d = (positions[i] - position[0]) * fwd[0]
+            + (positions[i + 1] - position[1]) * fwd[1]
+            + (positions[i + 2] - position[2]) * fwd[2];
+        if (d < nearZ) nearZ = d;
+        if (d > farZ) farZ = d;
+    }
+    return isFinite(nearZ) ? { nearZ, farZ } : null;
+}
+
+/**
  * Frame `aabb` for a panel.
  * @param {object} aabb - {min,max}
  * @param {object} cameraSpec - {plane} | {pose}
