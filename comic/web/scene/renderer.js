@@ -261,12 +261,21 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
     scene.updateMatrixWorld(true);
     {
         const v = new THREE.Vector3();
-        const sampleWorld = (tm, target) => {
+        const sampleWorld = (tm, target, preserveAxisExtrema = false) => {
             const pos = tm.mesh.geometry.attributes.position;
             const n = pos ? pos.count : 0;
             if (!n) return new Float32Array();
             const step = Math.max(1, Math.ceil(n / target));
             const pts = [];
+            if (!preserveAxisExtrema) {
+                // Statistical meshes can be very large and already only need an approximate veil
+                // range. Keep their old strided cost rather than scanning every hidden variant.
+                for (let i = 0; i < n; i += step) {
+                    v.fromBufferAttribute(pos, i).applyMatrix4(tm.mesh.matrixWorld);
+                    pts.push(v.x, v.y, v.z);
+                }
+                return new Float32Array(pts);
+            }
             const extrema = [Infinity, -Infinity, Infinity, -Infinity, Infinity, -Infinity];
             const extremeIdx = new Int32Array(6).fill(-1);
             for (let i = 0; i < n; i++) {
@@ -288,8 +297,8 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         };
         for (const tm of sceneModel.meshes) {
             if (tm.meta.role === 'voxel') tm.depthSamples = sampleWorld(tm, 300);
-            else if (tm.meta.role === 'cortex') tm.anatomyDepthSamples = sampleWorld(tm, 4096);
-            else if (tm.meta.role === 'anatomy') tm.anatomyDepthSamples = sampleWorld(tm, 512);
+            else if (tm.meta.role === 'cortex') tm.anatomyDepthSamples = sampleWorld(tm, 4096, true);
+            else if (tm.meta.role === 'anatomy') tm.anatomyDepthSamples = sampleWorld(tm, 512, true);
         }
     }
 
