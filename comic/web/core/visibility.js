@@ -17,8 +17,6 @@ const ANATOMY_VOXEL_CATEGORIES = new Set([
     'subcort_l', 'subcort_r', 'cereb_l', 'cereb_r', 'brainstem',
 ]);
 const isAnatomyVoxel = (m) => m.role === 'voxel' && ANATOMY_VOXEL_CATEGORIES.has(m.category);
-const isCorticalVoxel = (m) => m.role === 'voxel'
-    && (m.category === 'lh_cortex' || m.category === 'rh_cortex');
 
 export function visible(panelContent, meshMeta, style = {}) {
     const c = panelContent || {};
@@ -39,15 +37,9 @@ export function visible(panelContent, meshMeta, style = {}) {
     if (c.voxelCategories && meshMeta.role === 'voxel' && meshMeta.category
         && !c.voxelCategories.includes(meshMeta.category)) return false;
 
-    // Paired cortex + contralateral-interior views use the cortical sheet as the
-    // display surface and the selected internal hemisphere as the volumetric layer.
-    // Keep a cortical surface projection (or a native surface map), but suppress the
-    // blocky/smooth cortical volume that would otherwise sit behind the subcortex.
-    const pairedInteriorView = c.anatomyStyle === 'opaque' && c.anatomyHemisphere
-        && c.hemisphere && c.anatomyHemisphere !== c.hemisphere;
-    if (pairedInteriorView && isCorticalVoxel(meshMeta) && meshMeta.variant !== 'surface') {
-        return false;
-    }
+    // Paired cortex + contralateral-interior views retain the overlay's requested
+    // representation. The explicit category/hemisphere filters above select the allowed cortex
+    // and interior, while the opaque anatomy depth wall handles front/back occlusion.
 
     // Hemisphere gate — midline structures (brainstem) are exempt. Anatomy AND voxels classified
     // inside that anatomy share anatomyHemisphere, so a right cortical half paired with the left

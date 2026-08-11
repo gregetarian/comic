@@ -8,7 +8,7 @@
  */
 import * as THREE from 'three';
 import { layoutGrid, freeRect } from '../core/grid.js';
-import { frameContent, mergeAABB, viewDepthRange } from '../core/framing.js';
+import { frameContent, mergeAABB, viewDepthRange, viewDepthRangeOfPositions } from '../core/framing.js';
 import { normalize, sub } from '../core/units.js';
 import { cameraBasis } from '../core/cameras.js';
 import { visible } from '../core/visibility.js';
@@ -254,21 +254,42 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         }
     }
 
-    // Downsampled world voxel vertices, for anchoring the depth veil to the ACTUAL
-    // nearest voxel (not a bounding-box corner that sits in empty space under tilt).
+    // Downsampled WORLD vertices for view-relative depth cues. Statistical samples
+    // anchor the colour veil to real voxels. Cortex/anatomy samples anchor the hard depth gate to
+    // real anatomical surfaces, so every panel (including a rotated Free Canvas panel) derives its
+    // own near/far range along its current camera direction rather than from empty AABB corners.
     scene.updateMatrixWorld(true);
     {
         const v = new THREE.Vector3();
-        for (const tm of sceneModel.meshes) {
-            if (tm.meta.role !== 'voxel') continue;
-            const pos = tm.mesh.geometry.attributes.position, n = pos.count;
-            const step = Math.max(1, Math.floor(n / 300));
+        const sampleWorld = (tm, target) => {
+            const pos = tm.mesh.geometry.attributes.position;
+            const n = pos ? pos.count : 0;
+            if (!n) return new Float32Array();
+            const step = Math.max(1, Math.ceil(n / target));
             const pts = [];
-            for (let i = 0; i < n; i += step) {
+            const extrema = [Infinity, -Infinity, Infinity, -Infinity, Infinity, -Infinity];
+            const extremeIdx = new Int32Array(6).fill(-1);
+            for (let i = 0; i < n; i++) {
+                v.fromBufferAttribute(pos, i).applyMatrix4(tm.mesh.matrixWorld);
+                if (i % step === 0) pts.push(v.x, v.y, v.z);
+                if (v.x < extrema[0]) { extrema[0] = v.x; extremeIdx[0] = i; }
+                if (v.x > extrema[1]) { extrema[1] = v.x; extremeIdx[1] = i; }
+                if (v.y < extrema[2]) { extrema[2] = v.y; extremeIdx[2] = i; }
+                if (v.y > extrema[3]) { extrema[3] = v.y; extremeIdx[3] = i; }
+                if (v.z < extrema[4]) { extrema[4] = v.z; extremeIdx[4] = i; }
+                if (v.z > extrema[5]) { extrema[5] = v.z; extremeIdx[5] = i; }
+            }
+            for (const i of new Set(extremeIdx)) {
+                if (i < 0) continue;
                 v.fromBufferAttribute(pos, i).applyMatrix4(tm.mesh.matrixWorld);
                 pts.push(v.x, v.y, v.z);
             }
-            tm.depthSamples = new Float32Array(pts);
+            return new Float32Array(pts);
+        };
+        for (const tm of sceneModel.meshes) {
+            if (tm.meta.role === 'voxel') tm.depthSamples = sampleWorld(tm, 300);
+            else if (tm.meta.role === 'cortex') tm.anatomyDepthSamples = sampleWorld(tm, 4096);
+            else if (tm.meta.role === 'anatomy') tm.anatomyDepthSamples = sampleWorld(tm, 512);
         }
     }
 
@@ -521,15 +542,24 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         for (const tm of sceneModel.meshes) if (meshVisible(content, tm.meta)) boxes.push(tm.aabb);
         return mergeAABB(boxes);
     }
-    // The hard depth gate is relative to the visible anatomical shell, not to the overlay's own
-    // nearest voxel. Thus a thalamus-only map remains deep in a dorsal view instead of redefining
-    // itself as depth zero. Volume-only panels fall back to the panel content range below.
+    // The hard depth gate is relative to the visible anatomical shell, measured along THIS
+    // panel's current camera direction. Thus a dorsal panel treats SMA as superficial and thalamus
+    // as deep; rotating only that panel rotates the depth slab with it. Real sampled vertices avoid
+    // an oblique AABB's empty-corner bias. Volume-only panels fall back to the panel range below.
     function anatomicalDepthRange(content, position, lookAt) {
+        let nearZ = Infinity, farZ = -Infinity;
         const boxes = [];
         for (const tm of sceneModel.meshes) {
             if (tm.meta.role !== 'cortex' && tm.meta.role !== 'anatomy') continue;
-            if (meshVisible(content, tm.meta)) boxes.push(tm.aabb);
+            if (!meshVisible(content, tm.meta)) continue;
+            boxes.push(tm.aabb);
+            const r = tm.anatomyDepthSamples
+                ? viewDepthRangeOfPositions(tm.anatomyDepthSamples, position, lookAt) : null;
+            if (!r) continue;
+            if (r.nearZ < nearZ) nearZ = r.nearZ;
+            if (r.farZ > farZ) farZ = r.farZ;
         }
+        if (isFinite(nearZ)) return { nearZ, farZ };
         return boxes.length ? viewDepthRange(mergeAABB(boxes), position, lookAt) : null;
     }
     function applyVisibility(content) {

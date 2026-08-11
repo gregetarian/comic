@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 
 import { det3, normalize, cross, sub } from './units.js';
 import { resolveCamera, cameraBasis, PLANES } from './cameras.js';
-import { aabbOfPositions, mergeAABB, frameContent } from './framing.js';
+import { aabbOfPositions, mergeAABB, frameContent, viewDepthRangeOfPositions } from './framing.js';
 import { layoutGrid, freeRect } from './grid.js';
 import { visible } from './visibility.js';
 import { outlinePlan } from './outline-plan.js';
@@ -133,6 +133,22 @@ test('aabb helpers merge correctly', () => {
     assert.deepEqual(m.max, [10, 2, 0]);
 });
 
+test('sampled anatomical depth follows each panel current viewing direction', () => {
+    const pts = new Float32Array([
+        0, 0, 70,
+        0, 50, 0,
+        0, 0, 0,
+    ]);
+    const dorsal = viewDepthRangeOfPositions(pts, [0, 0, 400], [0, 0, 0]);
+    const anterior = viewDepthRangeOfPositions(pts, [0, 400, 0], [0, 0, 0]);
+    assert.deepEqual(dorsal, { nearZ: 330, farZ: 400 });
+    assert.deepEqual(anterior, { nearZ: 350, farZ: 400 });
+    const oblique = viewDepthRangeOfPositions(pts, [0, 400, 400], [0, 0, 0]);
+    assert.ok(oblique.nearZ < oblique.farZ);
+    assert.notDeepEqual(oblique, dorsal);
+    assert.notDeepEqual(oblique, anterior);
+});
+
 // --- grid: cells exactly tile the container ---
 test('grid spans tile the container exactly', () => {
     const g = layoutGrid({ width: 1000, height: 600, rows: 3, cols: 3, rowWeights: [0.4, 0.2, 0.4] });
@@ -162,9 +178,10 @@ test('subcort panel shows only its categories; representation gate works', () =>
         { voxel: { representation: 'blocky' } }), false);
 });
 
-test('paired cortex + contralateral-interior views keep surface paint and only internal volumes', () => {
+test('paired cortex + contralateral-interior views retain the selected voxel representation', () => {
     const blocky = { voxel: { representation: 'blocky', subcortexRepresentation: 'blocky' } };
-    const smoothInterior = { voxel: { representation: 'blocky', subcortexRepresentation: 'smooth' } };
+    const smooth = { voxel: { representation: 'smooth', subcortexRepresentation: 'smooth' } };
+    const surface = { voxel: { representation: 'surface', subcortexRepresentation: 'blocky' } };
     for (const [view, cortexHemi, internalHemi, cortexCat, subCat, cerebCat, wrongSub, wrongCereb] of [
         ['cortex_subcort_l', 'lh', 'rh', 'lh_cortex', 'subcort_r', 'cereb_r', 'subcort_l', 'cereb_l'],
         ['cortex_subcort_r', 'rh', 'lh', 'rh_cortex', 'subcort_l', 'cereb_l', 'subcort_r', 'cereb_r'],
@@ -172,20 +189,16 @@ test('paired cortex + contralateral-interior views keep surface paint and only i
         ['cortex_subcort_rm', 'rh', 'lh', 'rh_cortex', 'subcort_l', 'cereb_l', 'subcort_r', 'cereb_r'],
     ]) {
         const content = VIEWS[view].content;
-        assert.equal(content.representation, 'surface');
+        assert.equal(content.representation, undefined);
         assert.deepEqual(content.voxelCategories, [cortexCat, subCat, cerebCat, 'brainstem']);
         assert.deepEqual(content.anatomyCategories, [subCat, cerebCat, 'brainstem']);
-
-        // The cortex remains available as a surface projection/native surface map, while its
-        // blocky/smooth volume is removed from this paired view.
-        assert.equal(visible(content, { role: 'voxel', hemisphere: cortexHemi, category: cortexCat, variant: 'blocky' }, blocky), false);
-        assert.equal(visible(content, { role: 'voxel', hemisphere: cortexHemi, category: cortexCat, variant: 'smooth' },
-            { voxel: { representation: 'smooth' } }), false);
-        // The panel-level representation overrides the overlay's ordinary blocky mode only here.
-        assert.equal(visible(content, { role: 'voxel', hemisphere: cortexHemi, category: cortexCat, variant: 'surface' }, blocky), true);
-
+        assert.equal(visible(content, { role: 'voxel', hemisphere: cortexHemi, category: cortexCat, variant: 'blocky' }, blocky), true);
+        assert.equal(visible(content, { role: 'voxel', hemisphere: cortexHemi, category: cortexCat, variant: 'smooth' }, blocky), false);
+        assert.equal(visible(content, { role: 'voxel', hemisphere: cortexHemi, category: cortexCat, variant: 'smooth' }, smooth), true);
+        assert.equal(visible(content, { role: 'voxel', hemisphere: cortexHemi, category: cortexCat, variant: 'surface' }, surface), true);
         assert.equal(visible(content, { role: 'voxel', hemisphere: internalHemi, category: subCat, variant: 'blocky' }, blocky), true);
-        assert.equal(visible(content, { role: 'voxel', hemisphere: internalHemi, category: subCat, variant: 'smooth' }, smoothInterior), true);
+        assert.equal(visible(content, { role: 'voxel', hemisphere: internalHemi, category: subCat, variant: 'smooth' }, smooth), true);
+        assert.equal(visible(content, { role: 'voxel', hemisphere: internalHemi, category: subCat, variant: 'blocky' }, surface), true);
         assert.equal(visible(content, { role: 'voxel', hemisphere: internalHemi, category: cerebCat, variant: 'blocky' }, blocky), true);
         assert.equal(visible(content, { role: 'anatomy', hemisphere: internalHemi, category: subCat }, blocky), true);
         assert.equal(visible(content, { role: 'anatomy', hemisphere: internalHemi, category: cerebCat }, blocky), true);
