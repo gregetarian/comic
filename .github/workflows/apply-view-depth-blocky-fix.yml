@@ -21,17 +21,22 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          wc -c .github/patches/view-depth-blocky.*
+          sha256sum .github/patches/view-depth-blocky.*
           : > /tmp/fix.patch.b64
           for f in .github/patches/view-depth-blocky.*; do
             tr -d '\r\n' < "$f" >> /tmp/fix.patch.b64
           done
+          wc -c /tmp/fix.patch.b64
+          sha256sum /tmp/fix.patch.b64
           test "$(wc -c < /tmp/fix.patch.b64)" -eq 27928
           echo "c8da519758dbcff1bb8de73e1af651620348bc2420f031351db362620cdfde05  /tmp/fix.patch.b64" | sha256sum -c -
           base64 -d /tmp/fix.patch.b64 > /tmp/fix.patch
+          wc -c /tmp/fix.patch
+          sha256sum /tmp/fix.patch
           test "$(wc -c < /tmp/fix.patch)" -eq 20945
           echo "0d33f5b69a31c4c2340f5dddb0ec7f5a1a89543e668fdccfb30a889110fe5a1a  /tmp/fix.patch" | sha256sum -c -
 
-          # Undo the previous hybrid-surface implementation, then apply the narrower correction.
           git revert --no-commit 5d828c773c3f483002ccfc2a36ba2bb59d37681b
           git apply --check /tmp/fix.patch
           git apply /tmp/fix.patch
