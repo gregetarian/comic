@@ -1,0 +1,37 @@
+name: Apply vox alpha regression fix
+on:
+  push:
+    branches: [automation/restore-vox-alpha]
+    paths: [".github/workflows/apply-restore-vox-alpha.yml"]
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: automation/restore-vox-alpha
+      - name: Patch renderer
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('comic/web/scene/renderer.js')
+          s = p.read_text()
+          old = '''            let anyEdges = false;\n            for (let i = 0; i < N; i++) if (osR[i].edges.enabled) anyEdges = true;\n            const showsAnatomy = (def.content?.roles || []).includes('anatomy');\n            // Clip against statistical voxels when needed, and ALWAYS against visible subcortex.\n            // Anatomical occlusion is hard and does not inherit the vox-alpha stroke strength.\n            const clip = anyEdges || showsAnatomy || capActive;\n            if (clip) renderClipDepth(camera, showsAnatomy, anyEdges, capActive);\n'''
+          new = '''            let anyEdges = false;\n            for (let i = 0; i < N; i++) if (osR[i].edges.enabled) anyEdges = true;\n            const showsAnatomy = (def.content?.roles || []).includes('anatomy');\n            // `vox α` controls cortex-line strength where a statistical voxel is in front,\n            // independently of whether voxel EDGE outlines are enabled. The front-depth cortex\n            // pass made this dependency visible because clipTarget was only receiving voxel depth\n            // when `anyEdges` was true. Render voxel depth whenever over-voxel line control is on.\n            const wantsVoxelClip = anyEdges || !!config.style.outline.overVoxels;\n            // Visible subcortex remains a hard occluder and never inherits vox-alpha strength.\n            const clip = wantsVoxelClip || showsAnatomy || capActive;\n            if (clip) renderClipDepth(camera, showsAnatomy, wantsVoxelClip, capActive);\n'''
+          if old not in s:
+              raise SystemExit('renderer anchor not found')
+          p.write_text(s.replace(old, new, 1))
+          PY
+          git diff --check
+          node --check comic/web/scene/renderer.js
+          node --test comic/web/core/*.test.js
+      - name: Commit and remove workflow
+        run: |
+          git rm .github/workflows/apply-restore-vox-alpha.yml
+          git config user.name gregetarian
+          git config user.email 78038105+gregetarian@users.noreply.github.com
+          git add comic/web/scene/renderer.js
+          git commit -m 'fix: restore vox alpha clipping independently of voxel edges'
+          git push origin HEAD:automation/restore-vox-alpha
