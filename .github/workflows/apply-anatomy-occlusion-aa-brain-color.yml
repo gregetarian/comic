@@ -1,0 +1,190 @@
+name: Apply anatomy occlusion, outline AA, and brain colour
+
+on:
+  push:
+    branches: [main]
+    paths: [".github/workflows/apply-anatomy-occlusion-aa-brain-color.yml"]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+      - name: Apply source edits
+        shell: python
+        run: |
+          from pathlib import Path
+
+          # 1) Hard anatomical occluder marker + derivative AA for post-process outlines.
+          p = Path('comic/web/scene/passes.js')
+          s = p.read_text()
+          old = """export function makePlainDepthMaterial(side = THREE.DoubleSide) {
+    return new THREE.ShaderMaterial({
+        vertexShader: depthVert, fragmentShader: depthFrag, side,
+        uniforms: sliceUniforms(),
+    });
+}
+"""
+          new = old + """
+/** Depth material for geometry that must ALWAYS hide a line when it is nearer.
+ *  Negative R is an explicit hard-occluder marker; the outline shader compares
+ *  abs(R) for depth, then forces the stroke to zero instead of applying vox alpha. */
+export function makeHardOccluderDepthMaterial(side = THREE.DoubleSide) {
+    return new THREE.ShaderMaterial({
+        vertexShader: depthVert,
+        fragmentShader: `varying float vDepth;\n${SLICE_FRAG_PARS}\nvoid main(){ if (gbSliceDiscard(vWorldPos)) discard; gl_FragColor = vec4(-vDepth/500.,1.,0.,1.); }`,
+        side,
+        uniforms: sliceUniforms(),
+    });
+}
+"""
+          if old not in s: raise SystemExit('plain depth material anchor not found')
+          s = s.replace(old, new, 1)
+          old = """    // Near-BINARY strength: any depth step that clears the threshold draws at full opacity and full
+    // width; anything below doesn't draw at all. The narrow ramps (just wide enough for edge AA) stop
+    // weak/grazing folds rendering as faded half-strength smudges, so every line is uniformly visible.
+    float s = max(smoothstep(uThreshold*0.96,uThreshold,edge), smoothstep(uThreshold,uThreshold*1.08,edge2));
+"""
+          new = """    // Derivative-based one-pixel antialiasing. fwidth measures how quickly the depth-edge
+    // signal changes across neighbouring screen fragments, so the transition is softened only at
+    // the raster boundary while the body of each line remains fully opaque. This avoids the chunky
+    // staircase visible on thick/part-transparent cortex lines without making weak folds uniformly grey.
+    float aa1 = max(fwidth(edge) * 0.75, uThreshold * 0.01);
+    float aa2 = max(fwidth(edge2) * 0.75, uThreshold * 0.01);
+    float s = max(smoothstep(uThreshold-aa1,uThreshold+aa1,edge),
+                  smoothstep(uThreshold-aa2,uThreshold+aa2,edge2));
+"""
+          if old not in s: raise SystemExit('outline strength anchor not found')
+          s = s.replace(old, new, 1)
+          old = """        this.outlineMaterial = new THREE.ShaderMaterial({
+            vertexShader: screenQuadVert, fragmentShader: outlineFrag,
+            transparent: true, depthTest: false, depthWrite: false,
+"""
+          new = """        this.outlineMaterial = new THREE.ShaderMaterial({
+            vertexShader: screenQuadVert, fragmentShader: outlineFrag,
+            transparent: true, depthTest: false, depthWrite: false,
+            extensions: { derivatives: true },
+"""
+          if old not in s: raise SystemExit('outline material anchor not found')
+          s = s.replace(old, new, 1)
+          p.write_text(s)
+
+          # 2) Every visible subcortical shell is a hard line occluder, independent of vox-alpha.
+          p = Path('comic/web/scene/renderer.js')
+          s = p.read_text()
+          s = s.replace(
+              "import { OutlinePass, makeThresholdDepthMaterial, makePlainDepthMaterial, DEPTH_CLEAR } from './passes.js';",
+              "import { OutlinePass, makeThresholdDepthMaterial, makePlainDepthMaterial, makeHardOccluderDepthMaterial, DEPTH_CLEAR } from './passes.js';")
+          old = """    // Depth-only version of that shell (same BackSide), folded into the edge/outline clip so
+    // cortical voxel edges + cortex lines BEHIND the opaque subcortex are occluded, not drawn through.
+    const anatomyClipDepthMat = makePlainDepthMaterial(THREE.BackSide);
+"""
+          new = """    // Line-occlusion depth for subcortex. Use the nearest FRONT surface and encode it as a
+    // hard occluder: when subcortex is in front, cortex lines disappear regardless of the vox-alpha
+    // control. This is independent of whether the visible anatomy material is glass or opaque.
+    const anatomyClipDepthMat = makeHardOccluderDepthMaterial(THREE.FrontSide);
+"""
+          if old not in s: raise SystemExit('anatomy clip material anchor not found')
+          s = s.replace(old, new, 1)
+          s = s.replace('function renderClipDepth(camera, opaqueAnat, anyEdges, capActive) {',
+                        'function renderClipDepth(camera, anatomyOccluder, anyEdges, capActive) {', 1)
+          old = """        // Fold the opaque subcortex's depth in → edges/outline behind it get occluded like the
+        // fills. The subcortex is on its own layer, so we render just it (no cortex to hide).
+        if (opaqueAnat) {
+"""
+          new = """        // Fold visible subcortex into the hard-occlusion depth target. This applies to glass
+        // AND opaque anatomy: its visual translucency must never make a nearer anatomical shell
+        // behave like a voxel-alpha-controlled line overlay.
+        if (anatomyOccluder) {
+"""
+          if old not in s: raise SystemExit('anatomy clip render anchor not found')
+          s = s.replace(old, new, 1)
+          old = """            // Clip when there are voxel edges OR an opaque subcortex (so edges + cortex lines
+            // behind the shell are occluded). Opaque-anatomy folds its depth into the target.
+            const clip = anyEdges || opaqueAnat || capActive;
+            if (clip) renderClipDepth(camera, opaqueAnat, anyEdges, capActive);
+"""
+          new = """            // Subcortex is an anatomical occluder, not a statistical overlay: whenever this pane
+            // displays it, a nearer subcortical surface ALWAYS hides cortex lines. Vox-alpha still
+            // controls only cortex lines over statistical voxels.
+            const clip = anyEdges || showsAnatomy || capActive;
+            if (clip) renderClipDepth(camera, showsAnatomy, anyEdges, capActive);
+"""
+          if old not in s: raise SystemExit('clip condition anchor not found')
+          s = s.replace(old, new, 1)
+          old = """        glassMat.uniforms.uMaxOpacity.value = s.glass.maxOpacity;
+        cortexOutline.outlineMaterial.uniforms.uLineWidth.value = s.outline.width;
+"""
+          new = """        glassMat.uniforms.uMaxOpacity.value = s.glass.maxOpacity;
+        // One anatomical background colour drives the cortex and every subcortical shell.
+        // Keep legacy anatomy.color configs working, but the live UI writes both together.
+        glassMat.uniforms.uColor.value.set(s.glass.color ?? '#ffffff');
+        anatomyMat.uniforms.uColor.value.set(s.anatomy.color ?? s.glass.color ?? '#ffffff');
+        anatomyOpaqueMat.uniforms.uColor.value.set(s.anatomy.opaqueColor ?? s.anatomy.color ?? s.glass.color ?? '#ffffff');
+        cortexOutline.outlineMaterial.uniforms.uLineWidth.value = s.outline.width;
+"""
+          if old not in s: raise SystemExit('applyStyle glass anchor not found')
+          s = s.replace(old, new, 1)
+          p.write_text(s)
+
+          # 3) Global brain-background colour control, propagated to cortex + subcortex.
+          p = Path('comic/web/controls/bind.js')
+          s = p.read_text()
+          old = """    slider('c-cortex', s.glass.maxOpacity, (v) => { s.glass.maxOpacity = v; apply(); }, { min: 0, max: 1.0, step: 0.01 });
+    slider('c-outline-thresh', s.outline.threshold, (v) => { s.outline.threshold = v; apply(); }, { min: 0.001, max: 0.02, step: 0.0005 });
+"""
+          new = """    slider('c-cortex', s.glass.maxOpacity, (v) => { s.glass.maxOpacity = v; apply(); }, { min: 0, max: 1.0, step: 0.01 });
+    color('c-brain-color', s.glass.color ?? '#ffffff', (hex) => {
+        s.glass.color = hex;
+        s.anatomy.color = hex;
+        s.anatomy.opaqueColor = hex;
+        apply();
+    });
+    slider('c-outline-thresh', s.outline.threshold, (v) => { s.outline.threshold = v; apply(); }, { min: 0.001, max: 0.02, step: 0.0005 });
+"""
+          if old not in s: raise SystemExit('global controls anchor not found')
+          s = s.replace(old, new, 1)
+          p.write_text(s)
+
+          # 4) Expose the colour picker beside cortex alpha + help text.
+          p = Path('comic/web/index.html')
+          s = p.read_text()
+          old = """        <div class=\"sw\"><span>cortex α</span><input type=\"range\" id=\"c-cortex\"></div>
+        <div class=\"sw\"><span>edge thr</span><input type=\"range\" id=\"c-outline-thresh\"></div>
+"""
+          new = """        <div class=\"sw\"><span>cortex α</span><input type=\"range\" id=\"c-cortex\"></div>
+        <div class=\"sw\" title=\"Anatomical background colour for cortex and subcortex\"><span>brain</span><input type=\"color\" class=\"swatch\" id=\"c-brain-color\"></div>
+        <div class=\"sw\"><span>edge thr</span><input type=\"range\" id=\"c-outline-thresh\"></div>
+"""
+          if old not in s: raise SystemExit('index control anchor not found')
+          s = s.replace(old, new, 1)
+          s = s.replace(
+              '<li><b>cortex α</b> glass opacity · <b>edge thr</b> / <b>line w</b> cortex-line density &amp; thickness · <b>vox α</b> line strength over voxels.</li>',
+              '<li><b>cortex α</b> glass opacity · <b>brain</b> cortex/subcortex background colour · <b>edge thr</b> / <b>line w</b> cortex-line density &amp; thickness · <b>vox α</b> line strength over statistical voxels only.</li>')
+          p.write_text(s)
+
+      - name: Syntax and unit checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          node --check comic/web/scene/passes.js
+          node --check comic/web/scene/renderer.js
+          node --check comic/web/controls/bind.js
+          node --test comic/web/core/*.test.js
+
+      - name: Commit source changes and remove this workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/apply-anatomy-occlusion-aa-brain-color.yml
+          git config user.name "gregetarian"
+          git config user.email "78038105+gregetarian@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: occlude cortex lines behind anatomy and smooth outlines"
+          git push origin HEAD:main
