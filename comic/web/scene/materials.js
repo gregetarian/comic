@@ -39,10 +39,10 @@ varying vec3 vWorldPos;
 bool gbSliceDiscard(vec3 p){
     if (uSliceType < 0.5) return false;
     bool ins;
-    if (uSliceType < 1.5) ins = dot(p, normalize(uSliceNormal)) > uSliceOffset;     // plane half-space
-    else if (uSliceType < 2.5) ins = length(p - uSliceCenter) < uSliceRadius;        // sphere
-    else ins = all(greaterThan(p, uSliceMin)) && all(lessThan(p, uSliceMax));        // cube AABB
-    return (uSliceMode < 0.5) ? !ins : ins;   // keep: drop outside · bite: drop inside
+    if (uSliceType < 1.5) ins = dot(p, normalize(uSliceNormal)) > uSliceOffset;
+    else if (uSliceType < 2.5) ins = length(p - uSliceCenter) < uSliceRadius;
+    else ins = all(greaterThan(p, uSliceMin)) && all(lessThan(p, uSliceMax));
+    return (uSliceMode < 0.5) ? !ins : ins;
 }`;
 export const SLICE_VERT_PARS = `varying vec3 vWorldPos;`;
 export const SLICE_VERT_ASSIGN = `vWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;`;
@@ -84,6 +84,12 @@ export function makeGlassMaterial(glass = {}) {
         transparent: true,
         depthWrite: true,
         side: THREE.FrontSide,
+        // The cortex is a translucent, heavily folded sheet. At oblique views several fold edges
+        // can land on the same output pixel; ordinary one-sample alpha coverage makes those
+        // intersections visibly staircase as cortex alpha rises. The viewer is already created
+        // with MSAA, so alpha-to-coverage lets fragment alpha resolve across the multisamples,
+        // smoothing those stacked fold boundaries without changing the opacity curve itself.
+        alphaToCoverage: true,
         polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
         uniforms: {
             uColor: { value: new THREE.Color(glass.color ?? 0xffffff) },
@@ -91,18 +97,14 @@ export function makeGlassMaterial(glass = {}) {
             uMinOpacity: { value: glass.minOpacity ?? 0.0 },
             uMaxOpacity: { value: glass.maxOpacity ?? 0.08 },
             uCelBands: { value: glass.celBands ?? 3.0 },
-            uLightDir: { value: new THREE.Vector3(0, 0, 1) }, // view-space headlight
-            ...sliceUniforms(),                               // per-panel cut (set by the renderer)
+            uLightDir: { value: new THREE.Vector3(0, 0, 1) },
+            ...sliceUniforms(),
         },
     });
 }
 
 // ---- Anatomy (white glass shell) -----------------------------------------
 export function makeAnatomyMaterial(anatomy = {}) {
-    // White fresnel glass: transparent face-on (so the voxels inside show
-    // clearly) and faint at the silhouette, plus the black outline pass. Drops
-    // the baked structure colours — the subcortical structures read as faint
-    // glass shells, not solid grey.
     return makeGlassMaterial({
         color: anatomy.color ?? 0xffffff,
         maxOpacity: anatomy.maxOpacity ?? 0.14,
@@ -111,12 +113,6 @@ export function makeAnatomyMaterial(anatomy = {}) {
 }
 
 // ---- Anatomy: OPAQUE shell (per-panel option) ----------------------------
-// Still WHITE and "translucent to itself" (you see the overlay's own voxels inside the
-// structure), but it OBSCURES whatever is behind it (the background, cortex lines, other
-// overlays' voxels). Trick: render the BACK faces only as an opaque white wall that writes
-// depth. The front is open, so you look INTO the structure (its interior voxels — which are
-// nearer than the back wall — still draw); the white back wall fills the structure and its
-// depth occludes everything behind it. Shares the slice uniforms (per-panel cut applies).
 const anatomyOpaqueFrag = `
 uniform vec3 uColor;
 uniform float uCelBands;
@@ -129,8 +125,6 @@ void main() {
     vec3 n = gl_FrontFacing ? normalize(vNormal) : -normalize(vNormal);
     float intensity = 0.5 * dot(n, normalize(uLightDir)) + 0.5;
     intensity = floor(intensity * uCelBands + 0.001) / uCelBands;
-    // Flat WHITE fill (like the line-art cortex) — only a whisker of shading for form; the
-    // black outline pass gives the structures their edges. uColor is white.
     gl_FragColor = vec4(uColor * mix(0.97, 1.0, intensity), 1.0);
 }`;
 
@@ -141,17 +135,13 @@ export function makeOpaqueAnatomyMaterial(anatomy = {}) {
         transparent: false,
         depthWrite: true,
         depthTest: true,
-        // TRANSPARENT occluder: write depth (so voxels + cortex lines BEHIND the subcortex are
-        // hidden) but NOT colour — so the shell itself shows the background through it instead of a
-        // white fill. (Its own near-side voxels still draw; the contralateral side stays occluded.)
         colorWrite: false,
-        side: THREE.BackSide,   // back wall only → open front, interior voxels still show
-        // push the wall slightly back so voxels at the structure surface win the depth test.
+        side: THREE.BackSide,
         polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 2,
         uniforms: {
             uColor: { value: new THREE.Color(anatomy.opaqueColor ?? 0xffffff) },
             uCelBands: { value: anatomy.celBands ?? 3.0 },
-            uLightDir: { value: new THREE.Vector3(0, 0, 1) },   // view-space headlight
+            uLightDir: { value: new THREE.Vector3(0, 0, 1) },
             ...sliceUniforms(),
         },
     });
@@ -165,31 +155,22 @@ export function makeSharedVoxelUniforms(style = {}) {
         uThreshold: { value: 0.0 },
         uMaxAbs: { value: 1.0 },
         uPositiveOnly: { value: style.positiveOnly ? 1.0 : 0.0 },
-        uClusterMin: { value: v.clusterMin ?? 0.0 }, // cluster-extent filter (min voxels)
-        uNearZ: { value: 200.0 },   // overlay-relative range for the colour veil
+        uClusterMin: { value: v.clusterMin ?? 0.0 },
+        uNearZ: { value: 200.0 },
         uFarZ: { value: 400.0 },
-        uDepthNearZ: { value: 200.0 }, // anatomical/panel range for the hard depth gate
+        uDepthNearZ: { value: 200.0 },
         uDepthFarZ: { value: 400.0 },
         uDepthCut: { value: v.depthCut ?? 0.0 },
         uVeilStrength: { value: veil.strength ?? 0.40 },
         uVeilColor: { value: new THREE.Color(veil.color ?? 0xffffff) },
         uVeilK: { value: veil.k ?? 6.0 },
-        // Emissive boost: show the colormap colour faithfully (view-independent,
-        // like the flat look) so Phong's 1/π darkening doesn't wash it out; the
-        // diffuse+glint terms then add shading/shine on top.
         uEmissiveBoost: { value: v.emissive ?? 0.6 },
-        // Light-INDEPENDENT specular glint (a view-space highlight) so the
-        // specular/shine sliders work even with the scene lights at zero.
         uGlintAmt: { value: v.specular ?? 0.10 },
         uGlintPow: { value: v.shininess ?? 80 },
-        // Surface mode only: fill sub-threshold cortex with a flat colour instead of discarding it,
-        // so the cortical sheet is a closed, occluding surface (see makeSurfaceMaterial).
         uBaseApply: { value: 0.0 },
-        // Medial-wall mask: 1 = hide vertices the active atlas marks as non-cortex.
         uMaskApply: { value: 0.0 },
         uMaskColor: { value: new THREE.Color(0xdcdcdc) },
         uBaseColor: { value: new THREE.Color(0xcccccc) },
-        // Per-panel slice (shared with this overlay's edge depth material in passes.js).
         ...sliceUniforms(),
     };
 }
@@ -199,14 +180,9 @@ export function makeVoxelMaterial(style = {}, shared) {
     const mat = new THREE.MeshPhongMaterial({
         vertexColors: true,
         side: THREE.DoubleSide,
-        specular: new THREE.Color(0, 0, 0), // Phong specular off; we use uGlint (light-independent)
+        specular: new THREE.Color(0, 0, 0),
         shininess: 1,
     });
-    // Voxels are opaque BY DEFAULT: they occlude each other via the depth buffer regardless of how
-    // faded they look against the surface, and the depth "veil" is a colour-only cue that never
-    // reduces occlusion. style.voxel.opacity < 1 deliberately opts out of that (see applyVoxelAlpha
-    // in renderer.js): translucency and exact self-occlusion cannot both hold, so asking to see
-    // through a blob means accepting order-dependent overlap between blobs.
     mat.transparent = false;
     mat.depthWrite = true;
     mat.depthTest = true;
@@ -220,10 +196,7 @@ export function makeVoxelMaterial(style = {}, shared) {
             .replace('#include <project_vertex>',
                 `#include <project_vertex>\n vViewZ = -mvPosition.z;\n ${SLICE_VERT_ASSIGN}`);
         shader.fragmentShader =
-            `uniform float uThreshold, uMaxAbs, uPositiveOnly, uClusterMin, uNearZ, uFarZ, uDepthNearZ, uDepthFarZ, uDepthCut, uVeilStrength, uVeilK, uEmissiveBoost, uGlintAmt, uGlintPow;
-             uniform vec3 uVeilColor;
-             varying float vThreshValue; varying float vClusterSize; varying float vViewZ;
-             ${SLICE_FRAG_PARS}\n` + shader.fragmentShader;
+            `uniform float uThreshold, uMaxAbs, uPositiveOnly, uClusterMin, uNearZ, uFarZ, uDepthNearZ, uDepthFarZ, uDepthCut, uVeilStrength, uVeilK, uEmissiveBoost, uGlintAmt, uGlintPow;\n             uniform vec3 uVeilColor;\n             varying float vThreshValue; varying float vClusterSize; varying float vViewZ;\n             ${SLICE_FRAG_PARS}\n` + shader.fragmentShader;
         shader.fragmentShader = shader.fragmentShader.replace('#include <color_fragment>',
             `#include <color_fragment>
              if (gbSliceDiscard(vWorldPos)) discard;
@@ -237,7 +210,6 @@ export function makeVoxelMaterial(style = {}, shared) {
              float veil = log(1.0 + uVeilK * zf) / log(1.0 + uVeilK);
              diffuseColor.rgb = mix(diffuseColor.rgb, uVeilColor, veil * uVeilStrength);
              totalEmissiveRadiance += diffuseColor.rgb * uEmissiveBoost;`);
-        // Light-independent view-space specular glint (works with lights at 0).
         shader.fragmentShader = shader.fragmentShader.replace('#include <opaque_fragment>',
             `{
                 vec3 Hg = normalize(vec3(-0.3, 0.4, 1.0) + vec3(0.0, 0.0, 1.0));
@@ -249,22 +221,13 @@ export function makeVoxelMaterial(style = {}, shared) {
     return mat;
 }
 
-/**
- * Surface-projection material (M8): the supra-threshold map painted on the cortical RIBBON, in the
- * SAME cel-shaded comic style as the voxels — NOT a flat anatomical surface. Sub-threshold vertices
- * are discarded, so the translucent glass cortex + black silhouette show through (the signature
- * glass-brain look is preserved); the activated patches carry the flat emissive LUT colour + depth
- * veil + light-independent glint, exactly like the voxel blobs. No cluster-extent discard (a sheet
- * has no clusters). A small polygon offset lifts the patches just outside the glass shell so they
- * read on top of it without z-fighting.
- */
 export function makeSurfaceMaterial(style = {}, shared) {
     const mat = new THREE.MeshPhongMaterial({
         vertexColors: true, side: THREE.FrontSide,
         specular: new THREE.Color(0, 0, 0), shininess: 1,
     });
     mat.transparent = false; mat.depthWrite = true; mat.depthTest = true;
-    mat.polygonOffset = true; mat.polygonOffsetFactor = -1; mat.polygonOffsetUnits = -4;  // sit over the glass cortex
+    mat.polygonOffset = true; mat.polygonOffsetFactor = -1; mat.polygonOffsetUnits = -4;
     mat.onBeforeCompile = (shader) => {
         Object.assign(shader.uniforms, shared);
         shader.vertexShader = shader.vertexShader
@@ -275,18 +238,7 @@ export function makeSurfaceMaterial(style = {}, shared) {
             .replace('#include <project_vertex>',
                 `#include <project_vertex>\n vViewZ = -mvPosition.z;\n ${SLICE_VERT_ASSIGN}`);
         shader.fragmentShader =
-            `uniform float uThreshold, uMaxAbs, uPositiveOnly, uNearZ, uFarZ, uDepthNearZ, uDepthFarZ, uDepthCut, uVeilStrength, uVeilK, uEmissiveBoost, uGlintAmt, uGlintPow;
-             uniform vec3 uVeilColor, uBaseColor;
-             uniform float uBaseApply, uMaskApply;
-             uniform vec3 uMaskColor;
-             varying float vThreshValue; varying float vMask; varying float vViewZ;
-             ${SLICE_FRAG_PARS}\n` + shader.fragmentShader;
-        // uBaseApply turns the sheet from a stencil into a SOLID surface: sub-threshold vertices
-        // are painted uBaseColor instead of discarded. Discarding leaves real holes in the
-        // geometry — an atlas's unpainted medial wall becomes a window through which the far side
-        // of the same hemisphere is visible, because there is simply nothing there to occlude it.
-        // Filling closes the surface, so it occludes by ordinary depth test, and gives the neutral
-        // grey medial wall that atlas figures are normally drawn with.
+            `uniform float uThreshold, uMaxAbs, uPositiveOnly, uNearZ, uFarZ, uDepthNearZ, uDepthFarZ, uDepthCut, uVeilStrength, uVeilK, uEmissiveBoost, uGlintAmt, uGlintPow;\n             uniform vec3 uVeilColor, uBaseColor;\n             uniform float uBaseApply, uMaskApply;\n             uniform vec3 uMaskColor;\n             varying float vThreshValue; varying float vMask; varying float vViewZ;\n             ${SLICE_FRAG_PARS}\n` + shader.fragmentShader;
         shader.fragmentShader = shader.fragmentShader.replace('#include <color_fragment>',
             `#include <color_fragment>
              if (gbSliceDiscard(vWorldPos)) discard;
@@ -296,14 +248,10 @@ export function makeSurfaceMaterial(style = {}, shared) {
              bool gbMasked = uMaskApply > 0.5 && vMask < 0.5;
              bool gbSub = abs(vThreshValue) < uThreshold
                        || (uPositiveOnly > 0.5 && vThreshValue < 0.0);
-             // A masked vertex is painted flat, never discarded: discarding it would leave a HOLE
-             // in the sheet, and the far side of the folded hemisphere shows straight through it.
-             // Painting keeps the surface closed so it occludes by ordinary depth test — and a flat
-             // grey wall is how masked medial walls are conventionally drawn anyway.
              if (gbMasked) {
                  diffuseColor.rgb = uMaskColor;
              } else if (gbSub) {
-                 if (uBaseApply < 0.5) discard;                      // glass shows through (default)
+                 if (uBaseApply < 0.5) discard;
                  diffuseColor.rgb = uBaseColor;
              }
              float zf = clamp((vViewZ - uNearZ) / max(uFarZ - uNearZ, 1e-3), 0.0, 1.0);
