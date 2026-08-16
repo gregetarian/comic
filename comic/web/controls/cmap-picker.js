@@ -3,8 +3,9 @@
  *
  * A fixed-width trigger button shows the current map's NAME (so a long name never shifts
  * the rest of the row); clicking opens a scrollable popup listing every colormap (grouped
- * by category) each with a gradient SWATCH preview. ‹ › steppers cycle. Swatches are drawn
- * from the loaded colormaps Map via sampleLUT (sRGB), so no new assets/deps. The previews
+ * by category) each with a gradient SWATCH preview. The popup includes a live search box
+ * that filters by colormap name or category. ‹ › steppers cycle. Swatches are drawn from
+ * the loaded colormaps Map via sampleLUT (sRGB), so no new assets/deps. The previews
  * live ONLY in the popup. A hidden <select class="cmap-mirror">
  * stays synced to the value (screen-reader fallback + a stable automation/test hook).
  *
@@ -84,16 +85,62 @@ export function createCmapPicker({ colormaps, value, onChange }) {
     function open() {
         if (pop) { close(); return; }
         pop = document.createElement('div'); pop.className = 'cmap-popup'; pop.setAttribute('role', 'listbox');
+
+        const search = document.createElement('input');
+        search.type = 'search';
+        search.className = 'cmap-search';
+        search.placeholder = 'Search colormaps…';
+        search.setAttribute('aria-label', 'Search colormaps');
+        search.autocomplete = 'off';
+        Object.assign(search.style, {
+            position: 'sticky', top: '0', zIndex: '2', width: '100%', height: '28px',
+            padding: '4px 8px', border: '1px solid #bbb', borderRadius: '4px',
+            background: '#fff', color: '#333', fontSize: '11px', outline: 'none',
+        });
+        pop.appendChild(search);
+
         let cat = null;
+        const categoryHeaders = new Map();
         for (const it of items) {
-            if (it.cat !== cat) { cat = it.cat; const h = document.createElement('div'); h.className = 'cmap-cat'; h.textContent = cat; pop.appendChild(h); }
-            const row = document.createElement('button'); row.type = 'button'; row.className = 'cmap-item' + (it.name === cur ? ' sel' : ''); row.dataset.name = it.name;
+            if (it.cat !== cat) {
+                cat = it.cat;
+                const h = document.createElement('div'); h.className = 'cmap-cat'; h.textContent = cat;
+                categoryHeaders.set(cat, h);
+                pop.appendChild(h);
+            }
+            const row = document.createElement('button'); row.type = 'button'; row.className = 'cmap-item' + (it.name === cur ? ' sel' : ''); row.dataset.name = it.name; row.dataset.category = it.cat;
             const sw = document.createElement('canvas'); sw.className = 'cmap-swatch'; drawSwatch(sw, colormaps.get(it.name), it.name);
             const nm = document.createElement('span'); nm.className = 'cmap-name'; nm.textContent = it.name;
             row.append(sw, nm);
             row.addEventListener('click', () => { setValue(it.name, true); close(); });
             pop.appendChild(row);
         }
+
+        const visibleRows = () => [...pop.querySelectorAll('.cmap-item')].filter((row) => !row.hidden);
+        const filter = () => {
+            const q = search.value.trim().toLowerCase();
+            const visibleCats = new Set();
+            for (const row of pop.querySelectorAll('.cmap-item')) {
+                const hit = !q || row.dataset.name.toLowerCase().includes(q) || row.dataset.category.toLowerCase().includes(q);
+                row.hidden = !hit;
+                if (hit) visibleCats.add(row.dataset.category);
+            }
+            for (const [name, h] of categoryHeaders) h.hidden = !visibleCats.has(name);
+        };
+        search.addEventListener('input', filter);
+        search.addEventListener('focus', () => { search.style.borderColor = '#4a90d9'; search.style.boxShadow = '0 0 0 2px rgba(74,144,217,0.14)'; });
+        search.addEventListener('blur', () => { search.style.borderColor = '#bbb'; search.style.boxShadow = 'none'; });
+        search.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') { e.preventDefault(); close(); trigger.focus(); }
+            else if (e.key === 'Enter') {
+                const first = visibleRows()[0];
+                if (first) { e.preventDefault(); first.click(); }
+            } else if (e.key === 'ArrowDown') {
+                const first = visibleRows()[0];
+                if (first) { e.preventDefault(); first.focus(); }
+            }
+        });
+
         document.body.appendChild(pop);
         const r = trigger.getBoundingClientRect();
         pop.style.left = Math.max(8, Math.min(r.left, window.innerWidth - pop.offsetWidth - 8)) + 'px';
@@ -101,6 +148,7 @@ export function createCmapPicker({ colormaps, value, onChange }) {
         pop.style.top = (above >= 0 ? above : r.bottom + 4) + 'px';   // prefer above (controls sit at the bottom)
         pop.querySelector('.cmap-item.sel')?.scrollIntoView({ block: 'nearest' });
         trigger.setAttribute('aria-expanded', 'true');
+        search.focus();
         setTimeout(() => document.addEventListener('click', onDoc, true), 0);
     }
     trigger.addEventListener('click', (e) => { e.stopPropagation(); open(); });
