@@ -57,17 +57,6 @@ jobs:
           """
           if old not in s: raise SystemExit('outline strength anchor not found')
           s = s.replace(old, new, 1)
-          old = """        this.outlineMaterial = new THREE.ShaderMaterial({
-                  vertexShader: screenQuadVert, fragmentShader: outlineFrag,
-                  transparent: true, depthTest: false, depthWrite: false,
-          """
-          new = """        this.outlineMaterial = new THREE.ShaderMaterial({
-                  vertexShader: screenQuadVert, fragmentShader: outlineFrag,
-                  transparent: true, depthTest: false, depthWrite: false,
-                  extensions: { derivatives: true },
-          """
-          if old not in s: raise SystemExit('outline material anchor not found')
-          s = s.replace(old, new, 1)
           p.write_text(s)
 
           p = Path('comic/web/scene/renderer.js')
@@ -86,6 +75,7 @@ jobs:
           """
           if old not in s: raise SystemExit('anatomy clip material anchor not found')
           s = s.replace(old, new, 1)
+          if 'function renderClipDepth(camera, opaqueAnat, anyEdges, capActive) {' not in s: raise SystemExit('renderClipDepth anchor not found')
           s = s.replace('function renderClipDepth(camera, opaqueAnat, anyEdges, capActive) {',
                         'function renderClipDepth(camera, anatomyOccluder, anyEdges, capActive) {', 1)
           old = """        // Fold the opaque subcortex's depth in → edges/outline behind it get occluded like the
