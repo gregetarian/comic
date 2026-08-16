@@ -16,110 +16,108 @@ jobs:
         with:
           ref: main
       - name: Apply source edits
-        shell: python {0}
+        shell: bash
         run: |
+          set -euo pipefail
+          cat > /tmp/edit.py <<'PY'
           from pathlib import Path
 
           p = Path('comic/web/scene/passes.js')
           s = p.read_text()
           old = """export function makePlainDepthMaterial(side = THREE.DoubleSide) {
-    return new THREE.ShaderMaterial({
-        vertexShader: depthVert, fragmentShader: depthFrag, side,
-        uniforms: sliceUniforms(),
-    });
-}
-"""
+              return new THREE.ShaderMaterial({
+                  vertexShader: depthVert, fragmentShader: depthFrag, side,
+                  uniforms: sliceUniforms(),
+              });
+          }
+          """
           new = old + """
-/** Depth material for geometry that must ALWAYS hide a line when it is nearer.
- * Negative R is a hard-occluder marker: compare abs(R) for depth, then force the
- * line to zero instead of applying the statistical voxel-over-line alpha. */
-export function makeHardOccluderDepthMaterial(side = THREE.DoubleSide) {
-    return new THREE.ShaderMaterial({
-        vertexShader: depthVert,
-        fragmentShader: `varying float vDepth;\n${SLICE_FRAG_PARS}\nvoid main(){ if (gbSliceDiscard(vWorldPos)) discard; gl_FragColor = vec4(-vDepth/500.,1.,0.,1.); }`,
-        side,
-        uniforms: sliceUniforms(),
-    });
-}
-"""
+          /** Hard line-occluder depth: negative R marks geometry that always wins over line alpha. */
+          export function makeHardOccluderDepthMaterial(side = THREE.DoubleSide) {
+              return new THREE.ShaderMaterial({
+                  vertexShader: depthVert,
+                  fragmentShader: `varying float vDepth;\n${SLICE_FRAG_PARS}\nvoid main(){ if (gbSliceDiscard(vWorldPos)) discard; gl_FragColor = vec4(-vDepth/500.,1.,0.,1.); }`,
+                  side,
+                  uniforms: sliceUniforms(),
+              });
+          }
+          """
           if old not in s: raise SystemExit('plain depth material anchor not found')
           s = s.replace(old, new, 1)
           old = """    // Near-BINARY strength: any depth step that clears the threshold draws at full opacity and full
-    // width; anything below doesn't draw at all. The narrow ramps (just wide enough for edge AA) stop
-    // weak/grazing folds rendering as faded half-strength smudges, so every line is uniformly visible.
-    float s = max(smoothstep(uThreshold*0.96,uThreshold,edge), smoothstep(uThreshold,uThreshold*1.08,edge2));
-"""
-          new = """    // Derivative-based one-pixel antialiasing. fwidth softens only the raster boundary;
-    // the body of each line remains fully opaque, avoiding the staircase on thick/transparent cortex.
-    float aa1 = max(fwidth(edge) * 0.75, uThreshold * 0.01);
-    float aa2 = max(fwidth(edge2) * 0.75, uThreshold * 0.01);
-    float s = max(smoothstep(uThreshold-aa1,uThreshold+aa1,edge),
-                  smoothstep(uThreshold-aa2,uThreshold+aa2,edge2));
-"""
+              // width; anything below doesn't draw at all. The narrow ramps (just wide enough for edge AA) stop
+              // weak/grazing folds rendering as faded half-strength smudges, so every line is uniformly visible.
+              float s = max(smoothstep(uThreshold*0.96,uThreshold,edge), smoothstep(uThreshold,uThreshold*1.08,edge2));
+          """
+          new = """    // Derivative-based one-pixel antialiasing: soften only the raster boundary.
+              float aa1 = max(fwidth(edge) * 0.75, uThreshold * 0.01);
+              float aa2 = max(fwidth(edge2) * 0.75, uThreshold * 0.01);
+              float s = max(smoothstep(uThreshold-aa1,uThreshold+aa1,edge),
+                            smoothstep(uThreshold-aa2,uThreshold+aa2,edge2));
+          """
           if old not in s: raise SystemExit('outline strength anchor not found')
           s = s.replace(old, new, 1)
           old = """        this.outlineMaterial = new THREE.ShaderMaterial({
-            vertexShader: screenQuadVert, fragmentShader: outlineFrag,
-            transparent: true, depthTest: false, depthWrite: false,
-"""
+                  vertexShader: screenQuadVert, fragmentShader: outlineFrag,
+                  transparent: true, depthTest: false, depthWrite: false,
+          """
           new = """        this.outlineMaterial = new THREE.ShaderMaterial({
-            vertexShader: screenQuadVert, fragmentShader: outlineFrag,
-            transparent: true, depthTest: false, depthWrite: false,
-            extensions: { derivatives: true },
-"""
+                  vertexShader: screenQuadVert, fragmentShader: outlineFrag,
+                  transparent: true, depthTest: false, depthWrite: false,
+                  extensions: { derivatives: true },
+          """
           if old not in s: raise SystemExit('outline material anchor not found')
           s = s.replace(old, new, 1)
           p.write_text(s)
 
           p = Path('comic/web/scene/renderer.js')
           s = p.read_text()
-          oldimp = "import { OutlinePass, makeThresholdDepthMaterial, makePlainDepthMaterial, DEPTH_CLEAR } from './passes.js';"
-          newimp = "import { OutlinePass, makeThresholdDepthMaterial, makePlainDepthMaterial, makeHardOccluderDepthMaterial, DEPTH_CLEAR } from './passes.js';"
-          if oldimp not in s: raise SystemExit('passes import anchor not found')
-          s = s.replace(oldimp, newimp, 1)
+          old = "import { OutlinePass, makeThresholdDepthMaterial, makePlainDepthMaterial, DEPTH_CLEAR } from './passes.js';"
+          new = "import { OutlinePass, makeThresholdDepthMaterial, makePlainDepthMaterial, makeHardOccluderDepthMaterial, DEPTH_CLEAR } from './passes.js';"
+          if old not in s: raise SystemExit('passes import anchor not found')
+          s = s.replace(old, new, 1)
           old = """    // Depth-only version of that shell (same BackSide), folded into the edge/outline clip so
-    // cortical voxel edges + cortex lines BEHIND the opaque subcortex are occluded, not drawn through.
-    const anatomyClipDepthMat = makePlainDepthMaterial(THREE.BackSide);
-"""
-          new = """    // Subcortex is always a hard line occluder. Use its nearest FRONT surface so a shell that
-    // is in front hides cortex lines regardless of vox-alpha or whether the visible shell is glass/opaque.
-    const anatomyClipDepthMat = makeHardOccluderDepthMaterial(THREE.FrontSide);
-"""
+              // cortical voxel edges + cortex lines BEHIND the opaque subcortex are occluded, not drawn through.
+              const anatomyClipDepthMat = makePlainDepthMaterial(THREE.BackSide);
+          """
+          new = """    // Subcortex is always a hard line occluder. Use its nearest FRONT surface so a shell
+              // in front hides cortex lines regardless of vox-alpha or glass/opaque appearance.
+              const anatomyClipDepthMat = makeHardOccluderDepthMaterial(THREE.FrontSide);
+          """
           if old not in s: raise SystemExit('anatomy clip material anchor not found')
           s = s.replace(old, new, 1)
           s = s.replace('function renderClipDepth(camera, opaqueAnat, anyEdges, capActive) {',
                         'function renderClipDepth(camera, anatomyOccluder, anyEdges, capActive) {', 1)
           old = """        // Fold the opaque subcortex's depth in → edges/outline behind it get occluded like the
-        // fills. The subcortex is on its own layer, so we render just it (no cortex to hide).
-        if (opaqueAnat) {
-"""
-          new = """        // Visible subcortex is anatomical geometry, not a statistical overlay: always fold its
-        // nearest surface into the hard-occlusion target so it cannot inherit vox-alpha behaviour.
-        if (anatomyOccluder) {
-"""
+              // fills. The subcortex is on its own layer, so we render just it (no cortex to hide).
+              if (opaqueAnat) {
+          """
+          new = """        // Visible subcortex always participates in hard line occlusion.
+              if (anatomyOccluder) {
+          """
           if old not in s: raise SystemExit('anatomy clip render anchor not found')
           s = s.replace(old, new, 1)
           old = """            // Clip when there are voxel edges OR an opaque subcortex (so edges + cortex lines
-            // behind the shell are occluded). Opaque-anatomy folds its depth into the target.
-            const clip = anyEdges || opaqueAnat || capActive;
-            if (clip) renderClipDepth(camera, opaqueAnat, anyEdges, capActive);
-"""
+                  // behind the shell are occluded). Opaque-anatomy folds its depth into the target.
+                  const clip = anyEdges || opaqueAnat || capActive;
+                  if (clip) renderClipDepth(camera, opaqueAnat, anyEdges, capActive);
+          """
           new = """            // A nearer subcortical surface ALWAYS hides cortex lines. vox-alpha remains solely
-            // the strength of cortex lines over statistical voxels.
-            const clip = anyEdges || showsAnatomy || capActive;
-            if (clip) renderClipDepth(camera, showsAnatomy, anyEdges, capActive);
-"""
+                  // the strength of cortex lines over statistical voxels.
+                  const clip = anyEdges || showsAnatomy || capActive;
+                  if (clip) renderClipDepth(camera, showsAnatomy, anyEdges, capActive);
+          """
           if old not in s: raise SystemExit('clip condition anchor not found')
           s = s.replace(old, new, 1)
           old = """        glassMat.uniforms.uMaxOpacity.value = s.glass.maxOpacity;
-        cortexOutline.outlineMaterial.uniforms.uLineWidth.value = s.outline.width;
-"""
+              cortexOutline.outlineMaterial.uniforms.uLineWidth.value = s.outline.width;
+          """
           new = """        glassMat.uniforms.uMaxOpacity.value = s.glass.maxOpacity;
-        glassMat.uniforms.uColor.value.set(s.glass.color ?? '#ffffff');
-        anatomyMat.uniforms.uColor.value.set(s.anatomy.color ?? s.glass.color ?? '#ffffff');
-        anatomyOpaqueMat.uniforms.uColor.value.set(s.anatomy.opaqueColor ?? s.anatomy.color ?? s.glass.color ?? '#ffffff');
-        cortexOutline.outlineMaterial.uniforms.uLineWidth.value = s.outline.width;
-"""
+              glassMat.uniforms.uColor.value.set(s.glass.color ?? '#ffffff');
+              anatomyMat.uniforms.uColor.value.set(s.anatomy.color ?? s.glass.color ?? '#ffffff');
+              anatomyOpaqueMat.uniforms.uColor.value.set(s.anatomy.opaqueColor ?? s.anatomy.color ?? s.glass.color ?? '#ffffff');
+              cortexOutline.outlineMaterial.uniforms.uLineWidth.value = s.outline.width;
+          """
           if old not in s: raise SystemExit('applyStyle glass anchor not found')
           s = s.replace(old, new, 1)
           p.write_text(s)
@@ -127,17 +125,17 @@ export function makeHardOccluderDepthMaterial(side = THREE.DoubleSide) {
           p = Path('comic/web/controls/bind.js')
           s = p.read_text()
           old = """    slider('c-cortex', s.glass.maxOpacity, (v) => { s.glass.maxOpacity = v; apply(); }, { min: 0, max: 1.0, step: 0.01 });
-    slider('c-outline-thresh', s.outline.threshold, (v) => { s.outline.threshold = v; apply(); }, { min: 0.001, max: 0.02, step: 0.0005 });
-"""
+              slider('c-outline-thresh', s.outline.threshold, (v) => { s.outline.threshold = v; apply(); }, { min: 0.001, max: 0.02, step: 0.0005 });
+          """
           new = """    slider('c-cortex', s.glass.maxOpacity, (v) => { s.glass.maxOpacity = v; apply(); }, { min: 0, max: 1.0, step: 0.01 });
-    color('c-brain-color', s.glass.color ?? '#ffffff', (hex) => {
-        s.glass.color = hex;
-        s.anatomy.color = hex;
-        s.anatomy.opaqueColor = hex;
-        apply();
-    });
-    slider('c-outline-thresh', s.outline.threshold, (v) => { s.outline.threshold = v; apply(); }, { min: 0.001, max: 0.02, step: 0.0005 });
-"""
+              color('c-brain-color', s.glass.color ?? '#ffffff', (hex) => {
+                  s.glass.color = hex;
+                  s.anatomy.color = hex;
+                  s.anatomy.opaqueColor = hex;
+                  apply();
+              });
+              slider('c-outline-thresh', s.outline.threshold, (v) => { s.outline.threshold = v; apply(); }, { min: 0.001, max: 0.02, step: 0.0005 });
+          """
           if old not in s: raise SystemExit('global controls anchor not found')
           s = s.replace(old, new, 1)
           p.write_text(s)
@@ -145,19 +143,20 @@ export function makeHardOccluderDepthMaterial(side = THREE.DoubleSide) {
           p = Path('comic/web/index.html')
           s = p.read_text()
           old = """        <div class=\"sw\"><span>cortex α</span><input type=\"range\" id=\"c-cortex\"></div>
-        <div class=\"sw\"><span>edge thr</span><input type=\"range\" id=\"c-outline-thresh\"></div>
-"""
+                  <div class=\"sw\"><span>edge thr</span><input type=\"range\" id=\"c-outline-thresh\"></div>
+          """
           new = """        <div class=\"sw\"><span>cortex α</span><input type=\"range\" id=\"c-cortex\"></div>
-        <div class=\"sw\" title=\"Anatomical background colour for cortex and subcortex\"><span>brain</span><input type=\"color\" class=\"swatch\" id=\"c-brain-color\"></div>
-        <div class=\"sw\"><span>edge thr</span><input type=\"range\" id=\"c-outline-thresh\"></div>
-"""
+                  <div class=\"sw\" title=\"Anatomical background colour for cortex and subcortex\"><span>brain</span><input type=\"color\" class=\"swatch\" id=\"c-brain-color\"></div>
+                  <div class=\"sw\"><span>edge thr</span><input type=\"range\" id=\"c-outline-thresh\"></div>
+          """
           if old not in s: raise SystemExit('index control anchor not found')
           s = s.replace(old, new, 1)
           s = s.replace(
               '<li><b>cortex α</b> glass opacity · <b>edge thr</b> / <b>line w</b> cortex-line density &amp; thickness · <b>vox α</b> line strength over voxels.</li>',
               '<li><b>cortex α</b> glass opacity · <b>brain</b> cortex/subcortex background colour · <b>edge thr</b> / <b>line w</b> cortex-line density &amp; thickness · <b>vox α</b> line strength over statistical voxels only.</li>')
           p.write_text(s)
-
+          PY
+          python /tmp/edit.py
       - name: Syntax and unit checks
         shell: bash
         run: |
@@ -167,7 +166,6 @@ export function makeHardOccluderDepthMaterial(side = THREE.DoubleSide) {
           node --check comic/web/scene/renderer.js
           node --check comic/web/controls/bind.js
           node --test comic/web/core/*.test.js
-
       - name: Commit source changes and remove this workflow
         shell: bash
         run: |
