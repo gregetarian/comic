@@ -76,6 +76,13 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
 
     // --- global surface/anatomy materials ---
     const glassMat = makeGlassMaterial(config.style.glass);
+    // Resolve translucent cortex against the nearest visible cortical fragment only.
+    // A depth-only front-surface prepass runs per panel, then the glass colour pass uses
+    // EqualDepth so deeper folds cannot accumulate alpha behind the surface being viewed.
+    const cortexFrontDepthMat = makePlainDepthMaterial(THREE.FrontSide);
+    cortexFrontDepthMat.colorWrite = false;
+    glassMat.depthWrite = false;
+    glassMat.depthFunc = THREE.EqualDepth;
     const anatomyMat = makeAnatomyMaterial(config.style.anatomy);
     // Opaque subcortical shell, selected per-panel when content.anatomyStyle === 'opaque'.
     const anatomyOpaqueMat = makeOpaqueAnatomyMaterial(config.style.anatomy);
@@ -637,6 +644,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
     // panels is essential — materials are shared, so a stale slice would bleed across.
     function applyPanelSlice(slice) {
         writeSlice(glassMat.uniforms, slice);
+        writeSlice(cortexFrontDepthMat.uniforms, slice);
         writeSlice(anatomyMat.uniforms, slice);
         writeSlice(anatomyOpaqueMat.uniforms, slice);
         writeSlice(anatomyClipDepthMat.uniforms, slice);
@@ -808,6 +816,14 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
             renderer.setViewport(rect.x, rect.y, rect.w, rect.h);
             renderer.setScissor(rect.x, rect.y, rect.w, rect.h);
             renderer.setScissorTest(true);
+            // Panels are composited in z order. Keep colour from lower panels, but give this
+            // panel an independent depth buffer before resolving its nearest cortical surface.
+            renderer.clearDepth();
+            const prevOverride = scene.overrideMaterial;
+            clipCam.copy(camera); clipCam.layers.set(0);
+            scene.overrideMaterial = cortexFrontDepthMat;
+            renderer.render(scene, clipCam);
+            scene.overrideMaterial = prevOverride;
             renderer.render(scene, camera);
 
             // Combined nearest-overlay depth, built ONCE per panel BEFORE the edge passes,
@@ -916,7 +932,13 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         outlineSaveScale = 1;
         dir.intensity = s.lighting.directional;
         amb.intensity = s.lighting.ambient;
-        glassMat.uniforms.uMaxOpacity.value = s.glass.maxOpacity;
+        const glassControl = Math.max(0, s.glass.maxOpacity ?? 0);
+        const glassMax = Math.min(1, glassControl);
+        const glassMin = glassControl > 1
+            ? Math.min(1, glassControl - 1)
+            : Math.min(glassMax, s.glass.minOpacity ?? 0);
+        glassMat.uniforms.uMaxOpacity.value = glassMax;
+        glassMat.uniforms.uMinOpacity.value = glassMin;
         glassMat.uniforms.uColor.value.set(s.glass.color ?? '#ffffff');
         anatomyMat.uniforms.uColor.value.set(s.anatomy.color ?? s.glass.color ?? '#ffffff');
         anatomyOpaqueMat.uniforms.uColor.value.set(s.anatomy.opaqueColor ?? s.anatomy.color ?? s.glass.color ?? '#ffffff');
@@ -1045,7 +1067,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
     // Mesh geometries are NOT disposed — they're owned by the app and reused across
     // rebuilds; only this engine's materials, outline passes, and targets are freed.
     function dispose() {
-        glassMat.dispose(); anatomyMat.dispose(); anatomyOpaqueMat.dispose(); anatomyClipDepthMat.dispose();
+        glassMat.dispose(); cortexFrontDepthMat.dispose(); anatomyMat.dispose(); anatomyOpaqueMat.dispose(); anatomyClipDepthMat.dispose();
         for (const m of voxelMats) m.dispose();
         cortexOutline.dispose();
         anatomyOutline.dispose();
