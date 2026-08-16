@@ -815,8 +815,9 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
             // where a closer overlay volume sits in front (edges no longer draw through).
             let anyEdges = false;
             for (let i = 0; i < N; i++) if (osR[i].edges.enabled) anyEdges = true;
-            // Clip when there are voxel edges OR an opaque subcortex (so edges + cortex lines
-            // behind the shell are occluded). Opaque-anatomy folds its depth into the target.
+            const showsAnatomy = (def.content?.roles || []).includes('anatomy');
+            // Clip against statistical voxels when needed, and ALWAYS against visible subcortex.
+            // Anatomical occlusion is hard and does not inherit the vox-alpha stroke strength.
             const clip = anyEdges || showsAnatomy || capActive;
             if (clip) renderClipDepth(camera, showsAnatomy, anyEdges, capActive);
             // Per-overlay voxel edges first (underneath), depth-clipped against the others.
@@ -829,7 +830,6 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
             // silhouette is never computed from the union with voxel geometry, so jagged blobs
             // cannot become the figure contour and the subcortex keeps its own boundary.
             const op = outlinePlan(config.style.outline, def.outline);
-            const showsAnatomy = (def.content?.roles || []).includes('anatomy');
             const overVoxelAlpha = config.style.outline.overVoxels
                 ? (config.style.outline.overVoxelOpacity ?? 1.0) : 0.0;
 
@@ -917,9 +917,9 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         dir.intensity = s.lighting.directional;
         amb.intensity = s.lighting.ambient;
         glassMat.uniforms.uMaxOpacity.value = s.glass.maxOpacity;
-    glassMat.uniforms.uColor.value.set(s.glass.color ?? '#ffffff');
-    anatomyMat.uniforms.uColor.value.set(s.anatomy.color ?? s.glass.color ?? '#ffffff');
-    anatomyOpaqueMat.uniforms.uColor.value.set(s.anatomy.opaqueColor ?? s.anatomy.color ?? s.glass.color ?? '#ffffff');
+        glassMat.uniforms.uColor.value.set(s.glass.color ?? '#ffffff');
+        anatomyMat.uniforms.uColor.value.set(s.anatomy.color ?? s.glass.color ?? '#ffffff');
+        anatomyOpaqueMat.uniforms.uColor.value.set(s.anatomy.opaqueColor ?? s.anatomy.color ?? s.glass.color ?? '#ffffff');
         cortexOutline.outlineMaterial.uniforms.uLineWidth.value = s.outline.width;
         cortexOutline.outlineMaterial.uniforms.uThreshold.value = s.outline.threshold;
         // Line COLOURS are pushed here and nowhere else. They used to be baked in at pass
