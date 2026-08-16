@@ -78,17 +78,11 @@ void main() {
 }`;
 
 export function makeGlassMaterial(glass = {}) {
-    const control = Math.max(0, glass.maxOpacity ?? 0.08);
-    const maxOpacity = Math.min(1, control);
-    const minOpacity = control > 1
-        ? Math.min(1, control - 1)
-        : Math.min(maxOpacity, glass.minOpacity ?? 0.0);
     return new THREE.ShaderMaterial({
         vertexShader: glassVert,
         fragmentShader: glassFrag,
         transparent: true,
         depthWrite: true,
-        alphaToCoverage: true,
         side: THREE.FrontSide,
         // The cortex is a translucent, heavily folded sheet. At oblique views several fold edges
         // can land on the same output pixel; ordinary one-sample alpha coverage makes those
@@ -100,8 +94,8 @@ export function makeGlassMaterial(glass = {}) {
         uniforms: {
             uColor: { value: new THREE.Color(glass.color ?? 0xffffff) },
             uFresnelPower: { value: glass.fresnelPower ?? 2.5 },
-            uMinOpacity: { value: minOpacity },
-            uMaxOpacity: { value: maxOpacity },
+            uMinOpacity: { value: glass.minOpacity ?? 0.0 },
+            uMaxOpacity: { value: glass.maxOpacity ?? 0.08 },
             uCelBands: { value: glass.celBands ?? 3.0 },
             uLightDir: { value: new THREE.Vector3(0, 0, 1) },
             ...sliceUniforms(),

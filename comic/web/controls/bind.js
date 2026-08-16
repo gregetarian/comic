@@ -399,7 +399,7 @@ export function bindGlobalControls({ config, colormaps, getEngine, preset, onUpl
 
     toggle('c-inflate', s.cortexSurface === 'inflated', (on) => { s.cortexSurface = on ? 'inflated' : 'pial'; });
     toggle('c-outline', s.outline.enabled, (on) => { s.outline.enabled = on; });
-    slider('c-cortex', s.glass.maxOpacity, (v) => { s.glass.maxOpacity = v; apply(); }, { min: 0, max: 2.0, step: 0.01 });
+    slider('c-cortex', s.glass.maxOpacity, (v) => { s.glass.maxOpacity = v; apply(); }, { min: 0, max: 1.0, step: 0.01 });
     color('c-brain-color', s.glass.color ?? '#ffffff', (hex) => {
         s.glass.color = hex;
         s.anatomy.color = hex;
