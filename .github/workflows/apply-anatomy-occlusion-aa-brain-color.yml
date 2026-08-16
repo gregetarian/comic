@@ -16,11 +16,10 @@ jobs:
         with:
           ref: main
       - name: Apply source edits
-        shell: python
+        shell: python {0}
         run: |
           from pathlib import Path
 
-          # 1) Hard anatomical occluder marker + derivative AA for post-process outlines.
           p = Path('comic/web/scene/passes.js')
           s = p.read_text()
           old = """export function makePlainDepthMaterial(side = THREE.DoubleSide) {
@@ -32,8 +31,8 @@ jobs:
 """
           new = old + """
 /** Depth material for geometry that must ALWAYS hide a line when it is nearer.
- *  Negative R is an explicit hard-occluder marker; the outline shader compares
- *  abs(R) for depth, then forces the stroke to zero instead of applying vox alpha. */
+ * Negative R is a hard-occluder marker: compare abs(R) for depth, then force the
+ * line to zero instead of applying the statistical voxel-over-line alpha. */
 export function makeHardOccluderDepthMaterial(side = THREE.DoubleSide) {
     return new THREE.ShaderMaterial({
         vertexShader: depthVert,
@@ -50,10 +49,8 @@ export function makeHardOccluderDepthMaterial(side = THREE.DoubleSide) {
     // weak/grazing folds rendering as faded half-strength smudges, so every line is uniformly visible.
     float s = max(smoothstep(uThreshold*0.96,uThreshold,edge), smoothstep(uThreshold,uThreshold*1.08,edge2));
 """
-          new = """    // Derivative-based one-pixel antialiasing. fwidth measures how quickly the depth-edge
-    // signal changes across neighbouring screen fragments, so the transition is softened only at
-    // the raster boundary while the body of each line remains fully opaque. This avoids the chunky
-    // staircase visible on thick/part-transparent cortex lines without making weak folds uniformly grey.
+          new = """    // Derivative-based one-pixel antialiasing. fwidth softens only the raster boundary;
+    // the body of each line remains fully opaque, avoiding the staircase on thick/transparent cortex.
     float aa1 = max(fwidth(edge) * 0.75, uThreshold * 0.01);
     float aa2 = max(fwidth(edge2) * 0.75, uThreshold * 0.01);
     float s = max(smoothstep(uThreshold-aa1,uThreshold+aa1,edge),
@@ -74,19 +71,18 @@ export function makeHardOccluderDepthMaterial(side = THREE.DoubleSide) {
           s = s.replace(old, new, 1)
           p.write_text(s)
 
-          # 2) Every visible subcortical shell is a hard line occluder, independent of vox-alpha.
           p = Path('comic/web/scene/renderer.js')
           s = p.read_text()
-          s = s.replace(
-              "import { OutlinePass, makeThresholdDepthMaterial, makePlainDepthMaterial, DEPTH_CLEAR } from './passes.js';",
-              "import { OutlinePass, makeThresholdDepthMaterial, makePlainDepthMaterial, makeHardOccluderDepthMaterial, DEPTH_CLEAR } from './passes.js';")
+          oldimp = "import { OutlinePass, makeThresholdDepthMaterial, makePlainDepthMaterial, DEPTH_CLEAR } from './passes.js';"
+          newimp = "import { OutlinePass, makeThresholdDepthMaterial, makePlainDepthMaterial, makeHardOccluderDepthMaterial, DEPTH_CLEAR } from './passes.js';"
+          if oldimp not in s: raise SystemExit('passes import anchor not found')
+          s = s.replace(oldimp, newimp, 1)
           old = """    // Depth-only version of that shell (same BackSide), folded into the edge/outline clip so
     // cortical voxel edges + cortex lines BEHIND the opaque subcortex are occluded, not drawn through.
     const anatomyClipDepthMat = makePlainDepthMaterial(THREE.BackSide);
 """
-          new = """    // Line-occlusion depth for subcortex. Use the nearest FRONT surface and encode it as a
-    // hard occluder: when subcortex is in front, cortex lines disappear regardless of the vox-alpha
-    // control. This is independent of whether the visible anatomy material is glass or opaque.
+          new = """    // Subcortex is always a hard line occluder. Use its nearest FRONT surface so a shell that
+    // is in front hides cortex lines regardless of vox-alpha or whether the visible shell is glass/opaque.
     const anatomyClipDepthMat = makeHardOccluderDepthMaterial(THREE.FrontSide);
 """
           if old not in s: raise SystemExit('anatomy clip material anchor not found')
@@ -97,9 +93,8 @@ export function makeHardOccluderDepthMaterial(side = THREE.DoubleSide) {
         // fills. The subcortex is on its own layer, so we render just it (no cortex to hide).
         if (opaqueAnat) {
 """
-          new = """        // Fold visible subcortex into the hard-occlusion depth target. This applies to glass
-        // AND opaque anatomy: its visual translucency must never make a nearer anatomical shell
-        // behave like a voxel-alpha-controlled line overlay.
+          new = """        // Visible subcortex is anatomical geometry, not a statistical overlay: always fold its
+        // nearest surface into the hard-occlusion target so it cannot inherit vox-alpha behaviour.
         if (anatomyOccluder) {
 """
           if old not in s: raise SystemExit('anatomy clip render anchor not found')
@@ -109,9 +104,8 @@ export function makeHardOccluderDepthMaterial(side = THREE.DoubleSide) {
             const clip = anyEdges || opaqueAnat || capActive;
             if (clip) renderClipDepth(camera, opaqueAnat, anyEdges, capActive);
 """
-          new = """            // Subcortex is an anatomical occluder, not a statistical overlay: whenever this pane
-            // displays it, a nearer subcortical surface ALWAYS hides cortex lines. Vox-alpha still
-            // controls only cortex lines over statistical voxels.
+          new = """            // A nearer subcortical surface ALWAYS hides cortex lines. vox-alpha remains solely
+            // the strength of cortex lines over statistical voxels.
             const clip = anyEdges || showsAnatomy || capActive;
             if (clip) renderClipDepth(camera, showsAnatomy, anyEdges, capActive);
 """
@@ -121,8 +115,6 @@ export function makeHardOccluderDepthMaterial(side = THREE.DoubleSide) {
         cortexOutline.outlineMaterial.uniforms.uLineWidth.value = s.outline.width;
 """
           new = """        glassMat.uniforms.uMaxOpacity.value = s.glass.maxOpacity;
-        // One anatomical background colour drives the cortex and every subcortical shell.
-        // Keep legacy anatomy.color configs working, but the live UI writes both together.
         glassMat.uniforms.uColor.value.set(s.glass.color ?? '#ffffff');
         anatomyMat.uniforms.uColor.value.set(s.anatomy.color ?? s.glass.color ?? '#ffffff');
         anatomyOpaqueMat.uniforms.uColor.value.set(s.anatomy.opaqueColor ?? s.anatomy.color ?? s.glass.color ?? '#ffffff');
@@ -132,7 +124,6 @@ export function makeHardOccluderDepthMaterial(side = THREE.DoubleSide) {
           s = s.replace(old, new, 1)
           p.write_text(s)
 
-          # 3) Global brain-background colour control, propagated to cortex + subcortex.
           p = Path('comic/web/controls/bind.js')
           s = p.read_text()
           old = """    slider('c-cortex', s.glass.maxOpacity, (v) => { s.glass.maxOpacity = v; apply(); }, { min: 0, max: 1.0, step: 0.01 });
@@ -151,7 +142,6 @@ export function makeHardOccluderDepthMaterial(side = THREE.DoubleSide) {
           s = s.replace(old, new, 1)
           p.write_text(s)
 
-          # 4) Expose the colour picker beside cortex alpha + help text.
           p = Path('comic/web/index.html')
           s = p.read_text()
           old = """        <div class=\"sw\"><span>cortex α</span><input type=\"range\" id=\"c-cortex\"></div>
