@@ -846,10 +846,14 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
             let anyEdges = false;
             for (let i = 0; i < N; i++) if (osR[i].edges.enabled) anyEdges = true;
             const showsAnatomy = (def.content?.roles || []).includes('anatomy');
-            // Clip against statistical voxels when needed, and ALWAYS against visible subcortex.
-            // Anatomical occlusion is hard and does not inherit the vox-alpha stroke strength.
-            const clip = anyEdges || showsAnatomy || capActive;
-            if (clip) renderClipDepth(camera, showsAnatomy, anyEdges, capActive);
+            // `vox α` controls cortex-line strength where a statistical voxel is in front,
+            // independently of whether voxel EDGE outlines are enabled. The front-depth cortex
+            // pass made this dependency visible because clipTarget was only receiving voxel depth
+            // when `anyEdges` was true. Render voxel depth whenever over-voxel line control is on.
+            const wantsVoxelClip = anyEdges || !!config.style.outline.overVoxels;
+            // Visible subcortex remains a hard occluder and never inherits vox-alpha strength.
+            const clip = wantsVoxelClip || showsAnatomy || capActive;
+            if (clip) renderClipDepth(camera, showsAnatomy, wantsVoxelClip, capActive);
             // Per-overlay voxel edges first (underneath), depth-clipped against the others.
             for (let i = 0; i < N; i++) {
                 if (!osR[i].edges.enabled) continue;
