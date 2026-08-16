@@ -19,7 +19,7 @@ import { meshLayer, anatomyLayer } from '../core/mesh-meta.js';
 import { createAnatomyCap } from './anatomy-cap.js';
 import { makeGlassMaterial, makeAnatomyMaterial, makeOpaqueAnatomyMaterial, makeVoxelMaterial, makeSurfaceMaterial, makeSharedVoxelUniforms } from './materials.js';
 import { makeBorderMaterial, makeBorderGeometry, applyLabels } from './parcellation.js';
-import { OutlinePass, makeThresholdDepthMaterial, makePlainDepthMaterial, DEPTH_CLEAR } from './passes.js';
+import { OutlinePass, makeThresholdDepthMaterial, makePlainDepthMaterial, makeHardOccluderDepthMaterial, DEPTH_CLEAR } from './passes.js';
 
 const _clearScratch = new THREE.Color();   // save/restore around a depth-target clear
 const _colScratch = new THREE.Color();     // hex → linear RGB for the live line-colour uniforms
@@ -81,7 +81,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
     const anatomyOpaqueMat = makeOpaqueAnatomyMaterial(config.style.anatomy);
     // Depth-only version of that shell (same BackSide), folded into the edge/outline clip so
     // cortical voxel edges + cortex lines BEHIND the opaque subcortex are occluded, not drawn through.
-    const anatomyClipDepthMat = makePlainDepthMaterial(THREE.BackSide);
+    const anatomyClipDepthMat = makeHardOccluderDepthMaterial(THREE.FrontSide);
     const anatomyMeshes = sceneModel.meshes.filter((tm) => tm.meta.role === 'anatomy').map((tm) => tm.mesh);
     const cortexMeshes = sceneModel.meshes.filter((tm) => tm.meta.role === 'cortex').map((tm) => tm.mesh);
     const surfaceVariants = [...new Set(sceneModel.meshes
@@ -488,7 +488,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
     // occluded where a closer overlay's volume covers them (no longer see-through).
     for (const ep of edgePasses) ep.outlineMaterial.uniforms.uClipDepth.value = clipTarget.texture;
 
-    function renderClipDepth(camera, opaqueAnat, anyEdges, capActive) {
+    function renderClipDepth(camera, anatomyOccluder, anyEdges, capActive) {
         const prev = scene.overrideMaterial;
         renderer.setRenderTarget(clipTarget);
         renderer.setScissorTest(false);
@@ -510,7 +510,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         }
         // Fold the opaque subcortex's depth in → edges/outline behind it get occluded like the
         // fills. The subcortex is on its own layer, so we render just it (no cortex to hide).
-        if (opaqueAnat) {
+        if (anatomyOccluder) {
             clipCam.copy(camera); clipCam.layers.set(ANATOMY_LAYER);
             scene.overrideMaterial = anatomyClipDepthMat;
             renderer.render(scene, clipCam);
@@ -817,8 +817,8 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
             for (let i = 0; i < N; i++) if (osR[i].edges.enabled) anyEdges = true;
             // Clip when there are voxel edges OR an opaque subcortex (so edges + cortex lines
             // behind the shell are occluded). Opaque-anatomy folds its depth into the target.
-            const clip = anyEdges || opaqueAnat || capActive;
-            if (clip) renderClipDepth(camera, opaqueAnat, anyEdges, capActive);
+            const clip = anyEdges || showsAnatomy || capActive;
+            if (clip) renderClipDepth(camera, showsAnatomy, anyEdges, capActive);
             // Per-overlay voxel edges first (underneath), depth-clipped against the others.
             for (let i = 0; i < N; i++) {
                 if (!osR[i].edges.enabled) continue;
@@ -917,6 +917,9 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         dir.intensity = s.lighting.directional;
         amb.intensity = s.lighting.ambient;
         glassMat.uniforms.uMaxOpacity.value = s.glass.maxOpacity;
+    glassMat.uniforms.uColor.value.set(s.glass.color ?? '#ffffff');
+    anatomyMat.uniforms.uColor.value.set(s.anatomy.color ?? s.glass.color ?? '#ffffff');
+    anatomyOpaqueMat.uniforms.uColor.value.set(s.anatomy.opaqueColor ?? s.anatomy.color ?? s.glass.color ?? '#ffffff');
         cortexOutline.outlineMaterial.uniforms.uLineWidth.value = s.outline.width;
         cortexOutline.outlineMaterial.uniforms.uThreshold.value = s.outline.threshold;
         // Line COLOURS are pushed here and nowhere else. They used to be baked in at pass

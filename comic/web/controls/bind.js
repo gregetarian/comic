@@ -400,6 +400,12 @@ export function bindGlobalControls({ config, colormaps, getEngine, preset, onUpl
     toggle('c-inflate', s.cortexSurface === 'inflated', (on) => { s.cortexSurface = on ? 'inflated' : 'pial'; });
     toggle('c-outline', s.outline.enabled, (on) => { s.outline.enabled = on; });
     slider('c-cortex', s.glass.maxOpacity, (v) => { s.glass.maxOpacity = v; apply(); }, { min: 0, max: 1.0, step: 0.01 });
+    color('c-brain-color', s.glass.color ?? '#ffffff', (hex) => {
+        s.glass.color = hex;
+        s.anatomy.color = hex;
+        s.anatomy.opaqueColor = hex;
+        apply();
+    });
     slider('c-outline-thresh', s.outline.threshold, (v) => { s.outline.threshold = v; apply(); }, { min: 0.001, max: 0.02, step: 0.0005 });
     slider('c-outline-width', s.outline.width, (v) => { s.outline.width = v; apply(); }, { min: 0.3, max: 8, step: 0.1 });
     slider('c-outline-overvox', s.outline.overVoxelOpacity ?? 1, (v) => { s.outline.overVoxels = true; s.outline.overVoxelOpacity = v; apply(); }, { min: 0, max: 1, step: 0.05 });

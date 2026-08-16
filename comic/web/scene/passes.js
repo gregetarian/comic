@@ -45,6 +45,18 @@ export function makePlainDepthMaterial(side = THREE.DoubleSide) {
     });
 }
 
+/** Negative depth marks geometry that must always occlude a nearer line. */
+export function makeHardOccluderDepthMaterial(side = THREE.DoubleSide) {
+    return new THREE.ShaderMaterial({
+        vertexShader: depthVert,
+        fragmentShader: `varying float vDepth;
+${SLICE_FRAG_PARS}
+void main(){ if (gbSliceDiscard(vWorldPos)) discard; gl_FragColor = vec4(-vDepth/500.,1.,0.,1.); }`,
+        side,
+        uniforms: sliceUniforms(),
+    });
+}
+
 const outlineFrag = `
 uniform sampler2D tDepth; uniform vec2 uResolution; uniform float uLineWidth, uThreshold, uOpacity; uniform vec3 uColor;
 uniform float uVeilApply, uNearZ, uFarZ, uVeilStrength, uVeilK; uniform vec3 uVeilColor;
@@ -61,7 +73,9 @@ void main(){
     // Near-BINARY strength: any depth step that clears the threshold draws at full opacity and full
     // width; anything below doesn't draw at all. The narrow ramps (just wide enough for edge AA) stop
     // weak/grazing folds rendering as faded half-strength smudges, so every line is uniformly visible.
-    float s = max(smoothstep(uThreshold*0.96,uThreshold,edge), smoothstep(uThreshold,uThreshold*1.08,edge2));
+    float aa1 = max(fwidth(edge) * 0.75, uThreshold * 0.01);
+    float aa2 = max(fwidth(edge2) * 0.75, uThreshold * 0.01);
+    float s = max(smoothstep(uThreshold-aa1,uThreshold+aa1,edge), smoothstep(uThreshold-aa2,uThreshold+aa2,edge2));
     // Silhouette vs interior fold. G is the coverage flag (1 = geometry, 0 = empty background), so a
     // tap touching the background means this discontinuity IS the outer contour. uBgMode:
     //   0 = draw both (the historical single-pass behaviour, and the default)
