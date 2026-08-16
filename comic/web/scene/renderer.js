@@ -76,6 +76,9 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
 
     // --- global surface/anatomy materials ---
     const glassMat = makeGlassMaterial(config.style.glass);
+    // Cortex-alpha occlusion needs the surface the viewer actually faces. Keep a dedicated
+    // FrontSide depth material; the ordinary cortex outline intentionally uses DoubleSide.
+    const cortexFrontDepthMat = makePlainDepthMaterial(THREE.FrontSide);
     const anatomyMat = makeAnatomyMaterial(config.style.anatomy);
     // Opaque subcortical shell, selected per-panel when content.anatomyStyle === 'opaque'.
     const anatomyOpaqueMat = makeOpaqueAnatomyMaterial(config.style.anatomy);
@@ -479,7 +482,10 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, type: THREE.FloatType,
     });
     let clipTarget = makeDepthTarget(maxCellW, maxCellH);
+    let cortexFrontDepthTarget = makeDepthTarget(maxCellW, maxCellH);
     const clipCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 800);
+    glassMat.uniforms.uFrontDepth.value = cortexFrontDepthTarget.texture;
+    glassMat.uniforms.uFrontDepthApply.value = 1.0;
     cortexOutline.outlineMaterial.uniforms.uClipDepth.value = clipTarget.texture;
     // Subcortical lines clip against the cortex depth field. This preserves their independent
     // anatomical outline while letting whichever surface is nearer to the camera occlude the other.
@@ -487,6 +493,21 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
     // Voxel edges clip against the SAME combined depth, so an overlay's edges are
     // occluded where a closer overlay's volume covers them (no longer see-through).
     for (const ep of edgePasses) ep.outlineMaterial.uniforms.uClipDepth.value = clipTarget.texture;
+
+    function renderCortexFrontDepth(camera) {
+        const prev = scene.overrideMaterial;
+        renderer.setRenderTarget(cortexFrontDepthTarget);
+        renderer.setScissorTest(false);
+        const prevClear = renderer.getClearColor(_clearScratch), prevAlpha = renderer.getClearAlpha();
+        renderer.setClearColor(DEPTH_CLEAR, 1);
+        renderer.clear();
+        clipCam.copy(camera); clipCam.layers.set(0);
+        scene.overrideMaterial = cortexFrontDepthMat;
+        renderer.render(scene, clipCam);
+        scene.overrideMaterial = prev;
+        renderer.setClearColor(prevClear, prevAlpha);
+        renderer.setRenderTarget(null);
+    }
 
     function renderClipDepth(camera, anatomyOccluder, anyEdges, capActive) {
         const prev = scene.overrideMaterial;
@@ -637,6 +658,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
     // panels is essential — materials are shared, so a stale slice would bleed across.
     function applyPanelSlice(slice) {
         writeSlice(glassMat.uniforms, slice);
+        writeSlice(cortexFrontDepthMat.uniforms, slice);
         writeSlice(anatomyMat.uniforms, slice);
         writeSlice(anatomyOpaqueMat.uniforms, slice);
         writeSlice(anatomyClipDepthMat.uniforms, slice);
@@ -805,6 +827,14 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
                 dir.target.updateMatrixWorld(true);
             }
 
+            // Compute a nearest FRONT-facing cortex depth field separately for THIS pane.
+            // It lives only offscreen, so it filters cortex-on-cortex alpha stacking while the
+            // main framebuffer remains free to show internal statistical and subcortical geometry.
+            renderCortexFrontDepth(camera);
+            const pr = renderer.getPixelRatio();
+            glassMat.uniforms.uFrontViewportOrigin.value.set(rect.x * pr, rect.y * pr);
+            glassMat.uniforms.uFrontViewportSize.value.set(rect.w * pr, rect.h * pr);
+
             renderer.setViewport(rect.x, rect.y, rect.w, rect.h);
             renderer.setScissor(rect.x, rect.y, rect.w, rect.h);
             renderer.setScissorTest(true);
@@ -895,6 +925,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         anatomyOutline.setSize(w, h);
         for (const ep of edgePasses) ep.setSize(w, h);
         clipTarget.setSize(Math.round(w * renderer.getPixelRatio()), Math.round(h * renderer.getPixelRatio()));
+        cortexFrontDepthTarget.setSize(Math.round(w * renderer.getPixelRatio()), Math.round(h * renderer.getPixelRatio()));
     }
 
     function setPixelRatio(pr) {
@@ -904,6 +935,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         anatomyOutline.pr = pr; anatomyOutline.setSize(width, height);
         for (const ep of edgePasses) { ep.pr = pr; ep.setSize(width, height); }
         clipTarget.setSize(Math.round(width * pr), Math.round(height * pr));
+        cortexFrontDepthTarget.setSize(Math.round(width * pr), Math.round(height * pr));
     }
 
     // Push current config.style to live uniforms/materials/lights (global + per-overlay).
@@ -916,7 +948,13 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         outlineSaveScale = 1;
         dir.intensity = s.lighting.directional;
         amb.intensity = s.lighting.ambient;
-        glassMat.uniforms.uMaxOpacity.value = s.glass.maxOpacity;
+        const glassControl = Math.max(0, s.glass.maxOpacity ?? 0);
+        const glassMax = Math.min(1, glassControl);
+        const glassMin = glassControl > 1
+            ? Math.min(1, glassControl - 1)
+            : Math.min(glassMax, s.glass.minOpacity ?? 0);
+        glassMat.uniforms.uMaxOpacity.value = glassMax;
+        glassMat.uniforms.uMinOpacity.value = glassMin;
         glassMat.uniforms.uColor.value.set(s.glass.color ?? '#ffffff');
         anatomyMat.uniforms.uColor.value.set(s.anatomy.color ?? s.glass.color ?? '#ffffff');
         anatomyOpaqueMat.uniforms.uColor.value.set(s.anatomy.opaqueColor ?? s.anatomy.color ?? s.glass.color ?? '#ffffff');
@@ -1045,7 +1083,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
     // Mesh geometries are NOT disposed — they're owned by the app and reused across
     // rebuilds; only this engine's materials, outline passes, and targets are freed.
     function dispose() {
-        glassMat.dispose(); anatomyMat.dispose(); anatomyOpaqueMat.dispose(); anatomyClipDepthMat.dispose();
+        glassMat.dispose(); cortexFrontDepthMat.dispose(); anatomyMat.dispose(); anatomyOpaqueMat.dispose(); anatomyClipDepthMat.dispose();
         for (const m of voxelMats) m.dispose();
         cortexOutline.dispose();
         anatomyOutline.dispose();
@@ -1056,6 +1094,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         for (const b of borderMeshes) { b.geo.deleteAttribute('position'); b.geo.setIndex(null); b.geo.dispose(); }
         for (const ep of edgePasses) ep.dispose();
         clipTarget.dispose();
+        cortexFrontDepthTarget.dispose();
         if (anatomyCap) anatomyCap.dispose();
         scene.clear();
     }

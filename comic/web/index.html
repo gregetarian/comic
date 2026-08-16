@@ -315,7 +315,7 @@
           <span class="sw" title="Statistical map only: Smooth blends neighbouring source voxels; voxel-sharp preserves their block boundaries."><span>map pixels</span><select class="btn" id="c-cut-interp"><option value="linear">smooth</option><option value="nearest">voxel-sharp</option></select></span>
         </span>
         <button class="btn" id="c-template-qa" title="Inspect the declared template assets, shared transform, and measured T1↔pial alignment">Template QA</button>
-        <div class="sw"><span>cortex α</span><input type="range" id="c-cortex"></div>
+        <div class="sw" title="Cortex surface opacity. Only the nearest cortical surface at each pixel contributes: deeper folds do not stack alpha. Above 1, face-on cortex progressively becomes opaque."><span>cortex α</span><input type="range" id="c-cortex"></div>
         <div class="sw" title="Anatomical background colour for cortex and subcortex"><span>brain</span><input type="color" class="swatch" id="c-brain-color"></div>
         <div class="sw"><span>edge thr</span><input type="range" id="c-outline-thresh"></div>
         <div class="sw"><span>line w</span><input type="range" id="c-outline-width"></div>

@@ -51,11 +51,13 @@ export const SLICE_VERT_ASSIGN = `vWorldPos = (modelMatrix * vec4(position, 1.0)
 const glassVert = `
 varying vec3 vNormal;
 varying vec3 vViewDir;
+varying float vViewZ;
 ${SLICE_VERT_PARS}
 void main() {
     vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
     vNormal = normalize(normalMatrix * normal);
     vViewDir = normalize(-mvPosition.xyz);
+    vViewZ = -mvPosition.z;
     ${SLICE_VERT_ASSIGN}
     gl_Position = projectionMatrix * mvPosition;
 }`;
@@ -63,11 +65,23 @@ const glassFrag = `
 uniform vec3 uColor;
 uniform float uFresnelPower, uMinOpacity, uMaxOpacity, uCelBands;
 uniform vec3 uLightDir;
+uniform sampler2D uFrontDepth;
+uniform float uFrontDepthApply, uFrontDepthTolerance;
+uniform vec2 uFrontViewportOrigin, uFrontViewportSize;
 varying vec3 vNormal;
 varying vec3 vViewDir;
+varying float vViewZ;
 ${SLICE_FRAG_PARS}
 void main() {
     if (gbSliceDiscard(vWorldPos)) discard;
+    if (uFrontDepthApply > 0.5) {
+        vec2 uv = (gl_FragCoord.xy - uFrontViewportOrigin) / max(uFrontViewportSize, vec2(1.0));
+        vec4 front = texture2D(uFrontDepth, clamp(uv, vec2(0.0), vec2(1.0)));
+        if (front.g > 0.5) {
+            float nearestZ = front.r * 500.0;
+            if (vViewZ > nearestZ + uFrontDepthTolerance) discard;
+        }
+    }
     vec3 n = gl_FrontFacing ? normalize(vNormal) : -normalize(vNormal);
     vec3 v = normalize(vViewDir);
     float fresnel = pow(1.0 - abs(dot(v, n)), uFresnelPower);
@@ -78,6 +92,11 @@ void main() {
 }`;
 
 export function makeGlassMaterial(glass = {}) {
+    const control = Math.max(0, glass.maxOpacity ?? 0.08);
+    const maxOpacity = Math.min(1, control);
+    const minOpacity = control > 1
+        ? Math.min(1, control - 1)
+        : Math.min(maxOpacity, glass.minOpacity ?? 0.0);
     return new THREE.ShaderMaterial({
         vertexShader: glassVert,
         fragmentShader: glassFrag,
@@ -94,10 +113,15 @@ export function makeGlassMaterial(glass = {}) {
         uniforms: {
             uColor: { value: new THREE.Color(glass.color ?? 0xffffff) },
             uFresnelPower: { value: glass.fresnelPower ?? 2.5 },
-            uMinOpacity: { value: glass.minOpacity ?? 0.0 },
-            uMaxOpacity: { value: glass.maxOpacity ?? 0.08 },
+            uMinOpacity: { value: minOpacity },
+            uMaxOpacity: { value: maxOpacity },
             uCelBands: { value: glass.celBands ?? 3.0 },
             uLightDir: { value: new THREE.Vector3(0, 0, 1) },
+            uFrontDepth: { value: null },
+            uFrontDepthApply: { value: 0.0 },
+            uFrontDepthTolerance: { value: 0.6 },
+            uFrontViewportOrigin: { value: new THREE.Vector2(0, 0) },
+            uFrontViewportSize: { value: new THREE.Vector2(1, 1) },
             ...sliceUniforms(),
         },
     });
