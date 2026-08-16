@@ -1,0 +1,171 @@
+name: Apply nearest-surface cortex alpha
+
+on:
+  push:
+    branches: [main]
+    paths: [".github/workflows/apply-nearest-cortex-alpha.yml"]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+      - name: Apply renderer changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          # Glass opacity: 0..1 preserves the old Fresnel-only range. 1..2 progressively
+          # raises face-on opacity, reaching a fully opaque nearest cortical surface at 2.
+          p = Path('comic/web/scene/materials.js')
+          s = p.read_text()
+          anchor = """export function makeGlassMaterial(glass = {}) {
+    return new THREE.ShaderMaterial({
+"""
+          repl = """export function makeGlassMaterial(glass = {}) {
+    const control = Math.max(0, glass.maxOpacity ?? 0.08);
+    const maxOpacity = Math.min(1, control);
+    const minOpacity = control > 1
+        ? Math.min(1, control - 1)
+        : Math.min(maxOpacity, glass.minOpacity ?? 0.0);
+    return new THREE.ShaderMaterial({
+"""
+          assert anchor in s, 'makeGlassMaterial anchor missing'
+          s = s.replace(anchor, repl, 1)
+          anchor = """        transparent: true,
+        depthWrite: true,
+        side: THREE.FrontSide,
+"""
+          repl = """        transparent: true,
+        depthWrite: true,
+        alphaToCoverage: true,
+        side: THREE.FrontSide,
+"""
+          assert anchor in s, 'glass material flags anchor missing'
+          s = s.replace(anchor, repl, 1)
+          anchor = """            uMinOpacity: { value: glass.minOpacity ?? 0.0 },
+            uMaxOpacity: { value: glass.maxOpacity ?? 0.08 },
+"""
+          repl = """            uMinOpacity: { value: minOpacity },
+            uMaxOpacity: { value: maxOpacity },
+"""
+          assert anchor in s, 'glass opacity uniforms anchor missing'
+          s = s.replace(anchor, repl, 1)
+          p.write_text(s)
+
+          p = Path('comic/web/scene/renderer.js')
+          s = p.read_text()
+          anchor = """    const glassMat = makeGlassMaterial(config.style.glass);
+    const anatomyMat = makeAnatomyMaterial(config.style.anatomy);
+"""
+          repl = """    const glassMat = makeGlassMaterial(config.style.glass);
+    // Resolve translucent cortex against the nearest visible cortical fragment only.
+    // A depth-only front-surface prepass runs per panel, then the glass colour pass uses
+    // EqualDepth so deeper folds cannot accumulate alpha behind the surface being viewed.
+    const cortexFrontDepthMat = makePlainDepthMaterial(THREE.FrontSide);
+    cortexFrontDepthMat.colorWrite = false;
+    glassMat.depthWrite = false;
+    glassMat.depthFunc = THREE.EqualDepth;
+    const anatomyMat = makeAnatomyMaterial(config.style.anatomy);
+"""
+          assert anchor in s, 'global material anchor missing'
+          s = s.replace(anchor, repl, 1)
+
+          anchor = """        writeSlice(glassMat.uniforms, slice);
+        writeSlice(anatomyMat.uniforms, slice);
+"""
+          repl = """        writeSlice(glassMat.uniforms, slice);
+        writeSlice(cortexFrontDepthMat.uniforms, slice);
+        writeSlice(anatomyMat.uniforms, slice);
+"""
+          assert anchor in s, 'slice anchor missing'
+          s = s.replace(anchor, repl, 1)
+
+          anchor = """            renderer.setViewport(rect.x, rect.y, rect.w, rect.h);
+            renderer.setScissor(rect.x, rect.y, rect.w, rect.h);
+            renderer.setScissorTest(true);
+            renderer.render(scene, camera);
+"""
+          repl = """            renderer.setViewport(rect.x, rect.y, rect.w, rect.h);
+            renderer.setScissor(rect.x, rect.y, rect.w, rect.h);
+            renderer.setScissorTest(true);
+            // Panels are composited in z order. Keep colour from lower panels, but give this
+            // panel an independent depth buffer before resolving its nearest cortical surface.
+            renderer.clearDepth();
+            const prevOverride = scene.overrideMaterial;
+            clipCam.copy(camera); clipCam.layers.set(0);
+            scene.overrideMaterial = cortexFrontDepthMat;
+            renderer.render(scene, clipCam);
+            scene.overrideMaterial = prevOverride;
+            renderer.render(scene, camera);
+"""
+          assert anchor in s, 'main render anchor missing'
+          s = s.replace(anchor, repl, 1)
+
+          anchor = """        glassMat.uniforms.uMaxOpacity.value = s.glass.maxOpacity;
+        glassMat.uniforms.uColor.value.set(s.glass.color ?? '#ffffff');
+"""
+          repl = """        const glassControl = Math.max(0, s.glass.maxOpacity ?? 0);
+        const glassMax = Math.min(1, glassControl);
+        const glassMin = glassControl > 1
+            ? Math.min(1, glassControl - 1)
+            : Math.min(glassMax, s.glass.minOpacity ?? 0);
+        glassMat.uniforms.uMaxOpacity.value = glassMax;
+        glassMat.uniforms.uMinOpacity.value = glassMin;
+        glassMat.uniforms.uColor.value.set(s.glass.color ?? '#ffffff');
+"""
+          assert anchor in s, 'applyStyle opacity anchor missing'
+          s = s.replace(anchor, repl, 1)
+
+          anchor = """        glassMat.dispose(); anatomyMat.dispose(); anatomyOpaqueMat.dispose(); anatomyClipDepthMat.dispose();
+"""
+          repl = """        glassMat.dispose(); cortexFrontDepthMat.dispose(); anatomyMat.dispose(); anatomyOpaqueMat.dispose(); anatomyClipDepthMat.dispose();
+"""
+          assert anchor in s, 'dispose anchor missing'
+          s = s.replace(anchor, repl, 1)
+          p.write_text(s)
+
+          p = Path('comic/web/controls/bind.js')
+          s = p.read_text()
+          anchor = "slider('c-cortex', s.glass.maxOpacity, (v) => { s.glass.maxOpacity = v; apply(); }, { min: 0, max: 1.0, step: 0.01 });"
+          repl = "slider('c-cortex', s.glass.maxOpacity, (v) => { s.glass.maxOpacity = v; apply(); }, { min: 0, max: 2.0, step: 0.01 });"
+          assert anchor in s, 'cortex alpha slider anchor missing'
+          s = s.replace(anchor, repl, 1)
+          p.write_text(s)
+
+          p = Path('comic/web/index.html')
+          s = p.read_text()
+          anchor = '<div class="sw"><span>cortex α</span><input type="range" id="c-cortex"></div>'
+          repl = '<div class="sw" title="Nearest cortical surface opacity. 0–1 increases the existing Fresnel/glass opacity; 1–2 progressively fills face-on cortex, reaching opaque at 2. Deeper folds do not accumulate through the front surface."><span>cortex α</span><input type="range" id="c-cortex"></div>'
+          assert anchor in s, 'cortex alpha HTML anchor missing'
+          s = s.replace(anchor, repl, 1)
+          p.write_text(s)
+          PY
+
+      - name: Syntax and unit checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          node --check comic/web/scene/materials.js
+          node --check comic/web/scene/renderer.js
+          node --check comic/web/controls/bind.js
+          node --test comic/web/core/*.test.js
+
+      - name: Commit source changes and self-remove
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/apply-nearest-cortex-alpha.yml
+          git config user.name "gregetarian"
+          git config user.email "78038105+gregetarian@users.noreply.github.com"
+          git add -A
+          git commit -m "feat: resolve cortex alpha on nearest surface"
+          git push origin HEAD:main
