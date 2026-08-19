@@ -35,6 +35,18 @@ test('default display is blocky, depth-correct, and has no intensity or cluster 
     assert.equal(cfg.style.voxel.clusterMin, 0);
 });
 
+test('blob edge mode defaults by representation and can be overridden', () => {
+    const base = { style: { voxel: { representation: 'blocky', edges: { enabled: true, mode: 'auto' } }, overlays: [] } };
+    assert.equal(overlayStyle(base, 0).edges.mode, 'full');
+    base.style.voxel.representation = 'smooth';
+    assert.equal(overlayStyle(base, 0).edges.mode, 'outer');
+    base.style.overlays = [{ voxel: { edges: { mode: 'full' } } }];
+    assert.equal(overlayStyle(base, 0).edges.mode, 'full');
+    base.style.voxel.representation = 'blocky';
+    base.style.overlays = [{ voxel: { edges: { mode: 'outer' } }];
+    assert.equal(overlayStyle(base, 0).edges.mode, 'outer');
+});
+
 test('viewer-relative depth cut resolves per overlay and validates as a 0..1 amount', () => {
     const cfg = { style: { voxel: { depthCut: 0.25 }, overlays: [{ voxel: { depthCut: 0.75 } }] } };
     assert.equal(overlayStyle(cfg, 0).depthCut, 0.75);

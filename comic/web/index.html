@@ -424,14 +424,14 @@
   <script type="importmap">
   {
     "imports": {
-      "three": "./vendor/three/0.170.0/three.module.js?v=a25cdc7",
-      "three/addons/loaders/GLTFLoader.js": "./vendor/three/0.170.0/addons/loaders/GLTFLoader.js?v=a25cdc7",
+      "three": "./vendor/three/0.170.0/three.module.js?v=edge-v1",
+      "three/addons/loaders/GLTFLoader.js": "./vendor/three/0.170.0/addons/loaders/GLTFLoader.js?v=edge-v1",
       "three/addons/": "./vendor/three/0.170.0/addons/"
     }
   }
   </script>
   <script type="module">
-    import('./app/main.js?v=a25cdc7').catch((err) => {
+    import('./app/main.js?v=edge-v1').catch((err) => {
       console.error(err);
       const el = document.getElementById('loading');
       if (el) el.textContent = 'Error: ' + err.message;

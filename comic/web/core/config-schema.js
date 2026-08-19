@@ -6,7 +6,7 @@
  * drives BOTH the browser and the headless renderer.
  */
 
-import { VIEWS } from './views.js?v=a25cdc7';
+import { VIEWS } from './views.js?v=edge-v1';
 
 export const DEFAULTS = {
     version: '2.0',
@@ -64,7 +64,7 @@ export const DEFAULTS = {
             // front/back sorting between overlapping blobs (the depth veil is the order-independent
             // depth cue and is unaffected).
             opacity: 1.0,
-            edges: { enabled: true, color: '#808080', opacity: 1.0, width: 1.9, threshold: 0.003 },
+            edges: { enabled: true, mode: 'auto', color: '#808080', opacity: 1.0, width: 1.9, threshold: 0.003 },
         },
         // Per-NIfTI overrides. Each entry overrides the voxel/colour fields above
         // for one overlay (by index); empty/absent → inherit the globals. The GUI
@@ -170,6 +170,8 @@ export function overlayStyle(config, i = 0) {
             const e = { ...(v.edges || {}), ...(ov.edges || {}) };
             const rep = ov.representation ?? v.representation;
             if (rep === 'surface' && ov.edges?.enabled === undefined) e.enabled = false;
+            const requestedMode = ov.edges?.mode ?? v.edges?.mode ?? 'auto';
+            e.mode = requestedMode === 'auto' ? (rep === 'smooth' ? 'outer' : 'full') : requestedMode;
             return e;
         })(),
         cutOverlay: { ...(s.cutOverlay || {}), ...(o.cutOverlay || {}) },

@@ -13,7 +13,7 @@
  * A future custom-colormap builder can inject a LUT via colormaps.set(name, {...}) and the
  * picker will list it.
  */
-import { sampleLUT } from '../core/colormap.js?v=a25cdc7';
+import { sampleLUT } from '../core/colormap.js?v=edge-v1';
 
 const SW = 64, SH = 12;   // swatch bitmap px
 const swatchCache = new Map();   // name -> ImageData (shared across rows/triggers)

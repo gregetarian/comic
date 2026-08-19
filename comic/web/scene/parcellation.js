@@ -22,8 +22,8 @@
  * this same engine through Playwright) and a bring-your-own atlas needs no baking.
  */
 import * as THREE from 'three';
-import { sliceUniforms, SLICE_FRAG_PARS, SLICE_VERT_PARS, SLICE_VERT_ASSIGN } from './materials.js?v=a25cdc7';
-import { buildAdjacency, colorParcels, signedBoundaryFields, smoothFields, PLANES } from '../core/parcel-field.js?v=a25cdc7';
+import { sliceUniforms, SLICE_FRAG_PARS, SLICE_VERT_PARS, SLICE_VERT_ASSIGN } from './materials.js?v=edge-v1';
+import { buildAdjacency, colorParcels, signedBoundaryFields, smoothFields, PLANES } from '../core/parcel-field.js?v=edge-v1';
 
 /** Distances are capped here (mm). The line is ~1 mm wide, so anything beyond this is "far"; the
  *  cap is what keeps the propagation O(boundary ring count) instead of O(whole surface). */

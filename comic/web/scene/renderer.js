@@ -7,19 +7,19 @@
  * the global voxel template). Cortex/anatomy/lighting/outline stay global.
  */
 import * as THREE from 'three';
-import { layoutGrid, freeRect } from '../core/grid.js?v=a25cdc7';
-import { frameContent, mergeAABB, viewDepthRange, viewDepthRangeOfPositions } from '../core/framing.js?v=a25cdc7';
-import { normalize, sub } from '../core/units.js?v=a25cdc7';
-import { cameraBasis } from '../core/cameras.js?v=a25cdc7';
-import { visible } from '../core/visibility.js?v=a25cdc7';
-import { resolveColormap, colorizeValues, deriveMaxAbs } from '../core/colormap.js?v=a25cdc7';
-import { overlayStyle } from '../core/config-schema.js?v=a25cdc7';
-import { outlinePlan } from '../core/outline-plan.js?v=a25cdc7';
-import { meshLayer, anatomyLayer } from '../core/mesh-meta.js?v=a25cdc7';
-import { createAnatomyCap } from './anatomy-cap.js?v=a25cdc7';
-import { makeGlassMaterial, makeAnatomyMaterial, makeOpaqueAnatomyMaterial, makeVoxelMaterial, makeSurfaceMaterial, makeSharedVoxelUniforms } from './materials.js?v=a25cdc7';
-import { makeBorderMaterial, makeBorderGeometry, applyLabels } from './parcellation.js?v=a25cdc7';
-import { OutlinePass, makeThresholdDepthMaterial, makePlainDepthMaterial, makeHardOccluderDepthMaterial, DEPTH_CLEAR } from './passes.js?v=a25cdc7';
+import { layoutGrid, freeRect } from '../core/grid.js?v=edge-v1';
+import { frameContent, mergeAABB, viewDepthRange, viewDepthRangeOfPositions } from '../core/framing.js?v=edge-v1';
+import { normalize, sub } from '../core/units.js?v=edge-v1';
+import { cameraBasis } from '../core/cameras.js?v=edge-v1';
+import { visible } from '../core/visibility.js?v=edge-v1';
+import { resolveColormap, colorizeValues, deriveMaxAbs } from '../core/colormap.js?v=edge-v1';
+import { overlayStyle } from '../core/config-schema.js?v=edge-v1';
+import { outlinePlan } from '../core/outline-plan.js?v=edge-v1';
+import { meshLayer, anatomyLayer } from '../core/mesh-meta.js?v=edge-v1';
+import { createAnatomyCap } from './anatomy-cap.js?v=edge-v1';
+import { makeGlassMaterial, makeAnatomyMaterial, makeOpaqueAnatomyMaterial, makeVoxelMaterial, makeSurfaceMaterial, makeSharedVoxelUniforms } from './materials.js?v=edge-v1';
+import { makeBorderMaterial, makeBorderGeometry, applyLabels } from './parcellation.js?v=edge-v1';
+import { OutlinePass, makeThresholdDepthMaterial, makePlainDepthMaterial, makeHardOccluderDepthMaterial, DEPTH_CLEAR } from './passes.js?v=edge-v1';
 
 const _clearScratch = new THREE.Color();   // save/restore around a depth-target clear
 const _colScratch = new THREE.Color();     // hex → linear RGB for the live line-colour uniforms
@@ -858,7 +858,9 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
             // Per-overlay voxel edges first (underneath), depth-clipped against the others.
             for (let i = 0; i < N; i++) {
                 if (!osR[i].edges.enabled) continue;
-                edgePasses[i].outlineMaterial.uniforms.uClipApply.value = clip ? 1.0 : 0.0;
+                const eu = edgePasses[i].outlineMaterial.uniforms;
+                eu.uClipApply.value = clip ? 1.0 : 0.0;
+                eu.uBgMode.value = osR[i].edges.mode === 'outer' ? 2.0 : 0.0;
                 edgePasses[i].update(camera, rect.x, rect.y, rect.w, rect.h);
             }
             // Plan cortex and subcortex as separate anatomical outline groups. A custom/thick

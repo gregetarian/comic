@@ -8,11 +8,11 @@
  *  - No server: upload / remove / layout-change call back into app.js (which runs the
  *    Pyodide pipeline and rebuilds the engine in-place) instead of POSTing + reloading.
  */
-import { resolveColormap } from '../core/colormap.js?v=a25cdc7';
-import { overlayStyle, setOverlayStyle } from '../core/config-schema.js?v=a25cdc7';
-import { createCmapPicker } from './cmap-picker.js?v=a25cdc7';
-import { PRESET_LABELS } from '../core/presets.js?v=a25cdc7';
-import { loadSavedLayouts, saveLayout, deleteLayout } from './layout-presets.js?v=a25cdc7';
+import { resolveColormap } from '../core/colormap.js?v=edge-v1';
+import { overlayStyle, setOverlayStyle } from '../core/config-schema.js?v=edge-v1';
+import { createCmapPicker } from './cmap-picker.js?v=edge-v1';
+import { PRESET_LABELS } from '../core/presets.js?v=edge-v1';
+import { loadSavedLayouts, saveLayout, deleteLayout } from './layout-presets.js?v=edge-v1';
 
 const $ = (id) => document.getElementById(id);
 const trimNum = (v) => { const n = parseFloat(v); return Number.isInteger(n) ? String(n) : String(Math.round(n * 1e4) / 1e4); };
@@ -292,8 +292,19 @@ export function buildOverlayRows({ engine, config, colormaps, onRemove, onSurfac
         g.append(pos);
 
         const edges = btn('Edges');
-        bindToggle(edges, os.edges.enabled !== false, (on) => set({ voxel: { edges: { enabled: on } } }), 'Per-voxel edge outlines.');
+        bindToggle(edges, os.edges.enabled !== false, (on) => set({ voxel: { edges: { enabled: on } } }), 'Blob edge outlines.');
         g.append(edges);
+        const edgeMode = document.createElement('select'); edgeMode.className = 'btn edge-mode';
+        for (const [value, label] of [['outer', 'edge: outer'], ['full', 'edge: full']]) {
+            const o = document.createElement('option'); o.value = value; o.textContent = label; edgeMode.append(o);
+        }
+        edgeMode.value = os.edges.mode || (os.representation === 'smooth' ? 'outer' : 'full');
+        edgeMode.addEventListener('change', () => {
+            set({ voxel: { edges: { mode: edgeMode.value } } });
+            engine.applyStyle();
+        });
+        g.append(edgeMode);
+        infoIcon(edgeMode, 'Edge geometry: outer draws only the visible blob silhouette; full also draws internal depth discontinuities. Smooth defaults to outer, blocky defaults to full.');
 
         const balpha = sw('blob \u03b1');
         ovRange(balpha.range, os.opacity ?? 1, (v) => { set({ voxel: { opacity: v } }); engine.applyStyle(); }, { min: 0.05, max: 1, step: 0.05 }, 'Blob translucency. Below 1 you can see through the blobs, at the cost of exact front/back sorting where they overlap.', (v) => ({ voxel: { opacity: v } }));

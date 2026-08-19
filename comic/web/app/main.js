@@ -11,24 +11,24 @@
  *     for the Playwright driver to screenshot. Same engine + same array geometry as the browser.
  */
 import * as THREE from 'three';
-import { resolveConfig } from '../core/presets.js?v=a25cdc7';
-import { loadColormaps } from '../core/colormap.js?v=a25cdc7';
-import { setOverlayStyle } from '../core/config-schema.js?v=a25cdc7';
-import { createPresetsUI, randomColormapName } from '../controls/style-presets.js?v=a25cdc7';
-import { contentBBoxPx } from '../core/bbox.js?v=a25cdc7';
-import { loadBaseScene, buildOverlayMeshes, buildCutVolume, loadOverlayArrays, loadAnatomyVolume, loadParcellation, loadParcellationIndex } from '../scene/asset-loader.js?v=a25cdc7';
-import { createEngine } from '../scene/renderer.js?v=a25cdc7';
-import { createColorbar } from '../controls/colorbar.js?v=a25cdc7';
-import { initKapow } from '../controls/kapow.js?v=a25cdc7';
-import { bindGlobalControls, buildOverlayRows } from '../controls/bind.js?v=a25cdc7';
-import { buildRenderText, usesFigureSpec, buildSpec } from '../controls/cli-export.js?v=a25cdc7';
-import { createFreeCanvasEditor } from '../controls/freecanvas.js?v=a25cdc7';
-import { exportSpinGif } from '../controls/gif-export.js?v=a25cdc7';
-import { processNifti, processSurface, processParcelValues } from '../pyodide/bootstrap.js?v=a25cdc7';
-import { VOL_RE, isSurfaceFile, isParcelValueFile, groupSurfaceFiles, surfaceOverlayName } from '../core/surface-files.js?v=a25cdc7';
-import { parseValueTable, inferAtlas, valuesToVertexMaps, namedValuesToParcelOrder } from '../core/parcel-values.js?v=a25cdc7';
-import { askAtlas } from '../controls/atlas-prompt.js?v=a25cdc7';
-import { createSessionState } from './state.js?v=a25cdc7';
+import { resolveConfig } from '../core/presets.js?v=edge-v1';
+import { loadColormaps } from '../core/colormap.js?v=edge-v1';
+import { setOverlayStyle } from '../core/config-schema.js?v=edge-v1';
+import { createPresetsUI, randomColormapName } from '../controls/style-presets.js?v=edge-v1';
+import { contentBBoxPx } from '../core/bbox.js?v=edge-v1';
+import { loadBaseScene, buildOverlayMeshes, buildCutVolume, loadOverlayArrays, loadAnatomyVolume, loadParcellation, loadParcellationIndex } from '../scene/asset-loader.js?v=edge-v1';
+import { createEngine } from '../scene/renderer.js?v=edge-v1';
+import { createColorbar } from '../controls/colorbar.js?v=edge-v1';
+import { initKapow } from '../controls/kapow.js?v=edge-v1';
+import { bindGlobalControls, buildOverlayRows } from '../controls/bind.js?v=edge-v1';
+import { buildRenderText, usesFigureSpec, buildSpec } from '../controls/cli-export.js?v=edge-v1';
+import { createFreeCanvasEditor } from '../controls/freecanvas.js?v=edge-v1';
+import { exportSpinGif } from '../controls/gif-export.js?v=edge-v1';
+import { processNifti, processSurface, processParcelValues } from '../pyodide/bootstrap.js?v=edge-v1';
+import { VOL_RE, isSurfaceFile, isParcelValueFile, groupSurfaceFiles, surfaceOverlayName } from '../core/surface-files.js?v=edge-v1';
+import { parseValueTable, inferAtlas, valuesToVertexMaps, namedValuesToParcelOrder } from '../core/parcel-values.js?v=edge-v1';
+import { askAtlas } from '../controls/atlas-prompt.js?v=edge-v1';
+import { createSessionState } from './state.js?v=edge-v1';
 
 const DATA = 'data/';
 const DEMO_ASSET_VER = 'cut-volume-v1';
