@@ -320,6 +320,7 @@
         <div class="sw"><span>edge thr</span><input type="range" id="c-outline-thresh"></div>
         <div class="sw"><span>line w</span><input type="range" id="c-outline-width"></div>
         <div class="sw"><span>vox α</span><input type="range" id="c-outline-overvox"></div>
+        <div class="sw" title="Alpha uses the vox α overlap strength. Depth gives each line pixel to whichever surface is physically nearest: voxel edges in front, cortex lines behind, and vice versa."><span>line order</span><select class="btn" id="c-voxel-line-mode"><option value="alpha">alpha mix</option><option value="depth">true depth</option></select></div>
       </div>
       <div class="grp">
         <span class="lab">Lines</span>
@@ -431,7 +432,7 @@
   }
   </script>
   <script type="module">
-    import('./app/main.js?v=cut-map-v1').catch((err) => {
+    import('./app/main.js?v=depth-lines-v1').catch((err) => {
       console.error(err);
       const el = document.getElementById('loading');
       if (el) el.textContent = 'Error: ' + err.message;

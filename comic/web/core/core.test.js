@@ -22,6 +22,7 @@ import { normalizeTemplateBundle, validateTemplateBundle } from './template-bund
 test('default display is blocky, depth-correct, and has no intensity or cluster cutoff', () => {
     assert.equal(DEFAULTS.style.voxel.representation, 'blocky');
     assert.equal(DEFAULTS.style.outline.overVoxelOpacity, 0);
+    assert.equal(DEFAULTS.style.outline.voxelLineMode, 'alpha');
     assert.equal(DEFAULTS.style.voxel.depthCut, 0);
     assert.equal(DEFAULTS.style.voxel.clusterMin, 0);
     const cfg = normalizeConfig({
@@ -31,6 +32,7 @@ test('default display is blocky, depth-correct, and has no intensity or cluster 
     assert.equal(cfg.style.threshold, 0);
     assert.equal(cfg.style.voxel.representation, 'blocky');
     assert.equal(cfg.style.outline.overVoxelOpacity, 0);
+    assert.equal(cfg.style.outline.voxelLineMode, 'alpha');
     assert.equal(cfg.style.voxel.depthCut, 0);
     assert.equal(cfg.style.voxel.clusterMin, 0);
 });

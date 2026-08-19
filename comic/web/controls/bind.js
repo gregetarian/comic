@@ -9,7 +9,7 @@
  *    Pyodide pipeline and rebuilds the engine in-place) instead of POSTing + reloading.
  */
 import { resolveColormap } from '../core/colormap.js?v=edge-v1';
-import { overlayStyle, setOverlayStyle } from '../core/config-schema.js?v=cut-map-v1';
+import { overlayStyle, setOverlayStyle } from '../core/config-schema.js?v=depth-lines-v1';
 import { createCmapPicker } from './cmap-picker.js?v=edge-v1';
 import { PRESET_LABELS } from '../core/presets.js?v=edge-v1';
 import { loadSavedLayouts, saveLayout, deleteLayout } from './layout-presets.js?v=edge-v1';
@@ -420,6 +420,14 @@ export function bindGlobalControls({ config, colormaps, getEngine, preset, onUpl
     slider('c-outline-thresh', s.outline.threshold, (v) => { s.outline.threshold = v; apply(); }, { min: 0.001, max: 0.02, step: 0.0005 });
     slider('c-outline-width', s.outline.width, (v) => { s.outline.width = v; apply(); }, { min: 0.3, max: 8, step: 0.1 });
     slider('c-outline-overvox', s.outline.overVoxelOpacity ?? 1, (v) => { s.outline.overVoxels = true; s.outline.overVoxelOpacity = v; apply(); }, { min: 0, max: 1, step: 0.05 });
+    const lineMode = $('c-voxel-line-mode');
+    if (lineMode) {
+        lineMode.value = s.outline.voxelLineMode || 'alpha';
+        lineMode.addEventListener('change', () => {
+            s.outline.voxelLineMode = lineMode.value;
+            apply();
+        });
+    }
     slider('c-directional', s.lighting.directional, (v) => { s.lighting.directional = v; apply(); }, { min: 0, max: 4, step: 0.05 });
     slider('c-ambient', s.lighting.ambient, (v) => { s.lighting.ambient = v; apply(); }, { min: 0, max: 4, step: 0.05 });
 

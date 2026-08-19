@@ -13,13 +13,13 @@ import { normalize, sub } from '../core/units.js?v=edge-v1';
 import { cameraBasis } from '../core/cameras.js?v=edge-v1';
 import { visible } from '../core/visibility.js?v=edge-v1';
 import { resolveColormap, colorizeValues, deriveMaxAbs } from '../core/colormap.js?v=edge-v1';
-import { overlayStyle } from '../core/config-schema.js?v=cut-map-v1';
+import { overlayStyle } from '../core/config-schema.js?v=depth-lines-v1';
 import { outlinePlan } from '../core/outline-plan.js?v=edge-v1';
 import { meshLayer, anatomyLayer } from '../core/mesh-meta.js?v=edge-v1';
 import { createAnatomyCap } from './anatomy-cap.js?v=cut-map-v1';
 import { makeGlassMaterial, makeAnatomyMaterial, makeOpaqueAnatomyMaterial, makeVoxelMaterial, makeSurfaceMaterial, makeSharedVoxelUniforms } from './materials.js?v=edge-v1';
 import { makeBorderMaterial, makeBorderGeometry, applyLabels } from './parcellation.js?v=edge-v1';
-import { OutlinePass, makeThresholdDepthMaterial, makePlainDepthMaterial, makeHardOccluderDepthMaterial, DEPTH_CLEAR } from './passes.js?v=edge-v1';
+import { OutlinePass, makeThresholdDepthMaterial, makePlainDepthMaterial, makeHardOccluderDepthMaterial, DEPTH_CLEAR } from './passes.js?v=depth-lines-v1';
 
 const _clearScratch = new THREE.Color();   // save/restore around a depth-target clear
 const _colScratch = new THREE.Color();     // hex → linear RGB for the live line-colour uniforms
@@ -862,11 +862,16 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
             // Visible subcortex remains a hard occluder and never inherits vox-alpha strength.
             const clip = wantsVoxelClip || showsAnatomy || capActive;
             if (clip) renderClipDepth(camera, showsAnatomy, wantsVoxelClip, capActive);
+            const trueDepthLines = config.style.outline.voxelLineMode === 'depth';
+            // True-depth ownership needs the current panel's cortex depth before voxel edges draw.
+            // The alpha-mix mode keeps the historical combined-voxel clip target.
+            if (trueDepthLines && anyEdges) cortexOutline.renderDepth(camera);
             // Per-overlay voxel edges first (underneath), depth-clipped against the others.
             for (let i = 0; i < N; i++) {
                 if (!osR[i].edges.enabled) continue;
                 const eu = edgePasses[i].outlineMaterial.uniforms;
-                eu.uClipApply.value = clip ? 1.0 : 0.0;
+                eu.uClipDepth.value = trueDepthLines ? cortexOutline.depthTarget.texture : clipTarget.texture;
+                eu.uClipApply.value = trueDepthLines ? 1.0 : (clip ? 1.0 : 0.0);
                 eu.uBgMode.value = osR[i].edges.mode === 'outer' ? 2.0 : 0.0;
                 edgePasses[i].update(camera, rect.x, rect.y, rect.w, rect.h);
             }
@@ -874,7 +879,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
             // silhouette is never computed from the union with voxel geometry, so jagged blobs
             // cannot become the figure contour and the subcortex keeps its own boundary.
             const op = outlinePlan(config.style.outline, def.outline);
-            const overVoxelAlpha = config.style.outline.overVoxels
+            const overVoxelAlpha = !trueDepthLines && config.style.outline.overVoxels
                 ? (config.style.outline.overVoxelOpacity ?? 1.0) : 0.0;
 
             // Fold/depth lines. When a separately styled silhouette follows, these passes omit
@@ -886,7 +891,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
                 ou.uThreshold.value = op.threshold;
                 ou.uClipApply.value = clip ? 1.0 : 0.0;
                 ou.uOverVoxelAlpha.value = overVoxelAlpha;
-                ou.uClipOverlapMode.value = 1.0;
+                ou.uClipOverlapMode.value = trueDepthLines ? 0.0 : 1.0;
                 ou.uBgMode.value = op.foldBgMode;
                 cortexOutline.update(camera, rect.x, rect.y, rect.w, rect.h);
 
@@ -914,7 +919,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
                 ou.uThreshold.value = op.threshold;
                 ou.uClipApply.value = clip ? 1.0 : 0.0;
                 ou.uOverVoxelAlpha.value = overVoxelAlpha;
-                ou.uClipOverlapMode.value = 1.0;
+                ou.uClipOverlapMode.value = trueDepthLines ? 0.0 : 1.0;
                 ou.uBgMode.value = 2.0;
                 cortexOutline.update(camera, rect.x, rect.y, rect.w, rect.h);
 

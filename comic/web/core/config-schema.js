@@ -85,7 +85,7 @@ export const DEFAULTS = {
         // so a thick silhouette cannot follow a jagged voxel blob. `color`/`width` null means "inherit
         // from the fold lines"; with folds on, each anatomical pass draws its folds and contour together.
         outline: { enabled: true, color: '#000000', width: 7.0, threshold: 0.018, anatomyWidthMul: 1.0,
-            overVoxels: true, overVoxelOpacity: 0.0, anatomyColor: null,
+            overVoxels: true, overVoxelOpacity: 0.0, voxelLineMode: 'alpha', anatomyColor: null,
             silhouette: { enabled: true, color: null, width: null } },
         // Parcellation boundary lines (atlas borders drawn on the cortical surface). `atlas` names a
         // baked/fetched per-vertex label set; width is in device px and is constant at any zoom.
@@ -235,6 +235,7 @@ export function validateConfig(cfg) {
     if (!colorOk(cfg.style?.outline?.color)) errors.push('style.outline.color must be a #rgb/#rrggbb colour');
     if (!colorOk(cfg.style?.outline?.anatomyColor)) errors.push('style.outline.anatomyColor must be null or a #rgb/#rrggbb colour');
     if (!colorOk(cfg.style?.outline?.silhouette?.color)) errors.push('style.outline.silhouette.color must be null or a #rgb/#rrggbb colour');
+    if (!['alpha', 'depth'].includes(cfg.style?.outline?.voxelLineMode ?? 'alpha')) errors.push('style.outline.voxelLineMode must be alpha or depth');
     if (!widthOk(cfg.style?.outline?.silhouette?.width)) errors.push('style.outline.silhouette.width must be null or a positive number');
     if (!parcOk(cfg.style?.parcellation)) errors.push('style.parcellation needs a #rgb/#rrggbb color, width > 0, and opacity 0..1');
     if (!alphaOk(cfg.style?.voxel?.opacity)) errors.push('style.voxel.opacity must be 0..1');

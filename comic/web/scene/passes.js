@@ -213,16 +213,14 @@ export class OutlinePass {
         this.outlineMaterial.uniforms.uResolution.value.set(pw, ph);
     }
 
-    /** Render outline for one viewport (vp in CSS px, GL bottom-left origin). */
-    update(camera, x, y, w, h) {
+    /** Refresh only this layer's depth field. Used when another line pass must decide ownership
+     *  against the current panel before this pass's visible quad is composited. */
+    renderDepth(camera) {
         const r = this.renderer;
         const prevOverride = this.scene.overrideMaterial;
         this.depthCamera.copy(camera);
         r.setRenderTarget(this.depthTarget);
         r.setScissorTest(false);
-        // Clear to the fixed far/no-coverage sentinel, NOT to the figure background: the shader's
-        // background test must not depend on what colour the user chose. Restored immediately after
-        // so renderFrame's own full-canvas clear still paints the real background.
         const prevClear = r.getClearColor(_prevClear), prevAlpha = r.getClearAlpha();
         r.setClearColor(DEPTH_CLEAR, 1);
         r.clear();
@@ -232,6 +230,12 @@ export class OutlinePass {
         r.setClearColor(prevClear, prevAlpha);
         this.scene.overrideMaterial = prevOverride;
         r.setRenderTarget(null);
+    }
+
+    /** Render outline for one viewport (vp in CSS px, GL bottom-left origin). */
+    update(camera, x, y, w, h) {
+        const r = this.renderer;
+        this.renderDepth(camera);
         r.setViewport(x, y, w, h);
         r.setScissor(x, y, w, h);
         r.setScissorTest(true);
