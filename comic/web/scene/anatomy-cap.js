@@ -17,14 +17,17 @@
 import * as THREE from 'three';
 
 const VERT = `
-in vec3 position;
+in vec3 position, normal;
 uniform mat4 modelMatrix, modelViewMatrix, projectionMatrix;
+uniform mat3 normalMatrix;
 out vec3 vWorld;
+out vec3 vViewNormal;
 out float vViewDepth;
 void main() {
     vec4 w = modelMatrix * vec4(position, 1.0);
     vec4 mv = modelViewMatrix * vec4(position, 1.0);
     vWorld = w.xyz;
+    vViewNormal = normalize(normalMatrix * normal);
     vViewDepth = -mv.z;
     gl_Position = projectionMatrix * mv;
 }`;
@@ -57,8 +60,12 @@ const FRAG = `
 precision highp float;
 ${SAMPLE_GLSL}
 uniform vec3 uTint;
-uniform float uBright, uLo, uHi, uGamma, uSharpen;
+uniform vec3 uLightDir;
+uniform float uBright, uLo, uHi, uGamma, uSharpen, uDirectional, uAmbient;
+in vec3 vViewNormal;
 out vec4 fragColor;
+float toLinear(float c) { return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4); }
+float toSrgb(float c) { return c <= 0.0031308 ? c * 12.92 : 1.055 * pow(c, 1.0 / 2.4) - 0.055; }
 void main() {
     float a;
     if (!gbSampleAnatomy(a)) discard;
@@ -82,8 +89,10 @@ void main() {
     // pale, washed-out appearance (a nominal 50% grey displayed at roughly 74%).
     float t = clamp((a - uLo) / max(uHi - uLo, 1e-3), 0.0, 1.0);
     float g = clamp(pow(t, uGamma) * uBright, 0.0, 1.0);
-    float linearGrey = g <= 0.04045 ? g / 12.92 : pow((g + 0.055) / 1.055, 2.4);
-    fragColor = vec4(uTint * linearGrey, 1.0);
+    vec3 n = gl_FrontFacing ? normalize(vViewNormal) : -normalize(vViewNormal);
+    float gain = 1.0 + (uAmbient + uDirectional * max(dot(n, normalize(uLightDir)), 0.0)) / 3.14159265;
+    float litGrey = toSrgb(clamp(toLinear(g) * gain, 0.0, 1.0));
+    fragColor = vec4(uTint * litGrey, 1.0);
 }`;
 
 // Negative red marks "this depth came from the opaque cut cap". The shared outline shader takes
@@ -108,9 +117,22 @@ uniform sampler3D uStat;
 uniform sampler2D uLut;
 uniform mat4 uStatInv;
 uniform vec3 uStatDims, uSliceNormal;
+uniform vec3 uLightDir;
 uniform float uSlabMm, uThreshold, uClusterMin, uPositiveOnly, uInterpolation;
 uniform float uMode, uGamma, uMaxAbs, uHalfMap, uUseClim, uClimLo, uClimHi, uOpacity;
+uniform float uDirectional, uAmbient, uEmissive;
+in vec3 vViewNormal;
 out vec4 fragColor;
+
+vec3 srgbToLinear(vec3 c) {
+    bvec3 lo = lessThanEqual(c, vec3(0.04045));
+    return mix(pow((c + 0.055) / 1.055, vec3(2.4)), c / 12.92, lo);
+}
+vec3 linearToSrgb(vec3 c) {
+    c = clamp(c, 0.0, 1.0);
+    bvec3 lo = lessThanEqual(c, vec3(0.0031308));
+    return mix(1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, c * 12.92, lo);
+}
 
 bool statAt(vec3 world, out vec2 stat) {
     vec3 vox = (uStatInv * vec4(world, 1.0)).xyz;
@@ -176,7 +198,10 @@ void main() {
         }
     }
     if (bestAbs < 0.0) discard;
-    fragColor = vec4(texture(uLut, vec2(valueToT(best.r), 0.5)).rgb, uOpacity);
+    vec3 nrm = gl_FrontFacing ? normalize(vViewNormal) : -normalize(vViewNormal);
+    float gain = uEmissive + (uAmbient + uDirectional * max(dot(nrm, normalize(uLightDir)), 0.0)) / 3.14159265;
+    vec3 rgb = texture(uLut, vec2(valueToT(best.r), 0.5)).rgb;
+    fragColor = vec4(linearToSrgb(srgbToLinear(rgb) * gain), uOpacity);
 }`;
 
 function affineInverse(affine) {
@@ -226,6 +251,9 @@ export function createAnatomyCap({ data, dims, affine, channels = 1 }, layer, ov
             uHi: { value: 0.95 },
             uGamma: { value: 0.85 },
             uSharpen: { value: 0.18 },
+            uLightDir: { value: new THREE.Vector3(0, 0, 1) },
+            uDirectional: { value: 0 },
+            uAmbient: { value: 0 },
         },
     });
     const depthMaterial = new THREE.RawShaderMaterial({
@@ -344,11 +372,13 @@ export function createAnatomyCap({ data, dims, affine, channels = 1 }, layer, ov
                     uStatInv: { value: affineInverse(vol.affine) },
                     uStatDims: { value: new THREE.Vector3(...vol.dims) },
                     uSliceNormal: { value: new THREE.Vector3() },
+                    uLightDir: { value: new THREE.Vector3(0, 0, 1) },
                     uSlabMm: { value: 1 }, uThreshold: { value: 0 }, uClusterMin: { value: 0 },
                     uPositiveOnly: { value: 0 }, uInterpolation: { value: 1 },
                     uMode: { value: 0 }, uGamma: { value: 0.5 },
                     uMaxAbs: { value: 1 }, uHalfMap: { value: 0 }, uUseClim: { value: 0 },
                     uClimLo: { value: 0 }, uClimHi: { value: 1 }, uOpacity: { value: 0.88 },
+                    uDirectional: { value: 0 }, uAmbient: { value: 0 }, uEmissive: { value: 1 },
                 },
             });
             const child = new THREE.Mesh(quad, mat);
@@ -382,6 +412,7 @@ export function createAnatomyCap({ data, dims, affine, channels = 1 }, layer, ov
             u.uUseClim.value = clim ? 1 : 0;
             if (clim) { u.uClimLo.value = clim[0]; u.uClimHi.value = clim[1]; }
             u.uOpacity.value = Math.max(0, Math.min(1, cut.opacity ?? 0.88));
+            u.uEmissive.value = Math.max(0, s.emissive ?? 1);
             u.uInterpolation.value = cut.interpolation === 'nearest' ? 0 : 1;
             const filter = cut.interpolation === 'nearest' ? THREE.NearestFilter : THREE.LinearFilter;
             if (r.texture.minFilter !== filter || r.texture.magFilter !== filter) {
@@ -426,6 +457,18 @@ export function createAnatomyCap({ data, dims, affine, channels = 1 }, layer, ov
         if (airEps != null) material.uniforms.uAirEps.value = airEps;
     }
 
+    function setLighting({ direction, directional = 0, ambient = 0 } = {}) {
+        if (direction) material.uniforms.uLightDir.value.copy(direction);
+        material.uniforms.uDirectional.value = Math.max(0, directional);
+        material.uniforms.uAmbient.value = Math.max(0, ambient);
+        for (const r of overlayRecords) {
+            const u = r.material.uniforms;
+            if (direction) u.uLightDir.value.copy(direction);
+            u.uDirectional.value = Math.max(0, directional);
+            u.uAmbient.value = Math.max(0, ambient);
+        }
+    }
+
     function dispose() {
         setOverlayVolumes([]);
         tex.dispose(); material.dispose(); depthMaterial.dispose();
@@ -433,5 +476,5 @@ export function createAnatomyCap({ data, dims, affine, channels = 1 }, layer, ov
     }
 
     return { root, mesh, layer, depthMaterial, configureForSlice, setStyle,
-        setOverlayVolumes, setOverlayStyles, setOverlayVisibility, dispose };
+        setOverlayVolumes, setOverlayStyles, setOverlayVisibility, setLighting, dispose };
 }

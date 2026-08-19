@@ -54,7 +54,9 @@ function attachTip(node, text) {
 // the spec / CLI; these presets cover the common cases one click at a time.
 const SLICE_CYCLE = [
     null,
-    { label: 'axial cut',    shape: 'plane',  mode: 'keep', normal: [0, 0, 1], offset: 18 },
+    // Retain the inferior half so the exposed face points +Z and is readable from a dorsal
+    // (superior → inferior) camera, like a conventional axial MRI view.
+    { label: 'axial cut',    shape: 'plane',  mode: 'keep', normal: [0, 0, -1], offset: -18 },
     { label: 'coronal cut',  shape: 'plane',  mode: 'keep', normal: [0, 1, 0], offset: -18 },
     { label: 'sagittal cut', shape: 'plane',  mode: 'keep', normal: [1, 0, 0], offset: 0 },
     { label: 'sphere bite',  shape: 'sphere', mode: 'bite', center: [0, -18, 22], radius: 45 },

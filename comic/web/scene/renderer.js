@@ -16,13 +16,14 @@ import { resolveColormap, colorizeValues, deriveMaxAbs } from '../core/colormap.
 import { overlayStyle } from '../core/config-schema.js?v=edge-v1';
 import { outlinePlan } from '../core/outline-plan.js?v=edge-v1';
 import { meshLayer, anatomyLayer } from '../core/mesh-meta.js?v=edge-v1';
-import { createAnatomyCap } from './anatomy-cap.js?v=cut-face-v1';
+import { createAnatomyCap } from './anatomy-cap.js?v=cut-light-v1';
 import { makeGlassMaterial, makeAnatomyMaterial, makeOpaqueAnatomyMaterial, makeVoxelMaterial, makeSurfaceMaterial, makeSharedVoxelUniforms } from './materials.js?v=edge-v1';
 import { makeBorderMaterial, makeBorderGeometry, applyLabels } from './parcellation.js?v=edge-v1';
 import { OutlinePass, makeThresholdDepthMaterial, makePlainDepthMaterial, makeHardOccluderDepthMaterial, DEPTH_CLEAR } from './passes.js?v=edge-v1';
 
 const _clearScratch = new THREE.Color();   // save/restore around a depth-target clear
 const _colScratch = new THREE.Color();     // hex → linear RGB for the live line-colour uniforms
+const _lightScratch = new THREE.Vector3(); // world light direction → current panel view space
 
 /** Blob translucency. Below 1 the voxels stop writing depth — otherwise a nearer blob still hides
  *  a farther one and the alpha only tints the background, which is not what "see through it" means.
@@ -145,6 +146,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
                 divergingMapOnPositive: resolved.divergingMapOnPositive,
                 divergingMapOnNegative: resolved.divergingMapOnNegative,
                 cmap: colormaps.get(resolved.name) || colormaps.values().next().value,
+                emissive: os.emissive,
                 hidden: !!config.style.overlays?.[i]?.hidden,
             };
         });
@@ -825,6 +827,11 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
                 }
                 dir.target.position.set(...fr.lookAt);
                 dir.target.updateMatrixWorld(true);
+            }
+            if (anatomyCap && capActive) {
+                const lightView = _lightScratch.subVectors(dir.position, dir.target.position)
+                    .normalize().transformDirection(camera.matrixWorldInverse);
+                anatomyCap.setLighting({ direction: lightView, directional: dir.intensity, ambient: amb.intensity });
             }
 
             // Compute a nearest FRONT-facing cortex depth field separately for THIS pane.
