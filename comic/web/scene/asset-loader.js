@@ -12,10 +12,10 @@
  * (role / hemisphere / structure / category / variant), so renderer.js is verbatim.
  */
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js?v=2026-08-19';
-import { hemiOfCategory, categoryOfStructure } from '../core/mesh-meta.js?v=2026-08-19';
-import { asF32, asU32, sliceBuffers } from '../core/buffers.js?v=2026-08-19';
-import { validateTemplateBundle } from '../core/template-bundle.js?v=2026-08-19';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js?v=63b5810';
+import { hemiOfCategory, categoryOfStructure } from '../core/mesh-meta.js?v=63b5810';
+import { asF32, asU32, sliceBuffers } from '../core/buffers.js?v=63b5810';
+import { validateTemplateBundle } from '../core/template-bundle.js?v=63b5810';
 
 const gltfLoader = new GLTFLoader();
 const loadGLB = (url) => new Promise((res, rej) => gltfLoader.load(url, res, undefined, rej));

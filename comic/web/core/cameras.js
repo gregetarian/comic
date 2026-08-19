@@ -10,7 +10,7 @@
  * view-basis determinant → gl_FrontFacing inverts → lit DoubleSide normals flip
  * → medial panels render dark. `poseFromPlane` keeps a right-handed basis.
  */
-import { add, scale, normalize, sub, cross, dot, rotateAxis, deg2rad } from './units.js?v=2026-08-19';
+import { add, scale, normalize, sub, cross, dot, rotateAxis, deg2rad } from './units.js?v=63b5810';
 
 export const PLANES = {
     left_lateral:  { dir: [-1, 0, 0], up: [0, 0, 1], hemisphere: 'lh' },

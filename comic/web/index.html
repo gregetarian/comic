@@ -423,15 +423,15 @@
   <script type="importmap">
   {
     "imports": {
-      "three": "./vendor/three/0.170.0/three.module.js?v=2026-08-19",
-      "three/addons/loaders/GLTFLoader.js": "./vendor/three/0.170.0/addons/loaders/GLTFLoader.js?v=2026-08-19",
+      "three": "./vendor/three/0.170.0/three.module.js?v=63b5810",
+      "three/addons/loaders/GLTFLoader.js": "./vendor/three/0.170.0/addons/loaders/GLTFLoader.js?v=63b5810",
       "three/addons/": "./vendor/three/0.170.0/addons/"
     }
   }
   </script>
   <script type="module">
     // Version the entrypoint so a Pages redeploy cannot reuse an obsolete module graph.
-    import('./app/main.js?v=2026-08-19').catch((err) => {
+    import('./app/main.js?v=63b5810').catch((err) => {
       console.error(err);
       const el = document.getElementById('loading');
       if (el) el.textContent = 'Error: ' + err.message;

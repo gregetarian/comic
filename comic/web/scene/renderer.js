@@ -7,19 +7,19 @@
  * the global voxel template). Cortex/anatomy/lighting/outline stay global.
  */
 import * as THREE from 'three';
-import { layoutGrid, freeRect } from '../core/grid.js?v=2026-08-19';
-import { frameContent, mergeAABB, viewDepthRange } from '../core/framing.js?v=2026-08-19';
-import { normalize, sub } from '../core/units.js?v=2026-08-19';
-import { cameraBasis } from '../core/cameras.js?v=2026-08-19';
-import { visible } from '../core/visibility.js?v=2026-08-19';
-import { resolveColormap, colorizeValues, deriveMaxAbs } from '../core/colormap.js?v=2026-08-19';
-import { overlayStyle } from '../core/config-schema.js?v=2026-08-19';
-import { outlinePlan } from '../core/outline-plan.js?v=2026-08-19';
-import { meshLayer, anatomyLayer } from '../core/mesh-meta.js?v=2026-08-19';
-import { createAnatomyCap } from './anatomy-cap.js?v=2026-08-19';
-import { makeGlassMaterial, makeAnatomyMaterial, makeOpaqueAnatomyMaterial, makeVoxelMaterial, makeSurfaceMaterial, makeSharedVoxelUniforms } from './materials.js?v=2026-08-19';
-import { makeBorderMaterial, makeBorderGeometry, applyLabels } from './parcellation.js?v=2026-08-19';
-import { OutlinePass, makeThresholdDepthMaterial, makePlainDepthMaterial, DEPTH_CLEAR } from './passes.js?v=2026-08-19';
+import { layoutGrid, freeRect } from '../core/grid.js?v=63b5810';
+import { frameContent, mergeAABB, viewDepthRange } from '../core/framing.js?v=63b5810';
+import { normalize, sub } from '../core/units.js?v=63b5810';
+import { cameraBasis } from '../core/cameras.js?v=63b5810';
+import { visible } from '../core/visibility.js?v=63b5810';
+import { resolveColormap, colorizeValues, deriveMaxAbs } from '../core/colormap.js?v=63b5810';
+import { overlayStyle } from '../core/config-schema.js?v=63b5810';
+import { outlinePlan } from '../core/outline-plan.js?v=63b5810';
+import { meshLayer, anatomyLayer } from '../core/mesh-meta.js?v=63b5810';
+import { createAnatomyCap } from './anatomy-cap.js?v=63b5810';
+import { makeGlassMaterial, makeAnatomyMaterial, makeOpaqueAnatomyMaterial, makeVoxelMaterial, makeSurfaceMaterial, makeSharedVoxelUniforms } from './materials.js?v=63b5810';
+import { makeBorderMaterial, makeBorderGeometry, applyLabels } from './parcellation.js?v=63b5810';
+import { OutlinePass, makeThresholdDepthMaterial, makePlainDepthMaterial, DEPTH_CLEAR } from './passes.js?v=63b5810';
 
 const _clearScratch = new THREE.Color();   // save/restore around a depth-target clear
 const _colScratch = new THREE.Color();     // hex → linear RGB for the live line-colour uniforms

@@ -8,11 +8,11 @@
  *  - No server: upload / remove / layout-change call back into app.js (which runs the
  *    Pyodide pipeline and rebuilds the engine in-place) instead of POSTing + reloading.
  */
-import { resolveColormap } from '../core/colormap.js?v=2026-08-19';
-import { overlayStyle, setOverlayStyle } from '../core/config-schema.js?v=2026-08-19';
-import { createCmapPicker } from './cmap-picker.js?v=2026-08-19';
-import { PRESET_LABELS } from '../core/presets.js?v=2026-08-19';
-import { loadSavedLayouts, saveLayout, deleteLayout } from './layout-presets.js?v=2026-08-19';
+import { resolveColormap } from '../core/colormap.js?v=63b5810';
+import { overlayStyle, setOverlayStyle } from '../core/config-schema.js?v=63b5810';
+import { createCmapPicker } from './cmap-picker.js?v=63b5810';
+import { PRESET_LABELS } from '../core/presets.js?v=63b5810';
+import { loadSavedLayouts, saveLayout, deleteLayout } from './layout-presets.js?v=63b5810';
 
 const $ = (id) => document.getElementById(id);
 const trimNum = (v) => { const n = parseFloat(v); return Number.isInteger(n) ? String(n) : String(Math.round(n * 1e4) / 1e4); };
