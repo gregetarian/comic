@@ -429,7 +429,8 @@
   }
   </script>
   <script type="module">
-    import('./app/main.js').catch((err) => {
+    // Version the entrypoint so a Pages redeploy cannot reuse an obsolete module graph.
+    import('./app/main.js?v=2026-08-19').catch((err) => {
       console.error(err);
       const el = document.getElementById('loading');
       if (el) el.textContent = 'Error: ' + err.message;
