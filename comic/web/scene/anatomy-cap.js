@@ -108,7 +108,7 @@ uniform sampler3D uStat;
 uniform sampler2D uLut;
 uniform mat4 uStatInv;
 uniform vec3 uStatDims, uSliceNormal;
-uniform float uSlabMm, uThreshold, uClusterMin, uPositiveOnly;
+uniform float uSlabMm, uThreshold, uClusterMin, uPositiveOnly, uInterpolation;
 uniform float uMode, uGamma, uMaxAbs, uHalfMap, uUseClim, uClimLo, uClimHi, uOpacity;
 out vec4 fragColor;
 
@@ -117,6 +117,19 @@ bool statAt(vec3 world, out vec2 stat) {
     vec3 tc = (vox + 0.5) / uStatDims;
     if (any(lessThan(tc, vec3(0.0))) || any(greaterThan(tc, vec3(1.0)))) return false;
     stat = texture(uStat, tc).rg;
+    return true;
+}
+
+// Threshold/cluster membership is a voxel property, not a continuous field.  In smooth mode the
+// old shader interpolated both channels with empty neighbours, which could make an otherwise valid
+// voxel fail either test and leave a hole in the cut face.  texelFetch gives us the owning voxel
+// unchanged; interpolation remains available below for the displayed value/colour.
+bool voxelStatAt(vec3 world, out vec2 stat) {
+    vec3 vox = (uStatInv * vec4(world, 1.0)).xyz;
+    ivec3 q = ivec3(floor(vox + 0.5));
+    ivec3 d = ivec3(uStatDims);
+    if (any(lessThan(q, ivec3(0))) || any(greaterThanEqual(q, d))) return false;
+    stat = texelFetch(uStat, q, 0).rg;
     return true;
 }
 
@@ -148,11 +161,18 @@ void main() {
     // Nine fixed samples make the shader deterministic while covering a user-selectable
     // thin slab.  Max-absolute projection preserves compact activation on oblique cuts.
     for (int j = -4; j <= 4; j++) {
-        vec2 s;
+        vec2 raw, smooth;
         vec3 p = vWorld + n * (float(j) / 8.0) * uSlabMm;
-        if (statAt(p, s) && passes(s) && abs(s.r) > bestAbs) {
-            best = s;
-            bestAbs = abs(s.r);
+        // Always use the unfiltered voxel for visibility and cluster membership.  If the user chose
+        // smooth map pixels, use the trilinear value only when it remains valid and has the same sign.
+        if (voxelStatAt(p, raw) && passes(raw)) {
+            vec2 shown = raw;
+            if (uInterpolation > 0.5 && statAt(p, smooth) && passes(smooth)
+                    && sign(smooth.r) == sign(raw.r)) shown.r = smooth.r;
+            if (abs(shown.r) > bestAbs) {
+                best = shown;
+                bestAbs = abs(shown.r);
+            }
         }
     }
     if (bestAbs < 0.0) discard;
@@ -165,10 +185,6 @@ function affineInverse(affine) {
         affine[1][0], affine[1][1], affine[1][2], affine[1][3],
         affine[2][0], affine[2][1], affine[2][2], affine[2][3],
         affine[3][0], affine[3][1], affine[3][2], affine[3][3]).invert();
-}
-
-function linearChannel(c) {
-    return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
 }
 
 /** Build the cap from {data,dims,affine,channels}. Returns the colour mesh plus its mask-aware
@@ -329,7 +345,8 @@ export function createAnatomyCap({ data, dims, affine, channels = 1 }, layer, ov
                     uStatDims: { value: new THREE.Vector3(...vol.dims) },
                     uSliceNormal: { value: new THREE.Vector3() },
                     uSlabMm: { value: 1 }, uThreshold: { value: 0 }, uClusterMin: { value: 0 },
-                    uPositiveOnly: { value: 0 }, uMode: { value: 0 }, uGamma: { value: 0.5 },
+                    uPositiveOnly: { value: 0 }, uInterpolation: { value: 1 },
+                    uMode: { value: 0 }, uGamma: { value: 0.5 },
                     uMaxAbs: { value: 1 }, uHalfMap: { value: 0 }, uUseClim: { value: 0 },
                     uClimLo: { value: 0 }, uClimHi: { value: 1 }, uOpacity: { value: 0.88 },
                 },
@@ -365,6 +382,7 @@ export function createAnatomyCap({ data, dims, affine, channels = 1 }, layer, ov
             u.uUseClim.value = clim ? 1 : 0;
             if (clim) { u.uClimLo.value = clim[0]; u.uClimHi.value = clim[1]; }
             u.uOpacity.value = Math.max(0, Math.min(1, cut.opacity ?? 0.88));
+            u.uInterpolation.value = cut.interpolation === 'nearest' ? 0 : 1;
             const filter = cut.interpolation === 'nearest' ? THREE.NearestFilter : THREE.LinearFilter;
             if (r.texture.minFilter !== filter || r.texture.magFilter !== filter) {
                 r.texture.minFilter = r.texture.magFilter = filter;
@@ -374,9 +392,11 @@ export function createAnatomyCap({ data, dims, affine, channels = 1 }, layer, ov
                 r.lut?.dispose();
                 const px = new Float32Array(s.cmap.n * 4);
                 for (let i = 0; i < s.cmap.n; i++) {
-                    px[i * 4] = linearChannel(s.cmap.lut[i * 3]);
-                    px[i * 4 + 1] = linearChannel(s.cmap.lut[i * 3 + 1]);
-                    px[i * 4 + 2] = linearChannel(s.cmap.lut[i * 3 + 2]);
+                    // RawShaderMaterial bypasses Three's colour-management chunks.  Store the LUT's
+                    // display-space RGB directly so cut faces match the same map on 3-D voxels.
+                    px[i * 4] = s.cmap.lut[i * 3];
+                    px[i * 4 + 1] = s.cmap.lut[i * 3 + 1];
+                    px[i * 4 + 2] = s.cmap.lut[i * 3 + 2];
                     px[i * 4 + 3] = 1;
                 }
                 r.lut = new THREE.DataTexture(px, s.cmap.n, 1, THREE.RGBAFormat, THREE.FloatType);

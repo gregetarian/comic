@@ -43,7 +43,7 @@ test('blob edge mode defaults by representation and can be overridden', () => {
     base.style.overlays = [{ voxel: { edges: { mode: 'full' } } }];
     assert.equal(overlayStyle(base, 0).edges.mode, 'full');
     base.style.voxel.representation = 'blocky';
-    base.style.overlays = [{ voxel: { edges: { mode: 'outer' } }];
+    base.style.overlays = [{ voxel: { edges: { mode: 'outer' } } }];
     assert.equal(overlayStyle(base, 0).edges.mode, 'outer');
 });
 

@@ -16,7 +16,7 @@ import { resolveColormap, colorizeValues, deriveMaxAbs } from '../core/colormap.
 import { overlayStyle } from '../core/config-schema.js?v=edge-v1';
 import { outlinePlan } from '../core/outline-plan.js?v=edge-v1';
 import { meshLayer, anatomyLayer } from '../core/mesh-meta.js?v=edge-v1';
-import { createAnatomyCap } from './anatomy-cap.js?v=edge-v1';
+import { createAnatomyCap } from './anatomy-cap.js?v=cut-face-v1';
 import { makeGlassMaterial, makeAnatomyMaterial, makeOpaqueAnatomyMaterial, makeVoxelMaterial, makeSurfaceMaterial, makeSharedVoxelUniforms } from './materials.js?v=edge-v1';
 import { makeBorderMaterial, makeBorderGeometry, applyLabels } from './parcellation.js?v=edge-v1';
 import { OutlinePass, makeThresholdDepthMaterial, makePlainDepthMaterial, makeHardOccluderDepthMaterial, DEPTH_CLEAR } from './passes.js?v=edge-v1';
