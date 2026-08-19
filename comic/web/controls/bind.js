@@ -9,7 +9,7 @@
  *    Pyodide pipeline and rebuilds the engine in-place) instead of POSTing + reloading.
  */
 import { resolveColormap } from '../core/colormap.js?v=edge-v1';
-import { overlayStyle, setOverlayStyle } from '../core/config-schema.js?v=edge-v1';
+import { overlayStyle, setOverlayStyle } from '../core/config-schema.js?v=cut-map-v1';
 import { createCmapPicker } from './cmap-picker.js?v=edge-v1';
 import { PRESET_LABELS } from '../core/presets.js?v=edge-v1';
 import { loadSavedLayouts, saveLayout, deleteLayout } from './layout-presets.js?v=edge-v1';

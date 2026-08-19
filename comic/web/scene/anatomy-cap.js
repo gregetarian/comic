@@ -112,96 +112,58 @@ void main() {
 const OVERLAY_FRAG = `
 precision highp float;
 precision highp sampler3D;
-${SAMPLE_GLSL}
-uniform sampler3D uStat;
+uniform sampler3D uAnat, uStat;
 uniform sampler2D uLut;
-uniform mat4 uStatInv;
-uniform vec3 uStatDims, uSliceNormal;
-uniform vec3 uLightDir;
-uniform float uSlabMm, uThreshold, uClusterMin, uPositiveOnly, uInterpolation;
+uniform mat4 uAnatInv, uStatInv;
+uniform vec3 uDims, uStatDims, uSliceNormal, uLightDir;
+uniform float uMaskMode, uHemisphere, uAirEps;
+uniform float uSlabMm, uThreshold, uClusterMin, uPositiveOnly;
 uniform float uMode, uGamma, uMaxAbs, uHalfMap, uUseClim, uClimLo, uClimHi, uOpacity;
 uniform float uDirectional, uAmbient, uEmissive;
-in vec3 vViewNormal;
+in vec3 vWorld, vViewNormal;
 out vec4 fragColor;
 
-vec3 srgbToLinear(vec3 c) {
-    bvec3 lo = lessThanEqual(c, vec3(0.04045));
-    return mix(pow((c + 0.055) / 1.055, vec3(2.4)), c / 12.92, lo);
-}
-vec3 linearToSrgb(vec3 c) {
-    c = clamp(c, 0.0, 1.0);
-    bvec3 lo = lessThanEqual(c, vec3(0.0031308));
-    return mix(1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, c * 12.92, lo);
-}
-
-bool statAt(vec3 world, out vec2 stat) {
-    vec3 vox = (uStatInv * vec4(world, 1.0)).xyz;
-    vec3 tc = (vox + 0.5) / uStatDims;
-    if (any(lessThan(tc, vec3(0.0))) || any(greaterThan(tc, vec3(1.0)))) return false;
-    stat = texture(uStat, tc).rg;
-    return true;
-}
-
-// Threshold/cluster membership is a voxel property, not a continuous field.  In smooth mode the
-// old shader interpolated both channels with empty neighbours, which could make an otherwise valid
-// voxel fail either test and leave a hole in the cut face.  texelFetch gives us the owning voxel
-// unchanged; interpolation remains available below for the displayed value/colour.
-bool voxelStatAt(vec3 world, out vec2 stat) {
-    vec3 vox = (uStatInv * vec4(world, 1.0)).xyz;
-    ivec3 q = ivec3(floor(vox + 0.5));
-    ivec3 d = ivec3(uStatDims);
-    if (any(lessThan(q, ivec3(0))) || any(greaterThanEqual(q, d))) return false;
-    stat = texelFetch(uStat, q, 0).rg;
-    return true;
-}
-
-bool passes(vec2 s) {
-    return abs(s.r) >= uThreshold && s.g >= uClusterMin
-        && (uPositiveOnly < 0.5 || s.r > 0.0);
-}
-
-float valueToT(float v) {
+float mapT(float v) {
     if (uUseClim > 0.5)
-        return pow(clamp((v - uClimLo) / max(uClimHi - uClimLo, 1e-10), 0.0, 1.0), uGamma);
+        return pow(clamp((v-uClimLo)/max(uClimHi-uClimLo,1e-10),0.0,1.0),uGamma);
     if (uMode > 0.5) {
-        float sn = clamp(abs(v) / max(uMaxAbs, 1e-10), 0.0, 1.0) * sign(v);
-        float amp = sign(sn) * pow(abs(sn), uGamma);
-        return (amp + 1.0) * 0.5;
+        float a = sign(v)*pow(clamp(abs(v)/max(uMaxAbs,1e-10),0.0,1.0),uGamma);
+        return 0.5+0.5*a;
     }
-    float amp = pow(clamp(abs(v) / max(uMaxAbs, 1e-10), 0.0, 1.0), uGamma);
-    if (uHalfMap > 0.5) return 0.5 + 0.5 * amp;
-    if (uHalfMap < -0.5) return 0.5 - 0.5 * amp;
-    return pow(clamp(v / max(uMaxAbs, 1e-10), 0.0, 1.0), uGamma);
+    float a = pow(clamp(abs(v)/max(uMaxAbs,1e-10),0.0,1.0),uGamma);
+    if (uHalfMap > 0.5) return 0.5+0.5*a;
+    if (uHalfMap < -0.5) return 0.5-0.5*a;
+    return pow(clamp(v/max(uMaxAbs,1e-10),0.0,1.0),uGamma);
 }
 
 void main() {
-    float anatomy;
-    if (!gbSampleAnatomy(anatomy)) discard;
-    vec2 best = vec2(0.0);
-    float bestAbs = -1.0;
+    vec3 av = (uAnatInv*vec4(vWorld,1.0)).xyz;
+    vec3 at = (av+0.5)/uDims;
+    if (any(lessThan(at,vec3(0.0))) || any(greaterThan(at,vec3(1.0)))) discard;
+    vec4 anat = texture(uAnat,at);
+    float mask = uMaskMode > 1.5
+        ? (uHemisphere < 0.5 ? anat.g : (uHemisphere < 1.5 ? anat.b : anat.a))
+        : (uMaskMode > 0.5 ? anat.g : step(uAirEps,anat.r));
+    if (mask <= 0.5) discard;
+
+    float best = 0.0, bestAbs = -1.0;
     vec3 n = length(uSliceNormal) > 0.5 ? normalize(uSliceNormal) : vec3(0.0);
-    // Nine fixed samples make the shader deterministic while covering a user-selectable
-    // thin slab.  Max-absolute projection preserves compact activation on oblique cuts.
-    for (int j = -4; j <= 4; j++) {
-        vec2 raw, smooth;
-        vec3 p = vWorld + n * (float(j) / 8.0) * uSlabMm;
-        // Always use the unfiltered voxel for visibility and cluster membership.  If the user chose
-        // smooth map pixels, use the trilinear value only when it remains valid and has the same sign.
-        if (voxelStatAt(p, raw) && passes(raw)) {
-            vec2 shown = raw;
-            if (uInterpolation > 0.5 && statAt(p, smooth) && passes(smooth)
-                    && sign(smooth.r) == sign(raw.r)) shown.r = smooth.r;
-            if (abs(shown.r) > bestAbs) {
-                best = shown;
-                bestAbs = abs(shown.r);
-            }
+    for (int j=-4;j<=4;j++) {
+        vec3 p = vWorld+n*(float(j)/8.0)*uSlabMm;
+        vec3 sv = (uStatInv*vec4(p,1.0)).xyz;
+        vec3 st = (sv+0.5)/uStatDims;
+        if (all(greaterThanEqual(st,vec3(0.0))) && all(lessThanEqual(st,vec3(1.0)))) {
+            vec2 s = texture(uStat,st).rg;
+            bool ok = abs(s.r)>=uThreshold && s.g>=uClusterMin
+                && (uPositiveOnly<0.5 || s.r>0.0);
+            if (ok && abs(s.r)>bestAbs) { best=s.r; bestAbs=abs(s.r); }
         }
     }
-    if (bestAbs < 0.0) discard;
-    vec3 nrm = gl_FrontFacing ? normalize(vViewNormal) : -normalize(vViewNormal);
-    float gain = uEmissive + (uAmbient + uDirectional * max(dot(nrm, normalize(uLightDir)), 0.0)) / 3.14159265;
-    vec3 rgb = texture(uLut, vec2(valueToT(best.r), 0.5)).rgb;
-    fragColor = vec4(linearToSrgb(srgbToLinear(rgb) * gain), uOpacity);
+    if (bestAbs<0.0) discard;
+    vec3 normal = gl_FrontFacing ? normalize(vViewNormal) : -normalize(vViewNormal);
+    float gain = uEmissive+(uAmbient+uDirectional*max(dot(normal,normalize(uLightDir)),0.0))/3.14159265;
+    vec3 rgb = texture(uLut,vec2(mapT(best),0.5)).rgb;
+    fragColor = vec4(clamp(rgb*gain,0.0,1.0),uOpacity);
 }`;
 
 function affineInverse(affine) {
@@ -373,7 +335,7 @@ export function createAnatomyCap({ data, dims, affine, channels = 1 }, layer, ov
                     uStatDims: { value: new THREE.Vector3(...vol.dims) },
                     uSliceNormal: { value: new THREE.Vector3() },
                     uLightDir: { value: new THREE.Vector3(0, 0, 1) },
-                    uSlabMm: { value: 1 }, uThreshold: { value: 0 }, uClusterMin: { value: 0 },
+                    uSlabMm: { value: 80 }, uThreshold: { value: 0 }, uClusterMin: { value: 0 },
                     uPositiveOnly: { value: 0 }, uInterpolation: { value: 1 },
                     uMode: { value: 0 }, uGamma: { value: 0.5 },
                     uMaxAbs: { value: 1 }, uHalfMap: { value: 0 }, uUseClim: { value: 0 },
@@ -400,7 +362,7 @@ export function createAnatomyCap({ data, dims, affine, channels = 1 }, layer, ov
             const s = specs[r.overlayIndex] || {};
             const u = r.material.uniforms;
             const cut = s.cut || {};
-            u.uSlabMm.value = Math.max(0, cut.slabMm ?? 1);
+            u.uSlabMm.value = Math.max(0, cut.slabMm ?? 80);
             u.uThreshold.value = Math.max(0, s.threshold ?? 0);
             u.uClusterMin.value = Math.max(0, s.clusterMin ?? 0);
             u.uPositiveOnly.value = s.positiveOnly ? 1 : 0;

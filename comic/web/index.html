@@ -311,7 +311,7 @@
         <button class="btn" id="c-slice-anat" title="Cut MRI: when a panel is sliced (the ✂ button in Free Canvas), paint the anatomical T1 cross-section — white/gray matter, like a coronal MRI — on the exposed cut face. Loads a small anatomy volume on first use.">Cut MRI</button>
         <button class="btn" id="c-cut-overlay" title="Put each thresholded statistical map on the exposed MRI face. These map controls do not change the anatomical MRI.">Cut map</button>
         <span class="cut-map-options" id="c-cut-map-options">
-          <span class="sw" title="Statistical map only: search this total depth around the cut and show the strongest surviving voxel. Use 0 mm for the exact cut plane."><span>map depth</span><input type="number" class="thrbox" id="c-cut-slab" value="1" min="0" max="20" step="0.5"><span>mm</span></span>
+          <span class="sw" title="Statistical map only: search this total depth around the cut and show the strongest surviving voxel. Use 0 mm for the exact cut plane."><span>map depth</span><input type="number" class="thrbox" id="c-cut-slab" value="80" min="0" max="80" step="0.5"><span>mm</span></span>
           <span class="sw" title="Statistical map only: Smooth blends neighbouring source voxels; voxel-sharp preserves their block boundaries."><span>map pixels</span><select class="btn" id="c-cut-interp"><option value="linear">smooth</option><option value="nearest">voxel-sharp</option></select></span>
         </span>
         <button class="btn" id="c-template-qa" title="Inspect the declared template assets, shared transform, and measured T1↔pial alignment">Template QA</button>
@@ -431,7 +431,7 @@
   }
   </script>
   <script type="module">
-    import('./app/main.js?v=cut-light-v1').catch((err) => {
+    import('./app/main.js?v=cut-map-v1').catch((err) => {
       console.error(err);
       const el = document.getElementById('loading');
       if (el) el.textContent = 'Error: ' + err.message;

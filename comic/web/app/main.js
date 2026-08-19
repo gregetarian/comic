@@ -13,14 +13,14 @@
 import * as THREE from 'three';
 import { resolveConfig } from '../core/presets.js?v=edge-v1';
 import { loadColormaps } from '../core/colormap.js?v=edge-v1';
-import { setOverlayStyle } from '../core/config-schema.js?v=edge-v1';
+import { setOverlayStyle } from '../core/config-schema.js?v=cut-map-v1';
 import { createPresetsUI, randomColormapName } from '../controls/style-presets.js?v=edge-v1';
 import { contentBBoxPx } from '../core/bbox.js?v=edge-v1';
 import { loadBaseScene, buildOverlayMeshes, buildCutVolume, loadOverlayArrays, loadAnatomyVolume, loadParcellation, loadParcellationIndex } from '../scene/asset-loader.js?v=edge-v1';
-import { createEngine } from '../scene/renderer.js?v=cut-light-v1';
+import { createEngine } from '../scene/renderer.js?v=cut-map-v1';
 import { createColorbar } from '../controls/colorbar.js?v=edge-v1';
 import { initKapow } from '../controls/kapow.js?v=edge-v1';
-import { bindGlobalControls, buildOverlayRows } from '../controls/bind.js?v=edge-v1';
+import { bindGlobalControls, buildOverlayRows } from '../controls/bind.js?v=cut-map-v1';
 import { buildRenderText, usesFigureSpec, buildSpec } from '../controls/cli-export.js?v=edge-v1';
 import { createFreeCanvasEditor } from '../controls/freecanvas.js?v=cut-light-v1';
 import { exportSpinGif } from '../controls/gif-export.js?v=edge-v1';
@@ -135,7 +135,7 @@ async function main() {
     const slab = document.getElementById('c-cut-slab');
     const interp = document.getElementById('c-cut-interp');
     if (slab) {
-        slab.value = config.style.cutOverlay?.slabMm ?? 1;
+        slab.value = config.style.cutOverlay?.slabMm ?? 80;
         slab.addEventListener('input', () => {
             config.style.cutOverlay.slabMm = Math.max(0, Number(slab.value) || 0);
             engine.applyStyle(); engine.renderFrame();

@@ -108,7 +108,9 @@ export const DEFAULTS = {
         // Statistical values on that same exposed face. The source NIfTI grid is retained in a
         // compact world-registered texture; a thin max-absolute slab makes oblique cuts legible.
         // This is deliberately independent of the ordinary blocky/smooth/surface representation.
-        cutOverlay: { enabled: false, slabMm: 1, interpolation: 'linear', opacity: 0.88 },
+        // Project through the visible volume by default so a cut face does not look empty merely
+        // because activation sits below the plane. Users can reduce this to 0 for exact-plane.
+        cutOverlay: { enabled: false, slabMm: 80, interpolation: 'linear', opacity: 0.88 },
         // Inter-voxel shadows (clusters casting onto each other). Off by default —
         // the depth veil + voxel edges carry the depth cue without darkening
         // clusters where they overlap. Re-enable with --shadows.

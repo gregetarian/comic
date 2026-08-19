@@ -560,7 +560,7 @@ test('DEFAULTS carry the M2 additions with backward-compatible identities', () =
 test('overlayStyle resolves clim/units/surfaceDepth with per-overlay override', () => {
     const cfg = { style: { clim: null, units: { value: 'stat', cluster: 'voxels' },
         voxel: { surfaceDepth: 6, representation: 'smooth', subcortexRepresentation: 'smooth' },
-        cutOverlay: { enabled: false, slabMm: 1, interpolation: 'linear', opacity: 0.88 },
+        cutOverlay: { enabled: false, slabMm: 80, interpolation: 'linear', opacity: 0.88 },
         overlays: [{ clim: [0, 8], units: { value: 'z' }, voxel: {
             representation: 'surface', subcortexRepresentation: 'blocky' },
             cutOverlay: { enabled: true, slabMm: 3, interpolation: 'nearest' } }] } };
