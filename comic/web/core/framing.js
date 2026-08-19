@@ -7,8 +7,8 @@
  * and "near-hemisphere only" fall out for free, and we get a tight per-panel
  * near/far that feeds the depth-veil shader.
  */
-import { resolveCamera, cameraBasis } from './cameras.js?v=63b5810';
-import { normalize, sub, dot } from './units.js?v=63b5810';
+import { resolveCamera, cameraBasis } from './cameras.js?v=a25cdc7';
+import { normalize, sub, dot } from './units.js?v=a25cdc7';
 
 const EMPTY = () => ({ min: [Infinity, Infinity, Infinity], max: [-Infinity, -Infinity, -Infinity] });
 
@@ -59,6 +59,25 @@ export function viewDepthRange(aabb, position, lookAt) {
     const depth = dot(sub(c, position), fwd);
     const halfD = projHalf(he, fwd);
     return { nearZ: depth - halfD, farZ: depth + halfD };
+}
+
+/**
+ * Exact view-space depth range of sampled WORLD positions for the current panel camera.
+ * This avoids the empty-corner error of projecting an axis-aligned bounding box in an oblique
+ * view. Re-evaluating the same samples against each panel pose makes the gate follow that panel's
+ * live yaw/pitch/world-axis rotation.
+ */
+export function viewDepthRangeOfPositions(positions, position, lookAt) {
+    const fwd = normalize(sub(lookAt, position));
+    let nearZ = Infinity, farZ = -Infinity;
+    for (let i = 0; i + 2 < positions.length; i += 3) {
+        const d = (positions[i] - position[0]) * fwd[0]
+            + (positions[i + 1] - position[1]) * fwd[1]
+            + (positions[i + 2] - position[2]) * fwd[2];
+        if (d < nearZ) nearZ = d;
+        if (d > farZ) farZ = d;
+    }
+    return isFinite(nearZ) ? { nearZ, farZ } : null;
 }
 
 /**

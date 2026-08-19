@@ -7,7 +7,7 @@
  * file entry styles the i-th overlay; if the file has FEWER entries than on-screen
  * overlays, the extras get a random colormap; if it has MORE, the surplus is ignored.
  */
-import { overlayStyle, setOverlayStyle, deepMerge } from '../core/config-schema.js?v=63b5810';
+import { overlayStyle, setOverlayStyle, deepMerge } from '../core/config-schema.js?v=a25cdc7';
 
 const KEY = 'comic.stylePresets.v1';
 // Global style fields a preset carries (everything in config.style EXCEPT the per-overlay

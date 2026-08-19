@@ -11,24 +11,24 @@
  *     for the Playwright driver to screenshot. Same engine + same array geometry as the browser.
  */
 import * as THREE from 'three';
-import { resolveConfig } from '../core/presets.js?v=63b5810';
-import { loadColormaps } from '../core/colormap.js?v=63b5810';
-import { setOverlayStyle } from '../core/config-schema.js?v=63b5810';
-import { createPresetsUI, randomColormapName } from '../controls/style-presets.js?v=63b5810';
-import { contentBBoxPx } from '../core/bbox.js?v=63b5810';
-import { loadBaseScene, buildOverlayMeshes, buildCutVolume, loadOverlayArrays, loadAnatomyVolume, loadParcellation, loadParcellationIndex } from '../scene/asset-loader.js?v=63b5810';
-import { createEngine } from '../scene/renderer.js?v=63b5810';
-import { createColorbar } from '../controls/colorbar.js?v=63b5810';
-import { initKapow } from '../controls/kapow.js?v=63b5810';
-import { bindGlobalControls, buildOverlayRows } from '../controls/bind.js?v=63b5810';
-import { buildRenderText, usesFigureSpec, buildSpec } from '../controls/cli-export.js?v=63b5810';
-import { createFreeCanvasEditor } from '../controls/freecanvas.js?v=63b5810';
-import { exportSpinGif } from '../controls/gif-export.js?v=63b5810';
-import { processNifti, processSurface, processParcelValues } from '../pyodide/bootstrap.js?v=63b5810';
-import { VOL_RE, isSurfaceFile, isParcelValueFile, groupSurfaceFiles, surfaceOverlayName } from '../core/surface-files.js?v=63b5810';
-import { parseValueTable, inferAtlas, valuesToVertexMaps, namedValuesToParcelOrder } from '../core/parcel-values.js?v=63b5810';
-import { askAtlas } from '../controls/atlas-prompt.js?v=63b5810';
-import { createSessionState } from './state.js?v=63b5810';
+import { resolveConfig } from '../core/presets.js?v=a25cdc7';
+import { loadColormaps } from '../core/colormap.js?v=a25cdc7';
+import { setOverlayStyle } from '../core/config-schema.js?v=a25cdc7';
+import { createPresetsUI, randomColormapName } from '../controls/style-presets.js?v=a25cdc7';
+import { contentBBoxPx } from '../core/bbox.js?v=a25cdc7';
+import { loadBaseScene, buildOverlayMeshes, buildCutVolume, loadOverlayArrays, loadAnatomyVolume, loadParcellation, loadParcellationIndex } from '../scene/asset-loader.js?v=a25cdc7';
+import { createEngine } from '../scene/renderer.js?v=a25cdc7';
+import { createColorbar } from '../controls/colorbar.js?v=a25cdc7';
+import { initKapow } from '../controls/kapow.js?v=a25cdc7';
+import { bindGlobalControls, buildOverlayRows } from '../controls/bind.js?v=a25cdc7';
+import { buildRenderText, usesFigureSpec, buildSpec } from '../controls/cli-export.js?v=a25cdc7';
+import { createFreeCanvasEditor } from '../controls/freecanvas.js?v=a25cdc7';
+import { exportSpinGif } from '../controls/gif-export.js?v=a25cdc7';
+import { processNifti, processSurface, processParcelValues } from '../pyodide/bootstrap.js?v=a25cdc7';
+import { VOL_RE, isSurfaceFile, isParcelValueFile, groupSurfaceFiles, surfaceOverlayName } from '../core/surface-files.js?v=a25cdc7';
+import { parseValueTable, inferAtlas, valuesToVertexMaps, namedValuesToParcelOrder } from '../core/parcel-values.js?v=a25cdc7';
+import { askAtlas } from '../controls/atlas-prompt.js?v=a25cdc7';
+import { createSessionState } from './state.js?v=a25cdc7';
 
 const DATA = 'data/';
 const DEMO_ASSET_VER = 'cut-volume-v1';
@@ -1064,26 +1064,23 @@ function compositeBars(g, el, pad, savePr) {
     });
 }
 
-/** Save the brains ONLY at full resolution — no colorbars, never squashed. Temporarily
- *  drops the colorbar strip so the canvas fills the full container height. */
+/** Save the brains exactly as they are framed/styled in the live viewer, but
+ * rerender the SAME CSS viewport at publication resolution before the tight crop. */
 function saveBrain() {
     const btn = document.getElementById('c-save-brain');
     const label = btn.textContent; btn.textContent = 'Saving…';
     const basePr = window.devicePixelRatio || 1;
-    const saved = { ow: config.style.outline.width, margin: config.style.margin };
-    const barEl = colorbar && colorbar.el;
     try {
-        if (barEl) barEl.style.display = 'none';
-        document.documentElement.style.setProperty('--cbstrip', '0px');   // canvas → full height
-        const cssW = canvas.clientWidth, cssH = canvas.clientHeight;       // forces reflow; cssH is now full
-        const savePr = Math.min(4, Math.max(basePr, Math.ceil(3800 / cssW)));
-        config.style.outline.width = saved.ow * 0.6;                       // print look: thinner lines
-        config.style.margin = (saved.margin ?? 0.95) + 0.13;
-        engine.applyStyle();
+        // Keep the live viewport, colourbar allocation, pan/zoom, margins and style untouched.
+        // Resolution changes only the backing-store sampling density.
+        const cssW = canvas.clientWidth, cssH = canvas.clientHeight;
+        const maxTex = renderer.capabilities?.maxTextureSize || 8192;
+        const maxSafePr = Math.max(1, Math.floor(maxTex / Math.max(cssW, cssH)));
+        const savePr = Math.max(1, Math.min(6, Math.max(basePr, 4), maxSafePr));
+
         engine.setPixelRatio(savePr);
-        // Outline/edge widths are in DEVICE TEXELS, so the higher save pixel ratio would
-        // thin them (and make the line-width slider look inert in the PNG). Compensate so
-        // the saved line keeps its on-screen relative thickness. Restored by applyStyle() below.
+        // Outline widths live in device texels. Scale only by the ratio change so the saved
+        // lines retain exactly the same CSS-space thickness as the live viewer.
         engine.scaleOutlines(savePr / basePr);
         engine.resize(cssW, cssH);
         engine.renderFrame();
@@ -1091,15 +1088,15 @@ function saveBrain() {
         const out = document.createElement('canvas');
         out.width = Math.round(cssW * savePr); out.height = Math.round(cssH * savePr);
         const g = out.getContext('2d');
-        // Transparent background (Free Canvas bgAlpha<1): skip the white fill so the saved
-        // PNG keeps its alpha; the live canvas is already cleared with the same alpha.
         if ((config.layout?.canvas?.bgAlpha ?? 1) >= 1) {
             g.fillStyle = (config.render && config.render.background) || '#ffffff';
             g.fillRect(0, 0, out.width, out.height);
         }
+        // At savePr the WebGL backing store already has this exact size: this is a 1:1 copy,
+        // not a low-resolution browser image being enlarged.
         g.drawImage(canvas, 0, 0, out.width, out.height);
-        // Crop to the tight bounding box of the visible brains (no clipping, small AA pad)
-        // — the saved PNG is just the brains, not the whole (possibly zoomed/panned) canvas.
+
+        // Crop only; do not reframe or restyle.
         const box = contentBBoxPx(engine);
         let final = out;
         if (box && box.w >= 4 && box.h >= 4) {
@@ -1110,12 +1107,9 @@ function saveBrain() {
         }
         downloadPng(final, 'glassbrain.png');
     } finally {
-        config.style.outline.width = saved.ow;
-        config.style.margin = saved.margin;
-        if (barEl) barEl.style.display = '';
         engine.applyStyle();
         engine.setPixelRatio(basePr);
-        fit();                  // recomputes the strip + canvas size and re-renders
+        fit();
         btn.textContent = label;
     }
 }
@@ -1138,7 +1132,7 @@ function saveBars() {
     try {
         const pad = 8;
         const basePr = window.devicePixelRatio || 1;
-        const savePr = Math.min(4, Math.max(basePr, 3));
+        const savePr = Math.min(6, Math.max(basePr, 4));
         const wrap = cb.el.getBoundingClientRect();
         const out = document.createElement('canvas');
         out.width = Math.round((wrap.width + pad * 2) * savePr);

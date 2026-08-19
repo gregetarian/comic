@@ -6,8 +6,8 @@
  * 9-panel view are expressed in the SAME vocabulary — no code branches on panel
  * identity, so both render identically in the browser and headlessly.
  */
-import { normalizeConfig } from './config-schema.js?v=63b5810';
-import { VIEWS } from './views.js?v=63b5810';
+import { normalizeConfig } from './config-schema.js?v=a25cdc7';
+import { VIEWS } from './views.js?v=a25cdc7';
 
 const cortexVoxel = (hemisphere) => ({ roles: ['cortex', 'voxel'], hemisphere });
 // Cortex panels share one world scale so each brain is the same physical size.

@@ -315,7 +315,8 @@
           <span class="sw" title="Statistical map only: Smooth blends neighbouring source voxels; voxel-sharp preserves their block boundaries."><span>map pixels</span><select class="btn" id="c-cut-interp"><option value="linear">smooth</option><option value="nearest">voxel-sharp</option></select></span>
         </span>
         <button class="btn" id="c-template-qa" title="Inspect the declared template assets, shared transform, and measured T1↔pial alignment">Template QA</button>
-        <div class="sw"><span>cortex α</span><input type="range" id="c-cortex"></div>
+        <div class="sw" title="Cortex surface opacity. Only the nearest cortical surface at each pixel contributes: deeper folds do not stack alpha. Above 1, face-on cortex progressively becomes opaque."><span>cortex α</span><input type="range" id="c-cortex"></div>
+        <div class="sw" title="Anatomical background colour for cortex and subcortex"><span>brain</span><input type="color" class="swatch" id="c-brain-color"></div>
         <div class="sw"><span>edge thr</span><input type="range" id="c-outline-thresh"></div>
         <div class="sw"><span>line w</span><input type="range" id="c-outline-width"></div>
         <div class="sw"><span>vox α</span><input type="range" id="c-outline-overvox"></div>
@@ -388,7 +389,7 @@
           <h3>Global look</h3>
           <ul>
             <li><b>Inflate</b> pial↔inflated cortex · <b>Surface</b> project all maps onto the cortex · <b>Outline</b> the cortex lines.</li>
-            <li><b>cortex α</b> glass opacity · <b>edge thr</b> / <b>line w</b> cortex-line density &amp; thickness · <b>vox α</b> line strength over voxels.</li>
+            <li><b>cortex α</b> glass opacity · <b>brain</b> cortex/subcortex background colour · <b>edge thr</b> / <b>line w</b> cortex-line density &amp; thickness · <b>vox α</b> line strength over statistical voxels only.</li>
             <li><b>Cut MRI</b> — on a sliced panel, reveal the native 1 mm anatomical T1 cross-section. <b>Cut map</b> adds thresholded NIfTI values; <b>map depth</b> searches around the plane for activation and <b>map pixels</b> controls only that statistical overlay.</li>
           </ul>
           <h3>Layouts</h3>
@@ -423,15 +424,14 @@
   <script type="importmap">
   {
     "imports": {
-      "three": "./vendor/three/0.170.0/three.module.js?v=63b5810",
-      "three/addons/loaders/GLTFLoader.js": "./vendor/three/0.170.0/addons/loaders/GLTFLoader.js?v=63b5810",
+      "three": "./vendor/three/0.170.0/three.module.js?v=a25cdc7",
+      "three/addons/loaders/GLTFLoader.js": "./vendor/three/0.170.0/addons/loaders/GLTFLoader.js?v=a25cdc7",
       "three/addons/": "./vendor/three/0.170.0/addons/"
     }
   }
   </script>
   <script type="module">
-    // Version the entrypoint so a Pages redeploy cannot reuse an obsolete module graph.
-    import('./app/main.js?v=63b5810').catch((err) => {
+    import('./app/main.js?v=a25cdc7').catch((err) => {
       console.error(err);
       const el = document.getElementById('loading');
       if (el) el.textContent = 'Error: ' + err.message;

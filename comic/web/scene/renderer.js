@@ -7,19 +7,19 @@
  * the global voxel template). Cortex/anatomy/lighting/outline stay global.
  */
 import * as THREE from 'three';
-import { layoutGrid, freeRect } from '../core/grid.js?v=63b5810';
-import { frameContent, mergeAABB, viewDepthRange } from '../core/framing.js?v=63b5810';
-import { normalize, sub } from '../core/units.js?v=63b5810';
-import { cameraBasis } from '../core/cameras.js?v=63b5810';
-import { visible } from '../core/visibility.js?v=63b5810';
-import { resolveColormap, colorizeValues, deriveMaxAbs } from '../core/colormap.js?v=63b5810';
-import { overlayStyle } from '../core/config-schema.js?v=63b5810';
-import { outlinePlan } from '../core/outline-plan.js?v=63b5810';
-import { meshLayer, anatomyLayer } from '../core/mesh-meta.js?v=63b5810';
-import { createAnatomyCap } from './anatomy-cap.js?v=63b5810';
-import { makeGlassMaterial, makeAnatomyMaterial, makeOpaqueAnatomyMaterial, makeVoxelMaterial, makeSurfaceMaterial, makeSharedVoxelUniforms } from './materials.js?v=63b5810';
-import { makeBorderMaterial, makeBorderGeometry, applyLabels } from './parcellation.js?v=63b5810';
-import { OutlinePass, makeThresholdDepthMaterial, makePlainDepthMaterial, DEPTH_CLEAR } from './passes.js?v=63b5810';
+import { layoutGrid, freeRect } from '../core/grid.js?v=a25cdc7';
+import { frameContent, mergeAABB, viewDepthRange, viewDepthRangeOfPositions } from '../core/framing.js?v=a25cdc7';
+import { normalize, sub } from '../core/units.js?v=a25cdc7';
+import { cameraBasis } from '../core/cameras.js?v=a25cdc7';
+import { visible } from '../core/visibility.js?v=a25cdc7';
+import { resolveColormap, colorizeValues, deriveMaxAbs } from '../core/colormap.js?v=a25cdc7';
+import { overlayStyle } from '../core/config-schema.js?v=a25cdc7';
+import { outlinePlan } from '../core/outline-plan.js?v=a25cdc7';
+import { meshLayer, anatomyLayer } from '../core/mesh-meta.js?v=a25cdc7';
+import { createAnatomyCap } from './anatomy-cap.js?v=a25cdc7';
+import { makeGlassMaterial, makeAnatomyMaterial, makeOpaqueAnatomyMaterial, makeVoxelMaterial, makeSurfaceMaterial, makeSharedVoxelUniforms } from './materials.js?v=a25cdc7';
+import { makeBorderMaterial, makeBorderGeometry, applyLabels } from './parcellation.js?v=a25cdc7';
+import { OutlinePass, makeThresholdDepthMaterial, makePlainDepthMaterial, makeHardOccluderDepthMaterial, DEPTH_CLEAR } from './passes.js?v=a25cdc7';
 
 const _clearScratch = new THREE.Color();   // save/restore around a depth-target clear
 const _colScratch = new THREE.Color();     // hex → linear RGB for the live line-colour uniforms
@@ -76,12 +76,15 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
 
     // --- global surface/anatomy materials ---
     const glassMat = makeGlassMaterial(config.style.glass);
+    // Cortex-alpha occlusion needs the surface the viewer actually faces. Keep a dedicated
+    // FrontSide depth material; the ordinary cortex outline intentionally uses DoubleSide.
+    const cortexFrontDepthMat = makePlainDepthMaterial(THREE.FrontSide);
     const anatomyMat = makeAnatomyMaterial(config.style.anatomy);
     // Opaque subcortical shell, selected per-panel when content.anatomyStyle === 'opaque'.
     const anatomyOpaqueMat = makeOpaqueAnatomyMaterial(config.style.anatomy);
     // Depth-only version of that shell (same BackSide), folded into the edge/outline clip so
     // cortical voxel edges + cortex lines BEHIND the opaque subcortex are occluded, not drawn through.
-    const anatomyClipDepthMat = makePlainDepthMaterial(THREE.BackSide);
+    const anatomyClipDepthMat = makeHardOccluderDepthMaterial(THREE.FrontSide);
     const anatomyMeshes = sceneModel.meshes.filter((tm) => tm.meta.role === 'anatomy').map((tm) => tm.mesh);
     const cortexMeshes = sceneModel.meshes.filter((tm) => tm.meta.role === 'cortex').map((tm) => tm.mesh);
     const surfaceVariants = [...new Set(sceneModel.meshes
@@ -254,21 +257,51 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         }
     }
 
-    // Downsampled world voxel vertices, for anchoring the depth veil to the ACTUAL
-    // nearest voxel (not a bounding-box corner that sits in empty space under tilt).
+    // Downsampled WORLD vertices for view-relative depth cues. Statistical samples
+    // anchor the colour veil to real voxels. Cortex/anatomy samples anchor the hard depth gate to
+    // real anatomical surfaces, so every panel (including a rotated Free Canvas panel) derives its
+    // own near/far range along its current camera direction rather than from empty AABB corners.
     scene.updateMatrixWorld(true);
     {
         const v = new THREE.Vector3();
-        for (const tm of sceneModel.meshes) {
-            if (tm.meta.role !== 'voxel') continue;
-            const pos = tm.mesh.geometry.attributes.position, n = pos.count;
-            const step = Math.max(1, Math.floor(n / 300));
+        const sampleWorld = (tm, target, preserveAxisExtrema = false) => {
+            const pos = tm.mesh.geometry.attributes.position;
+            const n = pos ? pos.count : 0;
+            if (!n) return new Float32Array();
+            const step = Math.max(1, Math.ceil(n / target));
             const pts = [];
-            for (let i = 0; i < n; i += step) {
+            if (!preserveAxisExtrema) {
+                // Statistical meshes can be very large and already only need an approximate veil
+                // range. Keep their old strided cost rather than scanning every hidden variant.
+                for (let i = 0; i < n; i += step) {
+                    v.fromBufferAttribute(pos, i).applyMatrix4(tm.mesh.matrixWorld);
+                    pts.push(v.x, v.y, v.z);
+                }
+                return new Float32Array(pts);
+            }
+            const extrema = [Infinity, -Infinity, Infinity, -Infinity, Infinity, -Infinity];
+            const extremeIdx = new Int32Array(6).fill(-1);
+            for (let i = 0; i < n; i++) {
+                v.fromBufferAttribute(pos, i).applyMatrix4(tm.mesh.matrixWorld);
+                if (i % step === 0) pts.push(v.x, v.y, v.z);
+                if (v.x < extrema[0]) { extrema[0] = v.x; extremeIdx[0] = i; }
+                if (v.x > extrema[1]) { extrema[1] = v.x; extremeIdx[1] = i; }
+                if (v.y < extrema[2]) { extrema[2] = v.y; extremeIdx[2] = i; }
+                if (v.y > extrema[3]) { extrema[3] = v.y; extremeIdx[3] = i; }
+                if (v.z < extrema[4]) { extrema[4] = v.z; extremeIdx[4] = i; }
+                if (v.z > extrema[5]) { extrema[5] = v.z; extremeIdx[5] = i; }
+            }
+            for (const i of new Set(extremeIdx)) {
+                if (i < 0) continue;
                 v.fromBufferAttribute(pos, i).applyMatrix4(tm.mesh.matrixWorld);
                 pts.push(v.x, v.y, v.z);
             }
-            tm.depthSamples = new Float32Array(pts);
+            return new Float32Array(pts);
+        };
+        for (const tm of sceneModel.meshes) {
+            if (tm.meta.role === 'voxel') tm.depthSamples = sampleWorld(tm, 300);
+            else if (tm.meta.role === 'cortex') tm.anatomyDepthSamples = sampleWorld(tm, 4096, true);
+            else if (tm.meta.role === 'anatomy') tm.anatomyDepthSamples = sampleWorld(tm, 512, true);
         }
     }
 
@@ -449,7 +482,10 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, type: THREE.FloatType,
     });
     let clipTarget = makeDepthTarget(maxCellW, maxCellH);
+    let cortexFrontDepthTarget = makeDepthTarget(maxCellW, maxCellH);
     const clipCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 800);
+    glassMat.uniforms.uFrontDepth.value = cortexFrontDepthTarget.texture;
+    glassMat.uniforms.uFrontDepthApply.value = 1.0;
     cortexOutline.outlineMaterial.uniforms.uClipDepth.value = clipTarget.texture;
     // Subcortical lines clip against the cortex depth field. This preserves their independent
     // anatomical outline while letting whichever surface is nearer to the camera occlude the other.
@@ -458,7 +494,22 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
     // occluded where a closer overlay's volume covers them (no longer see-through).
     for (const ep of edgePasses) ep.outlineMaterial.uniforms.uClipDepth.value = clipTarget.texture;
 
-    function renderClipDepth(camera, opaqueAnat, anyEdges, capActive) {
+    function renderCortexFrontDepth(camera) {
+        const prev = scene.overrideMaterial;
+        renderer.setRenderTarget(cortexFrontDepthTarget);
+        renderer.setScissorTest(false);
+        const prevClear = renderer.getClearColor(_clearScratch), prevAlpha = renderer.getClearAlpha();
+        renderer.setClearColor(DEPTH_CLEAR, 1);
+        renderer.clear();
+        clipCam.copy(camera); clipCam.layers.set(0);
+        scene.overrideMaterial = cortexFrontDepthMat;
+        renderer.render(scene, clipCam);
+        scene.overrideMaterial = prev;
+        renderer.setClearColor(prevClear, prevAlpha);
+        renderer.setRenderTarget(null);
+    }
+
+    function renderClipDepth(camera, anatomyOccluder, anyEdges, capActive) {
         const prev = scene.overrideMaterial;
         renderer.setRenderTarget(clipTarget);
         renderer.setScissorTest(false);
@@ -480,7 +531,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         }
         // Fold the opaque subcortex's depth in → edges/outline behind it get occluded like the
         // fills. The subcortex is on its own layer, so we render just it (no cortex to hide).
-        if (opaqueAnat) {
+        if (anatomyOccluder) {
             clipCam.copy(camera); clipCam.layers.set(ANATOMY_LAYER);
             scene.overrideMaterial = anatomyClipDepthMat;
             renderer.render(scene, clipCam);
@@ -521,15 +572,24 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         for (const tm of sceneModel.meshes) if (meshVisible(content, tm.meta)) boxes.push(tm.aabb);
         return mergeAABB(boxes);
     }
-    // The hard depth gate is relative to the visible anatomical shell, not to the overlay's own
-    // nearest voxel. Thus a thalamus-only map remains deep in a dorsal view instead of redefining
-    // itself as depth zero. Volume-only panels fall back to the panel content range below.
+    // The hard depth gate is relative to the visible anatomical shell, measured along THIS
+    // panel's current camera direction. Thus a dorsal panel treats SMA as superficial and thalamus
+    // as deep; rotating only that panel rotates the depth slab with it. Real sampled vertices avoid
+    // an oblique AABB's empty-corner bias. Volume-only panels fall back to the panel range below.
     function anatomicalDepthRange(content, position, lookAt) {
+        let nearZ = Infinity, farZ = -Infinity;
         const boxes = [];
         for (const tm of sceneModel.meshes) {
             if (tm.meta.role !== 'cortex' && tm.meta.role !== 'anatomy') continue;
-            if (meshVisible(content, tm.meta)) boxes.push(tm.aabb);
+            if (!meshVisible(content, tm.meta)) continue;
+            boxes.push(tm.aabb);
+            const r = tm.anatomyDepthSamples
+                ? viewDepthRangeOfPositions(tm.anatomyDepthSamples, position, lookAt) : null;
+            if (!r) continue;
+            if (r.nearZ < nearZ) nearZ = r.nearZ;
+            if (r.farZ > farZ) farZ = r.farZ;
         }
+        if (isFinite(nearZ)) return { nearZ, farZ };
         return boxes.length ? viewDepthRange(mergeAABB(boxes), position, lookAt) : null;
     }
     function applyVisibility(content) {
@@ -598,6 +658,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
     // panels is essential — materials are shared, so a stale slice would bleed across.
     function applyPanelSlice(slice) {
         writeSlice(glassMat.uniforms, slice);
+        writeSlice(cortexFrontDepthMat.uniforms, slice);
         writeSlice(anatomyMat.uniforms, slice);
         writeSlice(anatomyOpaqueMat.uniforms, slice);
         writeSlice(anatomyClipDepthMat.uniforms, slice);
@@ -766,6 +827,15 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
                 dir.target.updateMatrixWorld(true);
             }
 
+            // Compute a nearest FRONT-facing cortex depth field separately for THIS pane.
+            // It lives only offscreen, so it filters cortex-on-cortex alpha stacking while the
+            // main framebuffer remains free to show internal statistical and subcortical geometry.
+            renderCortexFrontDepth(camera);
+            const pr = renderer.getPixelRatio();
+            glassMat.uniforms.uFrontViewportOrigin.value.set(rect.x * pr, rect.y * pr);
+            glassMat.uniforms.uFrontViewportSize.value.set(rect.w * pr, rect.h * pr);
+            glassMat.uniforms.uFrontTextureSize.value.set(cortexFrontDepthTarget.width, cortexFrontDepthTarget.height);
+
             renderer.setViewport(rect.x, rect.y, rect.w, rect.h);
             renderer.setScissor(rect.x, rect.y, rect.w, rect.h);
             renderer.setScissorTest(true);
@@ -776,10 +846,15 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
             // where a closer overlay volume sits in front (edges no longer draw through).
             let anyEdges = false;
             for (let i = 0; i < N; i++) if (osR[i].edges.enabled) anyEdges = true;
-            // Clip when there are voxel edges OR an opaque subcortex (so edges + cortex lines
-            // behind the shell are occluded). Opaque-anatomy folds its depth into the target.
-            const clip = anyEdges || opaqueAnat || capActive;
-            if (clip) renderClipDepth(camera, opaqueAnat, anyEdges, capActive);
+            const showsAnatomy = (def.content?.roles || []).includes('anatomy');
+            // `vox α` controls cortex-line strength where a statistical voxel is in front,
+            // independently of whether voxel EDGE outlines are enabled. The front-depth cortex
+            // pass made this dependency visible because clipTarget was only receiving voxel depth
+            // when `anyEdges` was true. Render voxel depth whenever over-voxel line control is on.
+            const wantsVoxelClip = anyEdges || !!config.style.outline.overVoxels;
+            // Visible subcortex remains a hard occluder and never inherits vox-alpha strength.
+            const clip = wantsVoxelClip || showsAnatomy || capActive;
+            if (clip) renderClipDepth(camera, showsAnatomy, wantsVoxelClip, capActive);
             // Per-overlay voxel edges first (underneath), depth-clipped against the others.
             for (let i = 0; i < N; i++) {
                 if (!osR[i].edges.enabled) continue;
@@ -790,7 +865,6 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
             // silhouette is never computed from the union with voxel geometry, so jagged blobs
             // cannot become the figure contour and the subcortex keeps its own boundary.
             const op = outlinePlan(config.style.outline, def.outline);
-            const showsAnatomy = (def.content?.roles || []).includes('anatomy');
             const overVoxelAlpha = config.style.outline.overVoxels
                 ? (config.style.outline.overVoxelOpacity ?? 1.0) : 0.0;
 
@@ -803,6 +877,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
                 ou.uThreshold.value = op.threshold;
                 ou.uClipApply.value = clip ? 1.0 : 0.0;
                 ou.uOverVoxelAlpha.value = overVoxelAlpha;
+                ou.uClipOverlapMode.value = 1.0;
                 ou.uBgMode.value = op.foldBgMode;
                 cortexOutline.update(camera, rect.x, rect.y, rect.w, rect.h);
 
@@ -830,6 +905,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
                 ou.uThreshold.value = op.threshold;
                 ou.uClipApply.value = clip ? 1.0 : 0.0;
                 ou.uOverVoxelAlpha.value = overVoxelAlpha;
+                ou.uClipOverlapMode.value = 1.0;
                 ou.uBgMode.value = 2.0;
                 cortexOutline.update(camera, rect.x, rect.y, rect.w, rect.h);
 
@@ -856,6 +932,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         anatomyOutline.setSize(w, h);
         for (const ep of edgePasses) ep.setSize(w, h);
         clipTarget.setSize(Math.round(w * renderer.getPixelRatio()), Math.round(h * renderer.getPixelRatio()));
+        cortexFrontDepthTarget.setSize(Math.round(w * renderer.getPixelRatio()), Math.round(h * renderer.getPixelRatio()));
     }
 
     function setPixelRatio(pr) {
@@ -865,6 +942,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         anatomyOutline.pr = pr; anatomyOutline.setSize(width, height);
         for (const ep of edgePasses) { ep.pr = pr; ep.setSize(width, height); }
         clipTarget.setSize(Math.round(width * pr), Math.round(height * pr));
+        cortexFrontDepthTarget.setSize(Math.round(width * pr), Math.round(height * pr));
     }
 
     // Push current config.style to live uniforms/materials/lights (global + per-overlay).
@@ -877,7 +955,16 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         outlineSaveScale = 1;
         dir.intensity = s.lighting.directional;
         amb.intensity = s.lighting.ambient;
-        glassMat.uniforms.uMaxOpacity.value = s.glass.maxOpacity;
+        const glassControl = Math.max(0, s.glass.maxOpacity ?? 0);
+        const glassMax = Math.min(1, glassControl);
+        const glassMin = glassControl > 1
+            ? Math.min(1, glassControl - 1)
+            : Math.min(glassMax, s.glass.minOpacity ?? 0);
+        glassMat.uniforms.uMaxOpacity.value = glassMax;
+        glassMat.uniforms.uMinOpacity.value = glassMin;
+        glassMat.uniforms.uColor.value.set(s.glass.color ?? '#ffffff');
+        anatomyMat.uniforms.uColor.value.set(s.anatomy.color ?? s.glass.color ?? '#ffffff');
+        anatomyOpaqueMat.uniforms.uColor.value.set(s.anatomy.opaqueColor ?? s.anatomy.color ?? s.glass.color ?? '#ffffff');
         cortexOutline.outlineMaterial.uniforms.uLineWidth.value = s.outline.width;
         cortexOutline.outlineMaterial.uniforms.uThreshold.value = s.outline.threshold;
         // Line COLOURS are pushed here and nowhere else. They used to be baked in at pass
@@ -1003,7 +1090,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
     // Mesh geometries are NOT disposed — they're owned by the app and reused across
     // rebuilds; only this engine's materials, outline passes, and targets are freed.
     function dispose() {
-        glassMat.dispose(); anatomyMat.dispose(); anatomyOpaqueMat.dispose(); anatomyClipDepthMat.dispose();
+        glassMat.dispose(); cortexFrontDepthMat.dispose(); anatomyMat.dispose(); anatomyOpaqueMat.dispose(); anatomyClipDepthMat.dispose();
         for (const m of voxelMats) m.dispose();
         cortexOutline.dispose();
         anatomyOutline.dispose();
@@ -1014,6 +1101,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         for (const b of borderMeshes) { b.geo.deleteAttribute('position'); b.geo.setIndex(null); b.geo.dispose(); }
         for (const ep of edgePasses) ep.dispose();
         clipTarget.dispose();
+        cortexFrontDepthTarget.dispose();
         if (anatomyCap) anatomyCap.dispose();
         scene.clear();
     }

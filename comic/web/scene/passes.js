@@ -16,7 +16,7 @@
  * makes the clip test read the empty background as a surface sitting in front.
  */
 import * as THREE from 'three';
-import { sliceUniforms, SLICE_FRAG_PARS, SLICE_VERT_PARS, SLICE_VERT_ASSIGN } from './materials.js?v=63b5810';
+import { sliceUniforms, SLICE_FRAG_PARS, SLICE_VERT_PARS, SLICE_VERT_ASSIGN } from './materials.js?v=a25cdc7';
 
 /** Clear colour for every depth target: red = (R 1, G 0) = "far, no coverage".
  *  A colour primary is a fixed point of the sRGB transfer function, so it survives
@@ -45,10 +45,22 @@ export function makePlainDepthMaterial(side = THREE.DoubleSide) {
     });
 }
 
+/** Negative depth marks geometry that must always occlude a nearer line. */
+export function makeHardOccluderDepthMaterial(side = THREE.DoubleSide) {
+    return new THREE.ShaderMaterial({
+        vertexShader: depthVert,
+        fragmentShader: `varying float vDepth;
+${SLICE_FRAG_PARS}
+void main(){ if (gbSliceDiscard(vWorldPos)) discard; gl_FragColor = vec4(-vDepth/500.,1.,0.,1.); }`,
+        side,
+        uniforms: sliceUniforms(),
+    });
+}
+
 const outlineFrag = `
 uniform sampler2D tDepth; uniform vec2 uResolution; uniform float uLineWidth, uThreshold, uOpacity; uniform vec3 uColor;
 uniform float uVeilApply, uNearZ, uFarZ, uVeilStrength, uVeilK; uniform vec3 uVeilColor;
-uniform sampler2D uClipDepth; uniform float uClipApply, uOverVoxelAlpha, uBgMode;
+uniform sampler2D uClipDepth; uniform float uClipApply, uOverVoxelAlpha, uClipOverlapMode, uBgMode;
 varying vec2 vUv;
 void main(){
     vec2 texel = 1.0/uResolution; float w = uLineWidth;
@@ -61,7 +73,9 @@ void main(){
     // Near-BINARY strength: any depth step that clears the threshold draws at full opacity and full
     // width; anything below doesn't draw at all. The narrow ramps (just wide enough for edge AA) stop
     // weak/grazing folds rendering as faded half-strength smudges, so every line is uniformly visible.
-    float s = max(smoothstep(uThreshold*0.96,uThreshold,edge), smoothstep(uThreshold,uThreshold*1.08,edge2));
+    float aa1 = max(fwidth(edge) * 0.75, uThreshold * 0.01);
+    float aa2 = max(fwidth(edge2) * 0.75, uThreshold * 0.01);
+    float s = max(smoothstep(uThreshold-aa1,uThreshold+aa1,edge), smoothstep(uThreshold-aa2,uThreshold+aa2,edge2));
     // Silhouette vs interior fold. G is the coverage flag (1 = geometry, 0 = empty background), so a
     // tap touching the background means this discontinuity IS the outer contour. uBgMode:
     //   0 = draw both (the historical single-pass behaviour, and the default)
@@ -80,13 +94,22 @@ void main(){
     // (so the buried line reads as a muted/greyed version of the blob it crosses).
     if (uClipApply > 0.5 && s > 0.0) {
         float surfNear = min(min(min(c,l),min(r,u)),d);   // closest surface sample (depth/500)
-        float rawClip = texture2D(uClipDepth, vUv).r;
+        vec4 clipSample = texture2D(uClipDepth, vUv);
+        float rawClip = clipSample.r;
         float vd = abs(rawClip);
-        if (vd < surfNear - 0.0008 && vd < 0.999) {
-            // The MRI face is an opaque one-way wall: never draw a post-process line through it.
-            // Ordinary voxels still honour the configured over-voxel stroke strength.
-            if (rawClip < 0.0) s = 0.0;
-            else s *= uOverVoxelAlpha;
+        if (clipSample.g > 0.5 && vd < 0.999) {
+            // Negative depth is a HARD anatomical/MRI occluder: it only hides the line when
+            // that surface is actually nearer than the cortex sample. Statistical voxels are
+            // different: the vox-alpha control is a screen-overlap control, so a voxel visible
+            // through the glass cortex should attenuate the cortex line even when it sits behind
+            // the front cortical sheet. Keep the old depth-only rule for voxel-edge passes.
+            if (rawClip < 0.0) {
+                if (vd < surfNear - 0.0008) s = 0.0;
+            } else if (uClipOverlapMode > 0.5) {
+                s *= uOverVoxelAlpha;
+            } else if (vd < surfNear - 0.0008) {
+                s *= uOverVoxelAlpha;
+            }
         }
     }
     vec3 col = uColor;
@@ -171,6 +194,9 @@ export class OutlinePass {
                 // Stroke strength where a voxel is in front of this line. 0 = occluded (default,
                 // so the voxel-edge passes keep their old behaviour); the cortex outline sets it.
                 uOverVoxelAlpha: { value: 0.0 },
+                // Cortex lines use screen-space voxel overlap; voxel/subcortex edge passes keep
+                // depth-only clipping so they do not suppress themselves.
+                uClipOverlapMode: { value: 0.0 },
                 // 0 = draw silhouette + interior folds together (historical default), 1 = interior
                 // only, 2 = silhouette only. Set per frame by the engine.
                 uBgMode: { value: opts.bgMode ?? 0.0 },

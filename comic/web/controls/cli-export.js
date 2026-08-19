@@ -9,8 +9,8 @@
  * flags. The browser knows each uploaded file's name, but not its original disk path, so the
  * user may need to replace those names with paths on the machine that performs the render.
  */
-import { overlayStyle } from '../core/config-schema.js?v=63b5810';
-import { resolveColormap } from '../core/colormap.js?v=63b5810';
+import { overlayStyle } from '../core/config-schema.js?v=a25cdc7';
+import { resolveColormap } from '../core/colormap.js?v=a25cdc7';
 
 // Browser layout preset -> CLI --grid / --views (view names match render.py VIEWS).
 const PRESET_VIEWS = {

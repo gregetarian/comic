@@ -8,11 +8,11 @@
  *  - No server: upload / remove / layout-change call back into app.js (which runs the
  *    Pyodide pipeline and rebuilds the engine in-place) instead of POSTing + reloading.
  */
-import { resolveColormap } from '../core/colormap.js?v=63b5810';
-import { overlayStyle, setOverlayStyle } from '../core/config-schema.js?v=63b5810';
-import { createCmapPicker } from './cmap-picker.js?v=63b5810';
-import { PRESET_LABELS } from '../core/presets.js?v=63b5810';
-import { loadSavedLayouts, saveLayout, deleteLayout } from './layout-presets.js?v=63b5810';
+import { resolveColormap } from '../core/colormap.js?v=a25cdc7';
+import { overlayStyle, setOverlayStyle } from '../core/config-schema.js?v=a25cdc7';
+import { createCmapPicker } from './cmap-picker.js?v=a25cdc7';
+import { PRESET_LABELS } from '../core/presets.js?v=a25cdc7';
+import { loadSavedLayouts, saveLayout, deleteLayout } from './layout-presets.js?v=a25cdc7';
 
 const $ = (id) => document.getElementById(id);
 const trimNum = (v) => { const n = parseFloat(v); return Number.isInteger(n) ? String(n) : String(Math.round(n * 1e4) / 1e4); };
@@ -399,7 +399,13 @@ export function bindGlobalControls({ config, colormaps, getEngine, preset, onUpl
 
     toggle('c-inflate', s.cortexSurface === 'inflated', (on) => { s.cortexSurface = on ? 'inflated' : 'pial'; });
     toggle('c-outline', s.outline.enabled, (on) => { s.outline.enabled = on; });
-    slider('c-cortex', s.glass.maxOpacity, (v) => { s.glass.maxOpacity = v; apply(); }, { min: 0, max: 1.0, step: 0.01 });
+    slider('c-cortex', s.glass.maxOpacity, (v) => { s.glass.maxOpacity = v; apply(); }, { min: 0, max: 2.0, step: 0.01 });
+    color('c-brain-color', s.glass.color ?? '#ffffff', (hex) => {
+        s.glass.color = hex;
+        s.anatomy.color = hex;
+        s.anatomy.opaqueColor = hex;
+        apply();
+    });
     slider('c-outline-thresh', s.outline.threshold, (v) => { s.outline.threshold = v; apply(); }, { min: 0.001, max: 0.02, step: 0.0005 });
     slider('c-outline-width', s.outline.width, (v) => { s.outline.width = v; apply(); }, { min: 0.3, max: 8, step: 0.1 });
     slider('c-outline-overvox', s.outline.overVoxelOpacity ?? 1, (v) => { s.outline.overVoxels = true; s.outline.overVoxelOpacity = v; apply(); }, { min: 0, max: 1, step: 0.05 });
