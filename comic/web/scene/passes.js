@@ -16,7 +16,7 @@
  * makes the clip test read the empty background as a surface sitting in front.
  */
 import * as THREE from 'three';
-import { sliceUniforms, SLICE_FRAG_PARS, SLICE_VERT_PARS, SLICE_VERT_ASSIGN } from './materials.js';
+import { sliceUniforms, SLICE_FRAG_PARS, SLICE_VERT_PARS, SLICE_VERT_ASSIGN } from './materials.js?v=2026-08-19';
 
 /** Clear colour for every depth target: red = (R 1, G 0) = "far, no coverage".
  *  A colour primary is a fixed point of the sRGB transfer function, so it survives

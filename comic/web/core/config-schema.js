@@ -6,7 +6,7 @@
  * drives BOTH the browser and the headless renderer.
  */
 
-import { VIEWS } from './views.js';
+import { VIEWS } from './views.js?v=2026-08-19';
 
 export const DEFAULTS = {
     version: '2.0',

@@ -4,8 +4,8 @@
  * as the voxel shader:  value → t (gamma, seq/div, +guard) → LUT (sRGB)
  *   → sRGB→linear albedo → ×emissive + glint → linear→sRGB.
  */
-import { resolveColormap, sampleLUT, srgbToLinear, linearToSrgb, valueToT, clamp01, deriveMaxAbs } from '../core/colormap.js';
-import { overlayStyle } from '../core/config-schema.js';
+import { resolveColormap, sampleLUT, srgbToLinear, linearToSrgb, valueToT, clamp01, deriveMaxAbs } from '../core/colormap.js?v=2026-08-19';
+import { overlayStyle } from '../core/config-schema.js?v=2026-08-19';
 
 // View-space half-vector z for a front-facing swatch (matches the shader glint).
 const GLINT_NDOTH = 2.0 / Math.hypot(-0.3, 0.4, 2.0);
