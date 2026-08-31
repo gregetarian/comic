@@ -12,13 +12,36 @@
  * (role / hemisphere / structure / category / variant), so renderer.js is verbatim.
  */
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js?v=depth-auto-v2';
-import { hemiOfCategory, categoryOfStructure } from '../core/mesh-meta.js?v=depth-auto-v2';
-import { asF32, asU32, sliceBuffers } from '../core/buffers.js?v=depth-auto-v2';
-import { validateTemplateBundle } from '../core/template-bundle.js?v=depth-auto-v2';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js?v=depth-auto-v3';
+import { hemiOfCategory, categoryOfStructure } from '../core/mesh-meta.js?v=depth-auto-v3';
+import { asF32, asU32, sliceBuffers } from '../core/buffers.js?v=depth-auto-v3';
+import { validateTemplateBundle } from '../core/template-bundle.js?v=depth-auto-v3';
 
 const gltfLoader = new GLTFLoader();
-const loadGLB = (url) => new Promise((res, rej) => gltfLoader.load(url, res, undefined, rej));
+
+// GitHub Pages occasionally returns a transient 502/503 for an otherwise healthy binary asset.
+// GLTFLoader's built-in FileLoader fails immediately, which used to abort the entire template for
+// one brief CDN miss. Fetch explicitly, retry only transient failures, then parse the self-contained
+// GLB in memory. `cache: reload` prevents a cached 503 response from defeating the retries.
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+async function fetchStaticAsset(url, attempts = 3) {
+    let last;
+    for (let attempt = 0; attempt < attempts; attempt++) {
+        try {
+            const r = await fetch(url, { cache: attempt ? 'reload' : 'default' });
+            if (r.ok) return r.arrayBuffer();
+            last = new Error(`${r.status} ${r.statusText || 'HTTP error'}`);
+            if (![408, 425, 429, 500, 502, 503, 504].includes(r.status)) break;
+        } catch (err) { last = err; }
+        if (attempt + 1 < attempts) await wait(250 * (attempt + 1));
+    }
+    throw new Error(`Could not load ${url} after ${attempts} attempts: ${last?.message || last}`);
+}
+async function loadGLB(url) {
+    const data = await fetchStaticAsset(url);
+    const resourcePath = url.slice(0, url.lastIndexOf('/') + 1);
+    return new Promise((resolve, reject) => gltfLoader.parse(data, resourcePath, resolve, reject));
+}
 
 function firstMesh(obj) {
     if (obj.isMesh) return obj;

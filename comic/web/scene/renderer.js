@@ -7,19 +7,19 @@
  * the global voxel template). Cortex/anatomy/lighting/outline stay global.
  */
 import * as THREE from 'three';
-import { layoutGrid, freeRect } from '../core/grid.js?v=depth-auto-v2';
-import { frameContent, mergeAABB, viewDepthRange, viewDepthRangeOfPositions } from '../core/framing.js?v=depth-auto-v2';
-import { normalize, sub } from '../core/units.js?v=depth-auto-v2';
-import { cameraBasis } from '../core/cameras.js?v=depth-auto-v2';
-import { visible } from '../core/visibility.js?v=depth-auto-v2';
-import { resolveColormap, colorizeValues, deriveMaxAbs } from '../core/colormap.js?v=depth-auto-v2';
-import { overlayStyle } from '../core/config-schema.js?v=depth-auto-v2';
-import { outlinePlan } from '../core/outline-plan.js?v=depth-auto-v2';
-import { meshLayer, anatomyLayer } from '../core/mesh-meta.js?v=depth-auto-v2';
-import { createAnatomyCap } from './anatomy-cap.js?v=depth-auto-v2';
-import { makeGlassMaterial, makeAnatomyMaterial, makeOpaqueAnatomyMaterial, makeVoxelMaterial, makeSurfaceMaterial, makeSharedVoxelUniforms } from './materials.js?v=depth-auto-v2';
-import { makeBorderMaterial, makeBorderGeometry, applyLabels } from './parcellation.js?v=depth-auto-v2';
-import { OutlinePass, makeThresholdDepthMaterial, makePlainDepthMaterial, makeHardOccluderDepthMaterial, DEPTH_CLEAR } from './passes.js?v=depth-auto-v2';
+import { layoutGrid, freeRect } from '../core/grid.js?v=depth-auto-v3';
+import { frameContent, mergeAABB, viewDepthRange, viewDepthRangeOfPositions } from '../core/framing.js?v=depth-auto-v3';
+import { normalize, sub } from '../core/units.js?v=depth-auto-v3';
+import { cameraBasis } from '../core/cameras.js?v=depth-auto-v3';
+import { visible } from '../core/visibility.js?v=depth-auto-v3';
+import { resolveColormap, colorizeValues, deriveMaxAbs } from '../core/colormap.js?v=depth-auto-v3';
+import { overlayStyle } from '../core/config-schema.js?v=depth-auto-v3';
+import { outlinePlan } from '../core/outline-plan.js?v=depth-auto-v3';
+import { meshLayer, anatomyLayer } from '../core/mesh-meta.js?v=depth-auto-v3';
+import { createAnatomyCap } from './anatomy-cap.js?v=depth-auto-v3';
+import { makeGlassMaterial, makeAnatomyMaterial, makeOpaqueAnatomyMaterial, makeVoxelMaterial, makeSurfaceMaterial, makeSharedVoxelUniforms } from './materials.js?v=depth-auto-v3';
+import { makeBorderMaterial, makeBorderGeometry, applyLabels } from './parcellation.js?v=depth-auto-v3';
+import { OutlinePass, makeThresholdDepthMaterial, makePlainDepthMaterial, makeHardOccluderDepthMaterial, DEPTH_CLEAR } from './passes.js?v=depth-auto-v3';
 
 const _clearScratch = new THREE.Color();   // save/restore around a depth-target clear
 const _colScratch = new THREE.Color();     // hex → linear RGB for the live line-colour uniforms

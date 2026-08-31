@@ -13,9 +13,9 @@
  * Positions are stored as FRACTIONS (place.{x,y,w,h} ∈ 0..1) of the canvas, matching
  * core/grid.js:freeRect — so a figure places identically at any render size.
  */
-import { VIEWS, VIEW_ORDER, applyView, panelViewName } from '../core/views.js?v=depth-auto-v2';
-import { add, sub, dot, scale, normalize } from '../core/units.js?v=depth-auto-v2';
-import { WORLD_AXES, rotateAroundWorldAxis, snapPlaneForAxis } from '../core/rotation.js?v=depth-auto-v2';
+import { VIEWS, VIEW_ORDER, applyView, panelViewName } from '../core/views.js?v=depth-auto-v3';
+import { add, sub, dot, scale, normalize } from '../core/units.js?v=depth-auto-v3';
+import { WORLD_AXES, rotateAroundWorldAxis, snapPlaneForAxis } from '../core/rotation.js?v=depth-auto-v3';
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 const el = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; };

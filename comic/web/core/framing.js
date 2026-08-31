@@ -7,8 +7,8 @@
  * and "near-hemisphere only" fall out for free, and we get a tight per-panel
  * near/far that feeds the depth-veil shader.
  */
-import { resolveCamera, cameraBasis } from './cameras.js?v=depth-auto-v2';
-import { normalize, sub, dot } from './units.js?v=depth-auto-v2';
+import { resolveCamera, cameraBasis } from './cameras.js?v=depth-auto-v3';
+import { normalize, sub, dot } from './units.js?v=depth-auto-v3';
 
 const EMPTY = () => ({ min: [Infinity, Infinity, Infinity], max: [-Infinity, -Infinity, -Infinity] });
 

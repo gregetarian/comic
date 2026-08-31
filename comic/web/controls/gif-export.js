@@ -8,7 +8,7 @@
  */
 export async function exportSpinGif({ engine, config, canvas, frames = 48, degrees = 360, fps = 20,
                                       maxW = 480, background = '#ffffff', onProgress = () => {} }) {
-    const { GIFEncoder, quantize, applyPalette } = await import('../vendor/gifenc/gifenc.esm.js?v=depth-auto-v2');
+    const { GIFEncoder, quantize, applyPalette } = await import('../vendor/gifenc/gifenc.esm.js?v=depth-auto-v3');
     const panels = (config.layout && config.layout.panels) || [];
     if (!panels.length) throw new Error('no panels to spin');
     const base = panels.map((p) => (p.rotate && p.rotate.yaw) || 0);

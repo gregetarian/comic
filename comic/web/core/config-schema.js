@@ -6,7 +6,7 @@
  * drives BOTH the browser and the headless renderer.
  */
 
-import { VIEWS } from './views.js?v=depth-auto-v2';
+import { VIEWS } from './views.js?v=depth-auto-v3';
 
 export const DEFAULTS = {
     version: '2.0',
