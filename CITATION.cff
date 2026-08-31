@@ -13,7 +13,8 @@ authors:
 repository-code: "https://github.com/gregetarian/comic"
 url: "https://gregetarian.github.io/comic/"
 license: MIT
-version: "0.1.0"
+version: "1.0.0"
+date-released: "2026-08-31"
 keywords:
   - neuroimaging
   - fMRI

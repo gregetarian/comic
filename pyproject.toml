@@ -1,6 +1,6 @@
 [project]
 name = "comic"
-version = "0.1.0"
+version = "1.0.0"
 description = "Browser-based and scriptable composer for reproducible 3D neuroimaging figures"
 readme = "README.md"
 license = { text = "MIT" }
@@ -8,7 +8,7 @@ requires-python = ">=3.9"
 authors = [{ name = "Greg Cooper", email = "greg.cooper@ucl.ac.uk" }]
 keywords = ["neuroimaging", "fmri", "brain", "visualisation", "visualization", "glass-brain", "nifti", "fsaverage"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 5 - Production/Stable",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.11",

@@ -6,7 +6,7 @@ from .render import (RenderSession, render_to_png, render_batch, render_orbit,
                      render_sweep, region_report, colorbar_svg, build_layout)
 from .bake import bake_template
 
-__version__ = "0.1.0"
+__version__ = "1.0.0"
 __all__ = [
     "Comic", "open_viewer",
     "render", "render_spec", "Scene", "Figure",        # notebook / Python API
