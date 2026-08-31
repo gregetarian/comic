@@ -8,11 +8,11 @@
  *  - No server: upload / remove / layout-change call back into app.js (which runs the
  *    Pyodide pipeline and rebuilds the engine in-place) instead of POSTing + reloading.
  */
-import { resolveColormap } from '../core/colormap.js?v=edge-v1';
-import { overlayStyle, setOverlayStyle } from '../core/config-schema.js?v=depth-lines-v1';
-import { createCmapPicker } from './cmap-picker.js?v=edge-v1';
-import { PRESET_LABELS } from '../core/presets.js?v=edge-v1';
-import { loadSavedLayouts, saveLayout, deleteLayout } from './layout-presets.js?v=edge-v1';
+import { resolveColormap } from '../core/colormap.js?v=depth-auto-v2';
+import { overlayStyle, setOverlayStyle } from '../core/config-schema.js?v=depth-auto-v2';
+import { createCmapPicker } from './cmap-picker.js?v=depth-auto-v2';
+import { PRESET_LABELS } from '../core/presets.js?v=depth-auto-v2';
+import { loadSavedLayouts, saveLayout, deleteLayout } from './layout-presets.js?v=depth-auto-v2';
 
 const $ = (id) => document.getElementById(id);
 const trimNum = (v) => { const n = parseFloat(v); return Number.isInteger(n) ? String(n) : String(Math.round(n * 1e4) / 1e4); };
@@ -62,7 +62,8 @@ const TIPS = {
     'c-cortex': 'Cortex glass opacity. 0 = invisible (only the outline shows).',
     'c-outline-thresh': 'Surface-line density — higher hides shallower folds (fewer lines).',
     'c-outline-width': 'Surface (cortex outline) line thickness.',
-    'c-outline-overvox': 'Cortex line strength where it crosses a voxel: 0 = hidden under the blob, 1 = full black on top, in between = a greyed line blended with the blob.',
+    'c-outline-overvox': 'Cortex-line strength where a statistical blob overlaps it. This affects alpha-mix line order only: 0 hides the buried cortex line, 1 draws it fully, and intermediate values blend it with the blob. True-depth line order ignores this slider and gives the pixel to the nearer surface.',
+    'c-voxel-line-mode': 'Controls line ownership only; it does not hide blob fills. Alpha mix uses the vox α slider where cortex lines cross blobs. True depth shows the line belonging to whichever surface is physically nearer — a blob edge in front or a cortex line in front.',
     'c-directional': 'Directional (headlight) intensity — global.',
     'c-ambient': 'Ambient light intensity — global.',
     'c-line-color': 'Colour of the cortical fold (sulcal/gyral) lines.',
@@ -304,10 +305,10 @@ export function buildOverlayRows({ engine, config, colormaps, onRemove, onSurfac
             engine.applyStyle();
         });
         g.append(edgeMode);
-        infoIcon(edgeMode, 'Edge geometry: outer draws only the visible blob silhouette; full also draws internal depth discontinuities. Smooth defaults to outer, blocky defaults to full.');
+        infoIcon(edgeMode, 'Blob-line geometry. Outer draws only the outer visible silhouette of each blob. Full also draws visible internal depth discontinuities. Smooth blobs default to outer; blocky voxels default to full. This is independent of the depth-mode menu.');
 
         const balpha = sw('blob \u03b1');
-        ovRange(balpha.range, os.opacity ?? 1, (v) => { set({ voxel: { opacity: v } }); engine.applyStyle(); }, { min: 0.05, max: 1, step: 0.05 }, 'Blob translucency. Below 1 you can see through the blobs, at the cost of exact front/back sorting where they overlap.', (v) => ({ voxel: { opacity: v } }));
+        ovRange(balpha.range, os.opacity ?? 1, (v) => { set({ voxel: { opacity: v } }); engine.applyStyle(); }, { min: 0.05, max: 1, step: 0.05 }, 'Statistical-blob opacity. Below 1, manual depth mode allows translucent overlap and therefore approximate draw-order sorting. Nearest-blobs and full-anatomy modes still keep only the nearest eligible surface at each pixel.', (v) => ({ voxel: { opacity: v } }));
         g.append(balpha.wrap);
 
         const ea = sw('edge \u03b1');
@@ -321,8 +322,26 @@ export function buildOverlayRows({ engine, config, colormaps, onRemove, onSurfac
         const depthCut = sw('depth cut');
         ovRange(depthCut.range, os.depthCut ?? 0, (v) => { set({ voxel: { depthCut: v } }); engine.applyStyle(); },
                 { min: 0, max: 0.98, step: 0.02 },
-                'Viewer-relative depth gate. 0 shows the full anatomical depth; higher values keep only overlay fragments nearest the viewer (for example, dorsal cortex while suppressing thalamus).',
+                'Manual viewer-relative slab gate for this overlay. 0 keeps its full depth; higher values retain a progressively thinner front portion (for example, dorsal activation while suppressing thalamus). This gate is applied first and remains active in both automatic depth modes.',
                 (v) => ({ voxel: { depthCut: v } }));
+        const depthMode = document.createElement('select');
+        depthMode.className = 'btn depth-mode';
+        for (const [value, label] of [
+            ['manual', 'depth: manual'],
+            ['clusters', 'depth: nearest blobs'],
+            ['anatomy', 'depth: full anatomy'],
+        ]) {
+            const o = document.createElement('option'); o.value = value; o.textContent = label; depthMode.append(o);
+        }
+        depthMode.value = os.depthMode ?? 'manual';
+        depthMode.addEventListener('change', () => {
+            set({ voxel: { depthMode: depthMode.value } });
+            engine.applyStyle();
+        });
+        const depthControls = document.createElement('div'); depthControls.className = 'depth-controls';
+        depthCut.wrap.replaceChild(depthControls, depthCut.range);
+        depthControls.append(depthCut.range, depthMode);
+        infoIcon(depthMode, 'Per-pixel depth ownership for this overlay. Manual uses only the depth-cut slider. Nearest blobs keeps the closest statistical surface only where projected blobs overlap. Full anatomy additionally lets nearer cortex, subcortex and an active MRI cut face hide the blob. It is recomputed continuously for every panel as the brain rotates.');
         g.append(depthCut.wrap);
 
         const veil = sw('veil');
@@ -423,6 +442,7 @@ export function bindGlobalControls({ config, colormaps, getEngine, preset, onUpl
     const lineMode = $('c-voxel-line-mode');
     if (lineMode) {
         lineMode.value = s.outline.voxelLineMode || 'alpha';
+        infoIcon(lineMode, TIPS['c-voxel-line-mode']);
         lineMode.addEventListener('change', () => {
             s.outline.voxelLineMode = lineMode.value;
             apply();

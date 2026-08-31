@@ -11,24 +11,24 @@
  *     for the Playwright driver to screenshot. Same engine + same array geometry as the browser.
  */
 import * as THREE from 'three';
-import { resolveConfig } from '../core/presets.js?v=edge-v1';
-import { loadColormaps } from '../core/colormap.js?v=edge-v1';
-import { setOverlayStyle } from '../core/config-schema.js?v=depth-lines-v1';
-import { createPresetsUI, randomColormapName } from '../controls/style-presets.js?v=edge-v1';
-import { contentBBoxPx } from '../core/bbox.js?v=edge-v1';
-import { loadBaseScene, buildOverlayMeshes, buildCutVolume, loadOverlayArrays, loadAnatomyVolume, loadParcellation, loadParcellationIndex } from '../scene/asset-loader.js?v=edge-v1';
-import { createEngine } from '../scene/renderer.js?v=depth-lines-v1';
-import { createColorbar } from '../controls/colorbar.js?v=cbar-mask-v2';
-import { initKapow } from '../controls/kapow.js?v=edge-v1';
-import { bindGlobalControls, buildOverlayRows } from '../controls/bind.js?v=depth-lines-v1';
-import { buildRenderText, usesFigureSpec, buildSpec } from '../controls/cli-export.js?v=edge-v1';
-import { createFreeCanvasEditor } from '../controls/freecanvas.js?v=cut-light-v1';
-import { exportSpinGif } from '../controls/gif-export.js?v=edge-v1';
-import { processNifti, processSurface, processParcelValues } from '../pyodide/bootstrap.js?v=edge-v1';
-import { VOL_RE, isSurfaceFile, isParcelValueFile, groupSurfaceFiles, surfaceOverlayName } from '../core/surface-files.js?v=edge-v1';
-import { parseValueTable, inferAtlas, valuesToVertexMaps, namedValuesToParcelOrder } from '../core/parcel-values.js?v=edge-v1';
-import { askAtlas } from '../controls/atlas-prompt.js?v=edge-v1';
-import { createSessionState } from './state.js?v=edge-v1';
+import { resolveConfig } from '../core/presets.js?v=depth-auto-v2';
+import { loadColormaps } from '../core/colormap.js?v=depth-auto-v2';
+import { setOverlayStyle } from '../core/config-schema.js?v=depth-auto-v2';
+import { createPresetsUI, randomColormapName } from '../controls/style-presets.js?v=depth-auto-v2';
+import { contentBBoxPx } from '../core/bbox.js?v=depth-auto-v2';
+import { loadBaseScene, buildOverlayMeshes, buildCutVolume, loadOverlayArrays, loadAnatomyVolume, loadParcellation, loadParcellationIndex } from '../scene/asset-loader.js?v=depth-auto-v2';
+import { createEngine } from '../scene/renderer.js?v=depth-auto-v2';
+import { createColorbar } from '../controls/colorbar.js?v=depth-auto-v2';
+import { initKapow } from '../controls/kapow.js?v=depth-auto-v2';
+import { bindGlobalControls, buildOverlayRows } from '../controls/bind.js?v=depth-auto-v2';
+import { buildRenderText, usesFigureSpec, buildSpec } from '../controls/cli-export.js?v=depth-auto-v2';
+import { createFreeCanvasEditor } from '../controls/freecanvas.js?v=depth-auto-v2';
+import { exportSpinGif } from '../controls/gif-export.js?v=depth-auto-v2';
+import { processNifti, processSurface, processParcelValues } from '../pyodide/bootstrap.js?v=depth-auto-v2';
+import { VOL_RE, isSurfaceFile, isParcelValueFile, groupSurfaceFiles, surfaceOverlayName } from '../core/surface-files.js?v=depth-auto-v2';
+import { parseValueTable, inferAtlas, valuesToVertexMaps, namedValuesToParcelOrder } from '../core/parcel-values.js?v=depth-auto-v2';
+import { askAtlas } from '../controls/atlas-prompt.js?v=depth-auto-v2';
+import { createSessionState } from './state.js?v=depth-auto-v2';
 
 const DATA = 'data/';
 const DEMO_ASSET_VER = 'cut-volume-v1';

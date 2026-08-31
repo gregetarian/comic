@@ -6,7 +6,7 @@
  * drives BOTH the browser and the headless renderer.
  */
 
-import { VIEWS } from './views.js?v=edge-v1';
+import { VIEWS } from './views.js?v=depth-auto-v2';
 
 export const DEFAULTS = {
     version: '2.0',
@@ -58,6 +58,10 @@ export const DEFAULTS = {
             // Viewer-relative front-depth gate. 0 shows the full anatomical depth; higher values
             // discard farther overlay fragments independently in each panel/view.
             depthCut: 0.0,
+            // Per-pixel, camera-relative visibility. 'clusters' keeps only the nearest
+            // statistical surface where blobs overlap; 'anatomy' also lets the cortex,
+            // subcortex and an active cut face occlude statistical geometry.
+            depthMode: 'manual', // 'manual' | 'clusters' | 'anatomy'
             veil: { strength: 0.0, k: 7.4, color: '#ffffff' },   // depth colour veil OFF by default
             // Blob translucency. 1 = the opaque, self-occluding default. Below 1 the voxels stop
             // writing depth so you can genuinely see through them; that necessarily gives up exact
@@ -156,6 +160,7 @@ export function overlayStyle(config, i = 0) {
         subcortexRepresentation: ov.subcortexRepresentation ?? v.subcortexRepresentation,
         clusterMin: ov.clusterMin ?? v.clusterMin,
         depthCut: ov.depthCut ?? v.depthCut,
+        depthMode: ov.depthMode ?? v.depthMode,
         opacity: ov.opacity ?? v.opacity,
         smoothing: ov.smoothing ?? v.smoothing,
         shininess: ov.shininess ?? v.shininess,
@@ -209,6 +214,7 @@ const climOk = (c) => c == null || typeof c === 'number'
     || (Array.isArray(c) && c.length === 2 && typeof c[0] === 'number' && typeof c[1] === 'number' && c[0] < c[1]);
 const repOk = (r) => r == null || REPRESENTATIONS.has(r);
 const volumeRepOk = (r) => r == null || VOLUME_REPRESENTATIONS.has(r);
+const depthModeOk = (m) => m == null || ['manual', 'clusters', 'anatomy'].includes(m);
 // Line colours are validated (unlike the older style fields) because a typo'd colour renders as
 // black with no clue why — and a whole figure's line-art hangs on them. Absent (null/undefined)
 // always passes: validateConfig also runs on partial, un-normalised configs, and a missing field
@@ -240,6 +246,7 @@ export function validateConfig(cfg) {
     if (!parcOk(cfg.style?.parcellation)) errors.push('style.parcellation needs a #rgb/#rrggbb color, width > 0, and opacity 0..1');
     if (!alphaOk(cfg.style?.voxel?.opacity)) errors.push('style.voxel.opacity must be 0..1');
     if (!alphaOk(cfg.style?.voxel?.depthCut)) errors.push('style.voxel.depthCut must be 0..1');
+    if (!depthModeOk(cfg.style?.voxel?.depthMode)) errors.push('style.voxel.depthMode must be manual, clusters, or anatomy');
     if (!alphaOk(cfg.style?.voxel?.edges?.opacity)) errors.push('style.voxel.edges.opacity must be 0..1');
     (cfg.style?.overlays || []).forEach((o, i) => {
         if (!o) return;
@@ -248,6 +255,7 @@ export function validateConfig(cfg) {
         if (!volumeRepOk(o.voxel?.subcortexRepresentation))
             errors.push(`style.overlays[${i}].voxel.subcortexRepresentation invalid`);
         if (!alphaOk(o.voxel?.depthCut)) errors.push(`style.overlays[${i}].voxel.depthCut must be 0..1`);
+        if (!depthModeOk(o.voxel?.depthMode)) errors.push(`style.overlays[${i}].voxel.depthMode must be manual, clusters, or anatomy`);
         if (!cutOk(o.cutOverlay)) errors.push(`style.overlays[${i}].cutOverlay invalid`);
     });
     const panels = cfg.layout?.panels || [];

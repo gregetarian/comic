@@ -7,19 +7,19 @@
  * the global voxel template). Cortex/anatomy/lighting/outline stay global.
  */
 import * as THREE from 'three';
-import { layoutGrid, freeRect } from '../core/grid.js?v=edge-v1';
-import { frameContent, mergeAABB, viewDepthRange, viewDepthRangeOfPositions } from '../core/framing.js?v=edge-v1';
-import { normalize, sub } from '../core/units.js?v=edge-v1';
-import { cameraBasis } from '../core/cameras.js?v=edge-v1';
-import { visible } from '../core/visibility.js?v=edge-v1';
-import { resolveColormap, colorizeValues, deriveMaxAbs } from '../core/colormap.js?v=edge-v1';
-import { overlayStyle } from '../core/config-schema.js?v=depth-lines-v1';
-import { outlinePlan } from '../core/outline-plan.js?v=edge-v1';
-import { meshLayer, anatomyLayer } from '../core/mesh-meta.js?v=edge-v1';
-import { createAnatomyCap } from './anatomy-cap.js?v=cut-map-v1';
-import { makeGlassMaterial, makeAnatomyMaterial, makeOpaqueAnatomyMaterial, makeVoxelMaterial, makeSurfaceMaterial, makeSharedVoxelUniforms } from './materials.js?v=edge-v1';
-import { makeBorderMaterial, makeBorderGeometry, applyLabels } from './parcellation.js?v=edge-v1';
-import { OutlinePass, makeThresholdDepthMaterial, makePlainDepthMaterial, makeHardOccluderDepthMaterial, DEPTH_CLEAR } from './passes.js?v=depth-lines-v1';
+import { layoutGrid, freeRect } from '../core/grid.js?v=depth-auto-v2';
+import { frameContent, mergeAABB, viewDepthRange, viewDepthRangeOfPositions } from '../core/framing.js?v=depth-auto-v2';
+import { normalize, sub } from '../core/units.js?v=depth-auto-v2';
+import { cameraBasis } from '../core/cameras.js?v=depth-auto-v2';
+import { visible } from '../core/visibility.js?v=depth-auto-v2';
+import { resolveColormap, colorizeValues, deriveMaxAbs } from '../core/colormap.js?v=depth-auto-v2';
+import { overlayStyle } from '../core/config-schema.js?v=depth-auto-v2';
+import { outlinePlan } from '../core/outline-plan.js?v=depth-auto-v2';
+import { meshLayer, anatomyLayer } from '../core/mesh-meta.js?v=depth-auto-v2';
+import { createAnatomyCap } from './anatomy-cap.js?v=depth-auto-v2';
+import { makeGlassMaterial, makeAnatomyMaterial, makeOpaqueAnatomyMaterial, makeVoxelMaterial, makeSurfaceMaterial, makeSharedVoxelUniforms } from './materials.js?v=depth-auto-v2';
+import { makeBorderMaterial, makeBorderGeometry, applyLabels } from './parcellation.js?v=depth-auto-v2';
+import { OutlinePass, makeThresholdDepthMaterial, makePlainDepthMaterial, makeHardOccluderDepthMaterial, DEPTH_CLEAR } from './passes.js?v=depth-auto-v2';
 
 const _clearScratch = new THREE.Color();   // save/restore around a depth-target clear
 const _colScratch = new THREE.Color();     // hex → linear RGB for the live line-colour uniforms
@@ -484,6 +484,9 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, type: THREE.FloatType,
     });
     let clipTarget = makeDepthTarget(maxCellW, maxCellH);
+    // Kept separate from clipTarget because cluster-only automation must not inherit
+    // cortex/anatomy depth that the ordinary line compositor folds into clipTarget.
+    let voxelOnlyDepthTarget = makeDepthTarget(maxCellW, maxCellH);
     let cortexFrontDepthTarget = makeDepthTarget(maxCellW, maxCellH);
     const clipCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 800);
     glassMat.uniforms.uFrontDepth.value = cortexFrontDepthTarget.texture;
@@ -511,9 +514,9 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         renderer.setRenderTarget(null);
     }
 
-    function renderClipDepth(camera, anatomyOccluder, anyEdges, capActive) {
+    function renderClipDepth(camera, target, anatomyOccluder, includeVoxels, capActive, cortexOccluder = false) {
         const prev = scene.overrideMaterial;
-        renderer.setRenderTarget(clipTarget);
+        renderer.setRenderTarget(target);
         renderer.setScissorTest(false);
         // Fixed far/no-coverage sentinel — see passes.js. Clearing to the FIGURE background instead
         // (as this used to) meant a dark `render.background` read as depth 0, i.e. nearer than every
@@ -524,12 +527,17 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         // Fold the nearest VOXEL depth in ONLY when voxel edges are shown — that clip exists so an
         // edge (and the cortex line over it) yields to a voxel genuinely in front. With smooth fills
         // (no edges) the cortex line-art should stay complete, so we DON'T let the volumes erase it.
-        if (anyEdges) {
+        if (includeVoxels) {
             for (let i = 0; i < N; i++) {
                 clipCam.copy(camera); clipCam.layers.set(1 + i);
                 scene.overrideMaterial = edgePasses[i].depthMaterial;
                 renderer.render(scene, clipCam);            // depth-tested: nearest accumulates
             }
+        }
+        if (cortexOccluder) {
+            clipCam.copy(camera); clipCam.layers.set(0);
+            scene.overrideMaterial = cortexFrontDepthMat;
+            renderer.render(scene, clipCam);
         }
         // Fold the opaque subcortex's depth in → edges/outline behind it get occluded like the
         // fills. The subcortex is on its own layer, so we render just it (no cortex to hide).
@@ -843,25 +851,37 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
             glassMat.uniforms.uFrontViewportSize.value.set(rect.w * pr, rect.h * pr);
             glassMat.uniforms.uFrontTextureSize.value.set(cortexFrontDepthTarget.width, cortexFrontDepthTarget.height);
 
-            renderer.setViewport(rect.x, rect.y, rect.w, rect.h);
-            renderer.setScissor(rect.x, rect.y, rect.w, rect.h);
-            renderer.setScissorTest(true);
-            renderer.render(scene, camera);
-
             // Combined nearest-overlay depth, built ONCE per panel BEFORE the edge passes,
             // then used to occlude BOTH the per-overlay voxel edges and the cortex outline
             // where a closer overlay volume sits in front (edges no longer draw through).
             let anyEdges = false;
             for (let i = 0; i < N; i++) if (osR[i].edges.enabled) anyEdges = true;
+            const anyAutoDepth = osR.some((os) => os.depthMode !== 'manual');
+            const anyAnatomyDepth = osR.some((os) => os.depthMode === 'anatomy');
             const showsAnatomy = (def.content?.roles || []).includes('anatomy');
             // `vox α` controls cortex-line strength where a statistical voxel is in front,
             // independently of whether voxel EDGE outlines are enabled. The front-depth cortex
             // pass made this dependency visible because clipTarget was only receiving voxel depth
             // when `anyEdges` was true. Render voxel depth whenever over-voxel line control is on.
-            const wantsVoxelClip = anyEdges || !!config.style.outline.overVoxels;
+            const wantsVoxelClip = anyEdges || !!config.style.outline.overVoxels || anyAutoDepth;
             // Visible subcortex remains a hard occluder and never inherits vox-alpha strength.
-            const clip = wantsVoxelClip || showsAnatomy || capActive;
-            if (clip) renderClipDepth(camera, showsAnatomy, wantsVoxelClip, capActive);
+            const clip = wantsVoxelClip || showsAnatomy || capActive || anyAnatomyDepth;
+            if (clip) renderClipDepth(camera, clipTarget, showsAnatomy || anyAnatomyDepth, wantsVoxelClip, capActive, anyAnatomyDepth);
+            if (anyAutoDepth) renderClipDepth(camera, voxelOnlyDepthTarget, false, true, false, false);
+            const prOcc = renderer.getPixelRatio();
+            for (let i = 0; i < N; i++) {
+                const u = uniforms[i];
+                u.uDepthMode.value = osR[i].depthMode === 'manual' ? 0.0 : 1.0;
+                u.uOcclusionDepth.value = osR[i].depthMode === 'clusters'
+                    ? voxelOnlyDepthTarget.texture : clipTarget.texture;
+                u.uOcclusionViewportOrigin.value.set(rect.x * prOcc, rect.y * prOcc);
+                u.uOcclusionViewportSize.value.set(rect.w * prOcc, rect.h * prOcc);
+            }
+
+            renderer.setViewport(rect.x, rect.y, rect.w, rect.h);
+            renderer.setScissor(rect.x, rect.y, rect.w, rect.h);
+            renderer.setScissorTest(true);
+            renderer.render(scene, camera);
             const trueDepthLines = config.style.outline.voxelLineMode === 'depth';
             // True-depth ownership needs the current panel's cortex depth before voxel edges draw.
             // The alpha-mix mode keeps the historical combined-voxel clip target.
@@ -946,6 +966,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         anatomyOutline.setSize(w, h);
         for (const ep of edgePasses) ep.setSize(w, h);
         clipTarget.setSize(Math.round(w * renderer.getPixelRatio()), Math.round(h * renderer.getPixelRatio()));
+        voxelOnlyDepthTarget.setSize(Math.round(w * renderer.getPixelRatio()), Math.round(h * renderer.getPixelRatio()));
         cortexFrontDepthTarget.setSize(Math.round(w * renderer.getPixelRatio()), Math.round(h * renderer.getPixelRatio()));
     }
 
@@ -956,6 +977,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         anatomyOutline.pr = pr; anatomyOutline.setSize(width, height);
         for (const ep of edgePasses) { ep.pr = pr; ep.setSize(width, height); }
         clipTarget.setSize(Math.round(width * pr), Math.round(height * pr));
+        voxelOnlyDepthTarget.setSize(Math.round(width * pr), Math.round(height * pr));
         cortexFrontDepthTarget.setSize(Math.round(width * pr), Math.round(height * pr));
     }
 
@@ -1005,6 +1027,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
             u.uPositiveOnly.value = os.positiveOnly ? 1 : 0;
             u.uClusterMin.value = os.clusterMin ?? 0;
             u.uDepthCut.value = os.depthCut ?? 0;
+            u.uDepthMode.value = os.depthMode === 'manual' ? 0 : 1;
             u.uBaseApply.value = os.surfaceBase ? 1 : 0;
             if (os.surfaceBase) u.uBaseColor.value.set(os.surfaceBase);
             applyVoxelAlpha(voxelMats[i], os.opacity ?? 1);
@@ -1115,6 +1138,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         for (const b of borderMeshes) { b.geo.deleteAttribute('position'); b.geo.setIndex(null); b.geo.dispose(); }
         for (const ep of edgePasses) ep.dispose();
         clipTarget.dispose();
+        voxelOnlyDepthTarget.dispose();
         cortexFrontDepthTarget.dispose();
         if (anatomyCap) anatomyCap.dispose();
         scene.clear();

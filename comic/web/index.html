@@ -206,6 +206,9 @@
     .lab { font-size: 9px; color: #999; text-transform: uppercase; letter-spacing: 0.5px; }
     .sw { display: flex; flex-direction: column; align-items: center; gap: 1px; }
     .sw span { font-size: 8px; color: #999; }
+    .depth-controls { display: flex; align-items: center; gap: 4px; }
+    .depth-controls input[type=range] { width: 76px; }
+    .depth-controls select { max-width: 145px; }
     .cut-map-options { display: none; align-items: center; gap: 10px; }
     .cut-map-options.active { display: flex; }
     /* clickable info: parameter labels (above each slider) + a small ⓘ on toggles/selects */
@@ -320,7 +323,7 @@
         <div class="sw"><span>edge thr</span><input type="range" id="c-outline-thresh"></div>
         <div class="sw"><span>line w</span><input type="range" id="c-outline-width"></div>
         <div class="sw"><span>vox α</span><input type="range" id="c-outline-overvox"></div>
-        <div class="sw" title="Alpha uses the vox α overlap strength. Depth gives each line pixel to whichever surface is physically nearest: voxel edges in front, cortex lines behind, and vice versa."><span>line order</span><select class="btn" id="c-voxel-line-mode"><option value="alpha">alpha mix</option><option value="depth">true depth</option></select></div>
+        <div class="sw"><span>line order</span><select class="btn" id="c-voxel-line-mode"><option value="alpha">alpha mix</option><option value="depth">true depth</option></select></div>
       </div>
       <div class="grp">
         <span class="lab">Lines</span>
@@ -382,7 +385,7 @@
           <ul>
             <li><b>Colormap</b> swatch + <b>auto / sequential / diverging</b> scale.</li>
             <li><b>blocky / smooth / surface</b> — voxel cubes, isosurface, or projected onto the cortex.</li>
-            <li><b>thr</b> statistical threshold · <b>k</b> cluster-extent (hide clusters &lt; k voxels) · colour limits, gamma, veil, edges.</li>
+            <li><b>thr</b> statistical threshold · <b>k</b> cluster extent · colour limits, gamma, veil and edges. <b>depth cut</b> manually keeps a front slab; its menu can instead give each pixel to the <b>nearest blob</b> or to the nearest surface across the <b>full anatomy</b>.</li>
             <li>👁 hide · ✕ remove · drag the <b>name</b> to reorder (later overlays draw on top).</li>
           </ul>
         </section>
@@ -390,7 +393,7 @@
           <h3>Global look</h3>
           <ul>
             <li><b>Inflate</b> pial↔inflated cortex · <b>Surface</b> project all maps onto the cortex · <b>Outline</b> the cortex lines.</li>
-            <li><b>cortex α</b> glass opacity · <b>brain</b> cortex/subcortex background colour · <b>edge thr</b> / <b>line w</b> cortex-line density &amp; thickness · <b>vox α</b> line strength over statistical voxels only.</li>
+            <li><b>cortex α</b> glass opacity · <b>brain</b> cortex/subcortex colour · <b>edge thr</b> / <b>line w</b> cortex-line density and thickness · <b>line order</b> chooses alpha mixing or true physical depth; <b>vox α</b> applies only to alpha mixing.</li>
             <li><b>Cut MRI</b> — on a sliced panel, reveal the native 1 mm anatomical T1 cross-section. <b>Cut map</b> adds thresholded NIfTI values; <b>map depth</b> searches around the plane for activation and <b>map pixels</b> controls only that statistical overlay.</li>
           </ul>
           <h3>Layouts</h3>
@@ -425,14 +428,14 @@
   <script type="importmap">
   {
     "imports": {
-      "three": "./vendor/three/0.170.0/three.module.js?v=edge-v1",
-      "three/addons/loaders/GLTFLoader.js": "./vendor/three/0.170.0/addons/loaders/GLTFLoader.js?v=edge-v1",
+      "three": "./vendor/three/0.170.0/three.module.js?v=depth-auto-v2",
+      "three/addons/loaders/GLTFLoader.js": "./vendor/three/0.170.0/addons/loaders/GLTFLoader.js?v=depth-auto-v2",
       "three/addons/": "./vendor/three/0.170.0/addons/"
     }
   }
   </script>
   <script type="module">
-    import('./app/main.js?v=cbar-mask-v2').catch((err) => {
+    import('./app/main.js?v=depth-auto-v2').catch((err) => {
       console.error(err);
       const el = document.getElementById('loading');
       if (el) el.textContent = 'Error: ' + err.message;

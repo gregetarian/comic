@@ -196,6 +196,10 @@ export function makeSharedVoxelUniforms(style = {}) {
         uDepthNearZ: { value: 200.0 },
         uDepthFarZ: { value: 400.0 },
         uDepthCut: { value: v.depthCut ?? 0.0 },
+        uDepthMode: { value: 0.0 },
+        uOcclusionDepth: { value: null },
+        uOcclusionViewportOrigin: { value: new THREE.Vector2() },
+        uOcclusionViewportSize: { value: new THREE.Vector2(1, 1) },
         uVeilStrength: { value: veil.strength ?? 0.40 },
         uVeilColor: { value: new THREE.Color(veil.color ?? 0xffffff) },
         uVeilK: { value: veil.k ?? 6.0 },
@@ -231,7 +235,7 @@ export function makeVoxelMaterial(style = {}, shared) {
             .replace('#include <project_vertex>',
                 `#include <project_vertex>\n vViewZ = -mvPosition.z;\n ${SLICE_VERT_ASSIGN}`);
         shader.fragmentShader =
-            `uniform float uThreshold, uMaxAbs, uPositiveOnly, uClusterMin, uNearZ, uFarZ, uDepthNearZ, uDepthFarZ, uDepthCut, uVeilStrength, uVeilK, uEmissiveBoost, uGlintAmt, uGlintPow;\n             uniform vec3 uVeilColor;\n             varying float vThreshValue; varying float vClusterSize; varying float vViewZ;\n             ${SLICE_FRAG_PARS}\n` + shader.fragmentShader;
+            `uniform float uThreshold, uMaxAbs, uPositiveOnly, uClusterMin, uNearZ, uFarZ, uDepthNearZ, uDepthFarZ, uDepthCut, uDepthMode, uVeilStrength, uVeilK, uEmissiveBoost, uGlintAmt, uGlintPow;\n             uniform sampler2D uOcclusionDepth; uniform vec2 uOcclusionViewportOrigin, uOcclusionViewportSize;\n             uniform vec3 uVeilColor;\n             varying float vThreshValue; varying float vClusterSize; varying float vViewZ;\n             ${SLICE_FRAG_PARS}\n` + shader.fragmentShader;
         shader.fragmentShader = shader.fragmentShader.replace('#include <color_fragment>',
             `#include <color_fragment>
              if (gbSliceDiscard(vWorldPos)) discard;
@@ -241,6 +245,11 @@ export function makeVoxelMaterial(style = {}, shared) {
              float gateZf = clamp((vViewZ - uDepthNearZ) / max(uDepthFarZ - uDepthNearZ, 1e-3), 0.0, 1.0);
              float keepDepth = max(0.02, 1.0 - clamp(uDepthCut, 0.0, 1.0));
              if (uDepthCut > 0.0001 && gateZf > keepDepth) discard;
+             if (uDepthMode > 0.5) {
+                 vec2 occUv = (gl_FragCoord.xy - uOcclusionViewportOrigin) / max(uOcclusionViewportSize, vec2(1.0));
+                 float frontZ = texture2D(uOcclusionDepth, clamp(occUv, vec2(0.0), vec2(1.0))).r * 500.0;
+                 if (frontZ < 499.0 && vViewZ > frontZ + 0.35) discard;
+             }
              float zf = clamp((vViewZ - uNearZ) / max(uFarZ - uNearZ, 1e-3), 0.0, 1.0);
              float veil = log(1.0 + uVeilK * zf) / log(1.0 + uVeilK);
              diffuseColor.rgb = mix(diffuseColor.rgb, uVeilColor, veil * uVeilStrength);

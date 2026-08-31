@@ -34,7 +34,19 @@ test('default display is blocky, depth-correct, and has no intensity or cluster 
     assert.equal(cfg.style.outline.overVoxelOpacity, 0);
     assert.equal(cfg.style.outline.voxelLineMode, 'alpha');
     assert.equal(cfg.style.voxel.depthCut, 0);
+    assert.equal(cfg.style.voxel.depthMode, 'manual');
     assert.equal(cfg.style.voxel.clusterMin, 0);
+});
+
+test('automatic depth ownership resolves per overlay and validates its modes', () => {
+    const cfg = { style: { voxel: { depthMode: 'clusters' }, overlays: [{ voxel: { depthMode: 'anatomy' } }] } };
+    assert.equal(overlayStyle(cfg, 0).depthMode, 'anatomy');
+    assert.equal(overlayStyle(cfg, 1).depthMode, 'clusters');
+    const panel = { id: 'a', camera: { plane: 'dorsal' }, cell: { row: 0, col: 0 } };
+    for (const depthMode of ['manual', 'clusters', 'anatomy']) {
+        assert.equal(validateConfig({ style: { voxel: { depthMode } }, layout: { panels: [panel] } }).ok, true);
+    }
+    assert.equal(validateConfig({ style: { voxel: { depthMode: 'rear-most' } }, layout: { panels: [panel] } }).ok, false);
 });
 
 test('blob edge mode defaults by representation and can be overridden', () => {
