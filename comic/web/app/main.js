@@ -18,7 +18,7 @@ import { createPresetsUI, randomColormapName } from '../controls/style-presets.j
 import { contentBBoxPx } from '../core/bbox.js?v=edge-v1';
 import { loadBaseScene, buildOverlayMeshes, buildCutVolume, loadOverlayArrays, loadAnatomyVolume, loadParcellation, loadParcellationIndex } from '../scene/asset-loader.js?v=edge-v1';
 import { createEngine } from '../scene/renderer.js?v=depth-lines-v1';
-import { createColorbar } from '../controls/colorbar.js?v=edge-v1';
+import { createColorbar } from '../controls/colorbar.js?v=cbar-mask-v2';
 import { initKapow } from '../controls/kapow.js?v=edge-v1';
 import { bindGlobalControls, buildOverlayRows } from '../controls/bind.js?v=depth-lines-v1';
 import { buildRenderText, usesFigureSpec, buildSpec } from '../controls/cli-export.js?v=edge-v1';

@@ -11,7 +11,7 @@ import { aabbOfPositions, mergeAABB, frameContent, viewDepthRangeOfPositions } f
 import { layoutGrid, freeRect } from './grid.js';
 import { visible } from './visibility.js';
 import { outlinePlan } from './outline-plan.js';
-import { valueToT, resolveColormap, loadColormaps, sampleLUT, deriveMaxAbs } from './colormap.js';
+import { valueToT, resolveColormap, loadColormaps, sampleLUT, deriveMaxAbs, colorbarScale } from './colormap.js';
 import { normalizeConfig, validateConfig, overlayStyle, DEFAULTS } from './config-schema.js';
 import { applyView, panelViewName, VIEWS } from './views.js';
 import { resolveConfig } from './presets.js';
@@ -303,6 +303,32 @@ test('deriveMaxAbs: an explicit clim overrides the data-derived fallback', () =>
     assert.equal(deriveMaxAbs(8, 7), 8);           // scalar -> |v|
     assert.equal(deriveMaxAbs([-3, 5], 7), 5);     // pair -> larger magnitude bound
     assert.equal(deriveMaxAbs([-9, 2], 7), 9);
+});
+
+test('colorbarScale preserves zero and greys the excluded positive vmin interval', () => {
+    const s = colorbarScale({ clim: [2.3, 9.5], maxAbs: 9.5, threshold: 0 });
+    assert.deepEqual([s.min, s.max], [0, 9.5]);
+    assert.equal(s.excluded(0), true);
+    assert.equal(s.excluded(2.29), true);
+    assert.equal(s.excluded(2.3), false);
+    assert.equal(s.excluded(9.5), false);
+});
+
+test('colorbarScale greys threshold gaps and the negative half in positive-only mode', () => {
+    const s = colorbarScale({ maxAbs: 8, diverging: true, positiveOnly: true, threshold: 2.3 });
+    assert.deepEqual([s.min, s.max], [-8, 8]);
+    assert.equal(s.excluded(-8), true);
+    assert.equal(s.excluded(0), true);
+    assert.equal(s.excluded(2.29), true);
+    assert.equal(s.excluded(2.3), false);
+});
+
+test('colorbarScale mirrors the vmin convention for negative-only limits', () => {
+    const s = colorbarScale({ clim: [-9, -2], maxAbs: 9, negativeOnly: true });
+    assert.deepEqual([s.min, s.max], [-9, 0]);
+    assert.equal(s.excluded(-9), false);
+    assert.equal(s.excluded(-2), false);
+    assert.equal(s.excluded(-1.99), true);
 });
 
 test('resolveColormap guards a diverging map on negative-only data', () => {

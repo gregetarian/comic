@@ -101,6 +101,30 @@ export function deriveMaxAbs(clim, fallback) {
 }
 
 /**
+ * Display rules for a colour bar.  The rendered data still use `valueToT`; this
+ * only keeps excluded values visible as a neutral section of the legend.
+ * Thus a positive [vmin,vmax] bar runs from 0..vmax with 0..vmin grey, and
+ * positive-only diverging data retain their negative half but grey it out.
+ */
+export function colorbarScale({ clim = null, maxAbs = 1, diverging = false,
+    negativeOnly = false, positiveOnly = false, threshold = 0 } = {}) {
+    const range = Array.isArray(clim) ? clim : null;
+    let min = (diverging || negativeOnly) ? -maxAbs : 0;
+    let max = negativeOnly ? 0 : maxAbs;
+    if (range) {
+        min = range[0] > 0 ? 0 : range[0];
+        max = range[1] < 0 ? 0 : range[1];
+    }
+    const cutoff = Math.max(0, Number(threshold) || 0);
+    const excluded = (value) => {
+        if (positiveOnly && value <= 0) return true;
+        if (cutoff > 0 && Math.abs(value) < cutoff) return true;
+        return !!range && (value < range[0] || value > range[1]);
+    };
+    return { min, max, excluded };
+}
+
+/**
  * Decide the effective colormap name + mode from style + data.
  * @returns {{ name, mode, divergingMapOnPositive }}
  */

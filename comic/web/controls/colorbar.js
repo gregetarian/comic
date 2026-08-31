@@ -4,7 +4,7 @@
  * as the voxel shader:  value → t (gamma, seq/div, +guard) → LUT (sRGB)
  *   → sRGB→linear albedo → ×emissive + glint → linear→sRGB.
  */
-import { resolveColormap, sampleLUT, srgbToLinear, linearToSrgb, valueToT, clamp01, deriveMaxAbs } from '../core/colormap.js?v=edge-v1';
+import { resolveColormap, sampleLUT, srgbToLinear, linearToSrgb, valueToT, clamp01, deriveMaxAbs, colorbarScale } from '../core/colormap.js?v=cbar-mask-v2';
 import { overlayStyle } from '../core/config-schema.js?v=edge-v1';
 
 // View-space half-vector z for a front-facing swatch (matches the shader glint).
@@ -73,13 +73,16 @@ export function createColorbar(container, { engine, config, colormaps, onHide })
             // Explicit [vmin,vmax] spans vmin..vmax linearly; else single-signed negative reads as
             // [-maxAbs,0], positive as [0,maxAbs], diverging spans both.
             const climRange = Array.isArray(os.clim) ? os.clim : null;
-            const minVal = climRange ? climRange[0] : ((diverging || negativeOnly) ? -maxAbs : 0);
-            const maxVal = climRange ? climRange[1] : (negativeOnly ? 0 : maxAbs);
+            const scale = colorbarScale({ clim: os.clim, maxAbs, diverging, negativeOnly,
+                positiveOnly: !!os.positiveOnly, threshold: os.threshold });
+            const minVal = scale.min, maxVal = scale.max;
             const img = bar.ctx.createImageData(W, H);
             for (let x = 0; x < W; x++) {
                 const value = minVal + (maxVal - minVal) * (x / (W - 1));
-                const t = valueToT(value, maxAbs, mode, os.gamma, divergingMapOnPositive, divergingMapOnNegative, climRange);
-                const [R, G, B] = swatch(t, os, lighting, cmap);
+                const [R, G, B] = scale.excluded(value)
+                    ? [128, 128, 128]
+                    : swatch(valueToT(value, maxAbs, mode, os.gamma,
+                        divergingMapOnPositive, divergingMapOnNegative, climRange), os, lighting, cmap);
                 for (let y = 0; y < H; y++) {
                     const k = (y * W + x) * 4;
                     img.data[k] = R; img.data[k + 1] = G; img.data[k + 2] = B; img.data[k + 3] = 255;
