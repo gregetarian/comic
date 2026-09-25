@@ -11,24 +11,24 @@
  *     for the Playwright driver to screenshot. Same engine + same array geometry as the browser.
  */
 import * as THREE from 'three';
-import { resolveConfig } from '../core/presets.js?v=depth-auto-v3';
-import { loadColormaps } from '../core/colormap.js?v=depth-auto-v3';
-import { setOverlayStyle } from '../core/config-schema.js?v=depth-auto-v3';
-import { createPresetsUI, randomColormapName } from '../controls/style-presets.js?v=depth-auto-v3';
-import { contentBBoxPx } from '../core/bbox.js?v=depth-auto-v3';
-import { loadBaseScene, buildOverlayMeshes, buildCutVolume, loadOverlayArrays, loadAnatomyVolume, loadParcellation, loadParcellationIndex } from '../scene/asset-loader.js?v=depth-auto-v3';
-import { createEngine } from '../scene/renderer.js?v=shared-legend-v1';
+import { resolveConfig } from '../core/presets.js?v=atlas-categorical-v1';
+import { loadColormaps } from '../core/colormap.js?v=atlas-categorical-v1';
+import { setOverlayStyle, overlayStyle } from '../core/config-schema.js?v=atlas-categorical-v1';
+import { createPresetsUI, randomColormapName } from '../controls/style-presets.js?v=atlas-categorical-v1';
+import { contentBBoxPx } from '../core/bbox.js?v=atlas-categorical-v1';
+import { loadBaseScene, buildOverlayMeshes, buildCutVolume, loadOverlayArrays, loadAnatomyVolume, loadParcellation, loadParcellationIndex } from '../scene/asset-loader.js?v=atlas-categorical-v1';
+import { createEngine } from '../scene/renderer.js?v=atlas-categorical-v1';
 import { createColorbar } from '../controls/colorbar.js?v=shared-legend-v1';
-import { initKapow } from '../controls/kapow.js?v=depth-auto-v3';
-import { bindGlobalControls, buildOverlayRows } from '../controls/bind.js?v=depth-auto-v3';
+import { initKapow } from '../controls/kapow.js?v=atlas-categorical-v1';
+import { bindGlobalControls, buildOverlayRows } from '../controls/bind.js?v=atlas-categorical-v1';
 import { buildRenderText, usesFigureSpec, buildSpec } from '../controls/cli-export.js?v=lossless-cli-v2';
-import { createFreeCanvasEditor } from '../controls/freecanvas.js?v=depth-auto-v3';
-import { exportSpinGif } from '../controls/gif-export.js?v=depth-auto-v3';
-import { processNifti, processSurface, processParcelValues } from '../pyodide/bootstrap.js?v=voxel-centres-v2';
-import { VOL_RE, isSurfaceFile, isParcelValueFile, groupSurfaceFiles, surfaceOverlayName } from '../core/surface-files.js?v=depth-auto-v3';
-import { parseValueTable, inferAtlas, valuesToVertexMaps, namedValuesToParcelOrder } from '../core/parcel-values.js?v=depth-auto-v3';
-import { askAtlas } from '../controls/atlas-prompt.js?v=depth-auto-v3';
-import { createSessionState } from './state.js?v=depth-auto-v3';
+import { createFreeCanvasEditor } from '../controls/freecanvas.js?v=atlas-categorical-v1';
+import { exportSpinGif } from '../controls/gif-export.js?v=atlas-categorical-v1';
+import { processNifti, processSurface, processParcelValues } from '../pyodide/bootstrap.js?v=atlas-categorical-v1';
+import { VOL_RE, isSurfaceFile, isParcelValueFile, groupSurfaceFiles, surfaceOverlayName } from '../core/surface-files.js?v=atlas-categorical-v1';
+import { parseValueTable, inferAtlas, valuesToVertexMaps, namedValuesToParcelOrder } from '../core/parcel-values.js?v=atlas-categorical-v1';
+import { askAtlas } from '../controls/atlas-prompt.js?v=atlas-categorical-v1';
+import { createSessionState } from './state.js?v=atlas-categorical-v1';
 
 const DATA = 'data/';
 const DEMO_ASSET_VER = 'voxel-centres-v2';
@@ -432,6 +432,13 @@ function addOverlay(meta, buffers, src, initialStyle = {}) {
 async function setOverlaySurface(i, repSel) {
     const o = overlays[i];
     if (!o) return;
+    if (o.meta?.categoricalAtlas) {
+        setLoading('Surface projection is disabled for label atlases.',
+            'Categorical region IDs cannot be meaningfully trilinearly projected onto cortex.');
+        setTimeout(() => setLoading(null), 2800);
+        if (repSel) repSel.value = overlayStyle(config, i).representation || 'smooth';
+        return;
+    }
     try {
         if (!o._surfaced && (!o.src || !o.src.file)) {
             setLoading('Surface mode needs a re-meshable map (drag a NIfTI in, or use Demo).');
@@ -475,7 +482,11 @@ async function handleUpload(files) {
             // Preserve the bake threshold in the per-map style. An unthresholded continuous map
             // must also disable the inherited cluster-extent cutoff; otherwise it is not actually
             // unthresholded even though all of its geometry was loaded.
-            const initialStyle = thr === 0 ? { threshold: 0, voxel: { clusterMin: 0 } } : { threshold: thr };
+            const initialStyle = meta.categoricalAtlas
+                ? { threshold: 0.5, gamma: 1, voxel: {
+                    clusterMin: 0, representation: 'smooth', edges: { enabled: false },
+                } }
+                : (thr === 0 ? { threshold: 0, voxel: { clusterMin: 0 } } : { threshold: thr });
             addOverlay(meta, buffers, { file: volumeFiles[k], threshold: thr }, initialStyle);
         }
         // Surface maps: pair lh/rh by filename, one overlay per pair (or per lone hemisphere).
