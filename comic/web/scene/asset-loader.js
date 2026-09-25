@@ -185,7 +185,11 @@ export async function loadOverlayArrays(base, meta, cacheTag = '') {
 export function buildOverlayMeshes(meta, buffers, oi) {
     const out = [];
     for (const [cat, variants] of Object.entries(meta.structures || {})) {
-        const hemi = hemiOfCategory(cat);
+        // Label atlases can have many mesh entries per anatomical bucket (one per parcel).
+        // Their object key is unique geometry; `category` stays the standard cortex/subcortex tag
+        // used by panel visibility.
+        const category = variants.category || cat;
+        const hemi = variants.hemisphere || hemiOfCategory(category);
         for (const variant of ['blocky', 'smooth']) {
             const d = variants[variant];
             if (!d) continue;
@@ -204,7 +208,7 @@ export function buildOverlayMeshes(meta, buffers, oi) {
             const mesh = new THREE.Mesh(g);   // material assigned by the engine
             out.push({
                 mesh,
-                meta: { role: 'voxel', overlay: oi, hemisphere: hemi, structure: `${meta.name}_${cat}`, category: cat, variant },
+                meta: { role: 'voxel', overlay: oi, hemisphere: hemi, structure: `${meta.name}_${cat}`, category, variant },
                 values,
                 aabb: bboxOf(mesh),
             });
