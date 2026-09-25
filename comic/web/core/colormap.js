@@ -17,6 +17,43 @@ export function linearToSrgb(c) {
     return c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
 }
 
+/** Deterministic qualitative colour for a 1-based categorical parcel index.
+ *
+ * Golden-angle hue spacing keeps consecutive IDs far apart without a finite hand-picked palette
+ * (AAL has >100 regions). A small deterministic lightness cycle reduces visual near-duplicates
+ * after the hue sequence wraps. Returns sRGB floats in [0,1].
+ */
+export function categoricalColor(index) {
+    const k = Math.max(1, Math.round(Number(index) || 1));
+    const h = (0.08 + (k - 1) * 0.618033988749895) % 1;
+    const s = 0.62;
+    const l = 0.48 + 0.045 * (((k * 37) % 3) - 1);
+    const hue = (p, q, t0) => {
+        let t = t0;
+        if (t < 0) t += 1;
+        if (t > 1) t -= 1;
+        if (t < 1 / 6) return p + (q - p) * 6 * t;
+        if (t < 1 / 2) return q;
+        if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+        return p;
+    };
+    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+    const p = 2 * l - q;
+    return [hue(p, q, h + 1 / 3), hue(p, q, h), hue(p, q, h - 1 / 3)];
+}
+
+/** Categorical parcel IDs -> linear-RGB vertex colours. */
+export function colorizeCategoricalValues(values) {
+    const out = new Float32Array(values.length * 3);
+    for (let i = 0; i < values.length; i++) {
+        const [r, g, b] = categoricalColor(values[i]);
+        out[i * 3] = srgbToLinear(r);
+        out[i * 3 + 1] = srgbToLinear(g);
+        out[i * 3 + 2] = srgbToLinear(b);
+    }
+    return out;
+}
+
 /**
  * Parse colormaps.json → Map<name, { lut:Float32Array(n*3 sRGB 0..1), n, category }>.
  * @param {{n:number, maps:Object}} json
