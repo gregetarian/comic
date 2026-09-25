@@ -237,8 +237,8 @@ def _load_nifti_raw(src, filename=None):
         data = np.squeeze(data, axis=trailing_singletons)
     if data.ndim != 3:
         raise ValueError(
-            f"Expected a 3D map, got shape {np.asarray(img.dataobj).shape}. "
-            "Upload a 3D statistical map or labelled atlas in MNI152 space (not a 4D timeseries).")
+            f"Expected a 3D statistical map or labelled atlas, got shape {np.asarray(img.dataobj).shape}. "
+            "Upload a 3D map in MNI152 space (not a 4D timeseries).")
     _warn_if_not_mni(img.affine, data.shape)
     return data, img.affine
 
