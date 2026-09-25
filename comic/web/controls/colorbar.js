@@ -4,23 +4,42 @@
  * as the voxel shader:  value → t (gamma, seq/div, +guard) → LUT (sRGB)
  *   → sRGB→linear albedo → ×emissive + glint → linear→sRGB.
  */
-import { resolveColormap, sampleLUT, srgbToLinear, linearToSrgb, valueToT, clamp01, deriveMaxAbs, colorbarScale } from '../core/colormap.js?v=depth-auto-v3';
+import { resolveColormap, sampleLUT, categoricalColor, srgbToLinear, linearToSrgb, valueToT, clamp01, deriveMaxAbs, colorbarScale } from '../core/colormap.js?v=atlas-categorical-v1';
 import { overlayStyle } from '../core/config-schema.js?v=depth-auto-v3';
 
 // View-space half-vector z for a front-facing swatch (matches the shader glint).
 const GLINT_NDOTH = 2.0 / Math.hypot(-0.3, 0.4, 2.0);
 
-function swatch(t, os, lighting, cmap) {
-    const [r, g, b] = sampleLUT(cmap, t);
+function litSwatch(rgb, os, lighting) {
     const glint = Math.pow(Math.max(GLINT_NDOTH, 0.0), Math.max(os.shininess ?? 200, 1)) * (os.specular ?? 0);
     const k = (os.emissive ?? 1) + ((lighting.directional ?? 0) + (lighting.ambient ?? 0)) / Math.PI;
-    return [r, g, b].map((c) => Math.round(clamp01(linearToSrgb(srgbToLinear(c) * k + glint)) * 255));
+    return rgb.map((c) => Math.round(clamp01(linearToSrgb(srgbToLinear(c) * k + glint)) * 255));
+}
+
+function swatch(t, os, lighting, cmap) {
+    return litSwatch(sampleLUT(cmap, t), os, lighting);
 }
 
 /** Pure legend model shared by the live canvas, raster sidecar and vector SVG export.
  * Axis positions are linear in data values; gamma affects the sampled colour only. */
 export function colorbarModel(config, meta, colormaps, i = 0) {
     const os = overlayStyle(config, i);
+    if (meta.categoricalAtlas) {
+        const n = Math.max(1, Number(meta.atlasRegionCount || meta.atlasLabels?.length || 1));
+        const lighting = config.style?.lighting || {};
+        const parcel = (value) => Math.max(1, Math.min(n, Math.round(value)));
+        const colorAt = (value) => litSwatch(categoricalColor(parcel(value)), os, lighting);
+        const ticks = n === 1 ? [1] : [1, Math.ceil(n / 2), n];
+        return {
+            min: 1, max: n, ticks,
+            name: meta.name || `overlay ${i + 1}`,
+            units: `${n} regions · display parcel index`,
+            colorAt, rgbAt: colorAt, excluded: () => false,
+            boundaries: [1, n], categorical: true, categoricalCount: n,
+            sampleColumns: (width) => Array.from({ length: width }, (_, x) =>
+                colorAt(1 + Math.min(n - 1, Math.floor(x * n / Math.max(1, width))))),
+        };
+    }
     const diverging = !!meta.diverging, negativeOnly = !!meta.negativeOnly;
     const maxAbs = deriveMaxAbs(os.clim, meta.maxAbsValue ?? 1);
     const { name, mode, divergingMapOnPositive, divergingMapOnNegative } = resolveColormap(os, diverging, colormaps, negativeOnly);
@@ -68,20 +87,32 @@ export function colorbarSVGs(config, metas = [], colormaps) {
         const pad = 4, nameH = 15, tickH = fontSize + 5, unitsH = model.units ? fontSize + 5 : 0;
         const height = nameH + barH + tickH + unitsH + 4;
         const span = model.max - model.min || 1;
-        const values = [...new Set([...model.boundaries, ...Array.from({ length: width }, (_, x) =>
-            model.min + (model.max - model.min) * x / (width - 1))])].sort((a, b) => a - b);
         const stops = [];
-        values.forEach((value, j) => {
-            // At a discontinuity, draw the colour approached from EACH side at the same offset.
-            // Midpoint probes identify the exclusion interval without numeric epsilon guesses.
-            const left = j ? (values[j - 1] + value) / 2 : value;
-            const right = j + 1 < values.length ? (value + values[j + 1]) / 2 : value;
-            const leftColor = model.excluded(left) ? '#808080' : rgbHex(model.colorAt(value));
-            const rightColor = model.excluded(right) ? '#808080' : rgbHex(model.colorAt(value));
-            const offset = ((value - model.min) / span * 100).toFixed(8).replace(/\.?0+$/, '');
-            stops.push(`<stop offset="${offset}%" stop-color="${leftColor}"/>`);
-            if (rightColor !== leftColor) stops.push(`<stop offset="${offset}%" stop-color="${rightColor}"/>`);
-        });
+        if (model.categorical) {
+            // Duplicate each stripe's endpoints so SVG interpolation cannot invent colours
+            // between categorical parcels.
+            for (let j = 0; j < model.categoricalCount; j++) {
+                const color = rgbHex(model.colorAt(j + 1));
+                const a = (j / model.categoricalCount * 100).toFixed(8).replace(/\.?0+$/, '');
+                const b = ((j + 1) / model.categoricalCount * 100).toFixed(8).replace(/\.?0+$/, '');
+                stops.push(`<stop offset="${a}%" stop-color="${color}"/>`);
+                stops.push(`<stop offset="${b}%" stop-color="${color}"/>`);
+            }
+        } else {
+            const values = [...new Set([...model.boundaries, ...Array.from({ length: width }, (_, x) =>
+                model.min + (model.max - model.min) * x / (width - 1))])].sort((a, b) => a - b);
+            values.forEach((value, j) => {
+                // At a discontinuity, draw the colour approached from EACH side at the same offset.
+                // Midpoint probes identify the exclusion interval without numeric epsilon guesses.
+                const left = j ? (values[j - 1] + value) / 2 : value;
+                const right = j + 1 < values.length ? (value + values[j + 1]) / 2 : value;
+                const leftColor = model.excluded(left) ? '#808080' : rgbHex(model.colorAt(value));
+                const rightColor = model.excluded(right) ? '#808080' : rgbHex(model.colorAt(value));
+                const offset = ((value - model.min) / span * 100).toFixed(8).replace(/\.?0+$/, '');
+                stops.push(`<stop offset="${offset}%" stop-color="${leftColor}"/>`);
+                if (rightColor !== leftColor) stops.push(`<stop offset="${offset}%" stop-color="${rightColor}"/>`);
+            });
+        }
         const ticks = model.ticks.map((value, j) => {
             const x = pad + (value - model.min) / span * (width - 1);
             const anchor = ['start', 'middle', 'end'][j];
