@@ -638,7 +638,8 @@ def _process_label_atlas(data, affine, name, classify=True):
     """
     clean = np.array(data, dtype=np.float32, copy=True)
     clean[~np.isfinite(clean)] = 0.0
-    labels = np.unique(np.rint(clean[clean != 0]).astype(np.int64))
+    label_map = np.rint(clean).astype(np.int64)
+    labels = np.unique(label_map[label_map != 0])
     labels.sort()
     if not len(labels):
         return {
@@ -647,50 +648,69 @@ def _process_label_atlas(data, affine, name, classify=True):
             'categoricalAtlas': True, 'atlasLabels': [],
         }
 
+    # Dense 1..K indexing is compact, stable and makes ndimage.find_objects give one bounding box
+    # per parcel in a single pass. This avoids rescanning a whole ~1M-voxel AAL grid K times.
+    dense_map = np.zeros(label_map.shape, dtype=np.int16)
+    inside = label_map != 0
+    dense_map[inside] = np.searchsorted(labels, label_map[inside]).astype(np.int16) + 1
+    boxes = ndimage.find_objects(dense_map)
+
+    # Classify anatomy ONCE for the whole atlas. Per-parcel work then intersects these masks only
+    # inside that parcel's small bounding box, rather than repeating world->aseg transforms K times.
     aseg_d, aseg_a = _ASEG['data'], _ASEG['affine']
+    if classify and aseg_d is not None:
+        category_masks = classify_overlay_voxels(
+            inside, affine, aseg_d, aseg_a,
+            _ASEG.get('categories'), _ASEG.get('structureCategories'))
+        covered = np.zeros(label_map.shape, dtype=bool)
+        for mask in category_masks.values():
+            covered |= mask
+        if np.any(inside & ~covered):
+            category_masks = dict(category_masks)
+            category_masks['volume'] = inside & ~covered
+    else:
+        category_masks = {'volume': inside}
+
     structures = {}
     region_counts = {}
-    max_region = 0
+    counts = np.bincount(dense_map.ravel(), minlength=len(labels) + 1)
+    max_region = int(counts[1:].max()) if len(counts) > 1 else 0
 
-    # Atlas geometry should look smooth without a 64x 0.5-mm upsample of a whole parcellation.
-    # Never make the display grid finer than 1 mm; a 1-mm source therefore stays 1 mm.
+    # At most 1 mm display sampling makes the common 2 mm AAL volume visibly smoother while
+    # preserving sub-millimetre atlases at their native resolution. This changes geometry only,
+    # never parcel membership or IDs.
     vox = np.sqrt((affine[:3, :3] ** 2).sum(axis=0))
-    target_mm = max(1.0, float(np.min(vox)))
+    target_mm = min(1.0, float(np.min(vox)))
     sigma_mm = min(0.75, target_mm * 0.75)
 
     for dense, raw_label in enumerate(labels, start=1):
-        parcel = np.rint(clean).astype(np.int64) == raw_label
-        n_region = int(parcel.sum())
-        if not n_region:
+        region_counts[str(int(raw_label))] = int(counts[dense])
+        box = boxes[dense - 1]
+        if box is None:
             continue
-        region_counts[str(int(raw_label))] = n_region
-        max_region = max(max_region, n_region)
 
-        if classify and aseg_d is not None:
-            cats = classify_overlay_voxels(
-                parcel.astype(np.float32), affine, aseg_d, aseg_a,
-                _ASEG.get('categories'), _ASEG.get('structureCategories'))
-            covered = np.zeros(parcel.shape, dtype=bool)
-            for m in cats.values():
-                covered |= m
-            if np.any(parcel & ~covered):
-                cats = dict(cats)
-                cats['volume'] = parcel & ~covered
-        else:
-            cats = {'volume': parcel}
+        # Shift the affine to the cropped grid. Cropping before voxel meshing / marching cubes is
+        # the difference between an interactive AAL upload and repeatedly scanning the full brain.
+        lo = np.array([sl.start for sl in box], dtype=int)
+        shift = np.eye(4)
+        shift[:3, 3] = lo
+        local_affine = np.asarray(affine, dtype=float) @ shift
+        parcel_local = dense_map[box] == dense
 
-        for cat, mask in cats.items():
+        for cat, whole_cat in category_masks.items():
+            mask = parcel_local & whole_cat[box]
             if not np.any(mask):
                 continue
+            n_region = int(counts[dense])
             vals = np.where(mask, float(dense), 0.0).astype(np.float32)
-            # Cluster thresholding is not meaningful for an atlas. Carry the parcel size so any
-            # inherited non-zero cutoff still cannot fragment a parcel accidentally.
+            # Cluster thresholding is not meaningful for an atlas. Carry the full parcel size so
+            # an inherited non-zero cutoff cannot fragment a parcel accidentally.
             clu = np.where(mask, float(n_region), 0.0).astype(np.float32)
             verts, faces, (vvals, vclu) = _voxel_mesh(mask, vals, clu)
             if len(verts) == 0:
                 continue
             n = verts.shape[0]
-            world = (affine @ np.hstack([verts, np.ones((n, 1))]).T).T[:, :3].astype(np.float32)
+            world = (local_affine @ np.hstack([verts, np.ones((n, 1))]).T).T[:, :3].astype(np.float32)
             entry = {
                 'category': cat,
                 'parcelIndex': int(dense),
@@ -698,7 +718,7 @@ def _process_label_atlas(data, affine, name, classify=True):
                 'blocky': _stage_mesh(world, faces, vvals, vclu),
             }
             sv, sf, svals, sclu = build_smooth_mesh(
-                mask, vals, affine, sigma_mm=sigma_mm, target_mm=target_mm,
+                mask, vals, local_affine, sigma_mm=sigma_mm, target_mm=target_mm,
                 cluster_data=clu, max_upsampled_voxels=1_500_000, warn_on_coarsen=False)
             entry['smooth'] = (_stage_mesh(sv.astype(np.float32), sf, svals, sclu)
                                if len(sv) else entry['blocky'])
@@ -717,7 +737,6 @@ def _process_label_atlas(data, affine, name, classify=True):
         'atlasLabels': [int(x) for x in labels],
         'atlasRegionCount': int(len(labels)),
     }
-
 
 def process_nifti(src, name, threshold=2.3, classify=True, surface=False):
     """Run the full pipeline on a NIfTI (path or bytes). Returns a JSON meta string;
