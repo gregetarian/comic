@@ -148,6 +148,7 @@ export function buildOverlayRows({ engine, config, colormaps, onRemove, onSurfac
         bindRange(el, val, oninput, opts, tip, multi && patch ? (v) => propagateAll(patch(v)) : null);
     overlays.forEach((ov, i) => {
         const os = overlayStyle(config, i);
+        const categorical = !!ov.categoricalAtlas;
         const maxAbs = ov.maxAbsValue ?? 1.0;
         let maxClu = ov.maxClusterSize ?? 0;
         if (!maxClu) {
@@ -200,25 +201,32 @@ export function buildOverlayRows({ engine, config, colormaps, onRemove, onSurfac
 
         const g = document.createElement('div'); g.className = 'grp';
 
-        // Colormap picker with swatch previews: trigger (name + gradient), a popup of all
-        // ~150 maps each with a swatch, and ‹ › steppers (live preview). Same apply path.
-        const picker = createCmapPicker({
-            colormaps,
-            value: resolveColormap(os, !!ov.diverging, colormaps).name,
-            onChange: (name) => { set({ colormap: name }); engine.recolor(); },
-        });
-        g.append(picker.el);
-        infoIcon(picker.el, 'Colormap for this overlay — click for swatches, or step with ‹ ›. Each overlay can use a different one; sequential vs diverging is auto-picked from the data.');
+        if (categorical) {
+            const tag = document.createElement('span'); tag.className = 'lab';
+            tag.textContent = `atlas · ${ov.atlasRegionCount || ov.atlasLabels?.length || '?'} regions`;
+            tag.title = 'Categorical label atlas: parcel IDs are rendered as discrete colours, never interpolated as statistics.';
+            g.append(tag);
+        } else {
+            // Colormap picker with swatch previews: trigger (name + gradient), a popup of all
+            // ~150 maps each with a swatch, and ‹ › steppers (live preview). Same apply path.
+            const picker = createCmapPicker({
+                colormaps,
+                value: resolveColormap(os, !!ov.diverging, colormaps).name,
+                onChange: (name) => { set({ colormap: name }); engine.recolor(); },
+            });
+            g.append(picker.el);
+            infoIcon(picker.el, 'Colormap for this overlay — click for swatches, or step with ‹ ›. Each overlay can use a different one; sequential vs diverging is auto-picked from the data.');
 
-        // Colour-scale mode (M11 parity: was CLI/notebook-only). Recolour only, no re-mesh.
-        const modeSel = document.createElement('select'); modeSel.className = 'btn';
-        for (const m of ['auto', 'sequential', 'diverging']) {
-            const o = document.createElement('option'); o.value = m; o.textContent = m; modeSel.append(o);
+            // Colour-scale mode (M11 parity: was CLI/notebook-only). Recolour only, no re-mesh.
+            const modeSel = document.createElement('select'); modeSel.className = 'btn';
+            for (const m of ['auto', 'sequential', 'diverging']) {
+                const o = document.createElement('option'); o.value = m; o.textContent = m; modeSel.append(o);
+            }
+            modeSel.value = os.colormapMode || 'auto';
+            modeSel.addEventListener('change', () => { set({ colormapMode: modeSel.value }); engine.recolor(); });
+            g.append(modeSel);
+            infoIcon(modeSel, 'Colour scale: auto (sequential/diverging picked from the data), or force one.');
         }
-        modeSel.value = os.colormapMode || 'auto';
-        modeSel.addEventListener('change', () => { set({ colormapMode: modeSel.value }); engine.recolor(); });
-        g.append(modeSel);
-        infoIcon(modeSel, 'Colour scale: auto (sequential/diverging picked from the data), or force one.');
 
         // Voxel representation: blocky / smooth / surface (M8 — surface projects onto the cortex,
         // keeping the cel-shaded glass look; chosen lazily re-meshes via onSurface). A NATIVE surface
@@ -230,7 +238,7 @@ export function buildOverlayRows({ engine, config, colormaps, onRemove, onSurfac
             infoIcon(tag, 'Surface (per-vertex) overlay — always drawn on the cortical surface; blocky/smooth volumetric modes do not apply.');
         } else {
             const repSel = document.createElement('select'); repSel.className = 'btn';
-            for (const r of ['blocky', 'smooth', 'surface']) {
+            for (const r of (categorical ? ['blocky', 'smooth'] : ['blocky', 'smooth', 'surface'])) {
                 const o = document.createElement('option'); o.value = r; o.textContent = r; repSel.append(o);
             }
             repSel.value = os.representation || 'smooth';
@@ -255,42 +263,45 @@ export function buildOverlayRows({ engine, config, colormaps, onRemove, onSurfac
                 } else { set({ voxel: { representation: repSel.value } }); engine.applyStyle(); engine.recolor(); }
             });
             g.append(repSel, subcortWrap);
-            infoIcon(repSel, 'Voxel representation: blocky, smooth (marching cubes), or surface (project onto the cortex — keeps the glass-brain look).');
+            infoIcon(repSel, categorical
+                ? 'Atlas representation: exact blocky label voxels or a display-smoothed parcel surface. Surface projection is disabled because interpolating categorical region IDs onto cortex would be invalid.'
+                : 'Voxel representation: blocky, smooth (marching cubes), or surface (project onto the cortex — keeps the glass-brain look).');
             infoIcon(subcortSel, 'Subcortical voxels cannot project onto the cortical surface. Show their original blocky voxel shape (default), or use a smooth volume.');
         }
 
-        const thr = sw('thr');
-        ovRange(thr.range, os.threshold ?? ov.threshold ?? 0, (v) => { set({ threshold: v }); engine.applyStyle(); }, { min: 0, max: maxAbs, step: maxAbs / 200 }, 'Statistical threshold — hide |value| below this.', (v) => ({ threshold: v }));
-        g.append(thr.wrap);
+        if (!categorical) {
+            const thr = sw('thr');
+            ovRange(thr.range, os.threshold ?? ov.threshold ?? 0, (v) => { set({ threshold: v }); engine.applyStyle(); }, { min: 0, max: maxAbs, step: maxAbs / 200 }, 'Statistical threshold — hide |value| below this.', (v) => ({ threshold: v }));
+            g.append(thr.wrap);
 
-        const clu = sw('cluster k');
-        ovRange(clu.range, os.clusterMin ?? 0, (v) => { set({ voxel: { clusterMin: v } }); engine.applyStyle(); }, { min: 0, max: maxClu, step: 1 }, 'Cluster-extent threshold — hide clusters < N voxels.', (v) => ({ voxel: { clusterMin: v } }));
-        g.append(clu.wrap);
+            const clu = sw('cluster k');
+            ovRange(clu.range, os.clusterMin ?? 0, (v) => { set({ voxel: { clusterMin: v } }); engine.applyStyle(); }, { min: 0, max: maxClu, step: 1 }, 'Cluster-extent threshold — hide clusters < N voxels.', (v) => ({ voxel: { clusterMin: v } }));
+            g.append(clu.wrap);
 
-        const gam = sw('gamma');
-        ovRange(gam.range, os.gamma ?? 0.5, (v) => { set({ gamma: v }); engine.recolor(); },
-                { min: 0.2, max: 1.5, step: 0.05 },
-                'Colormap gamma (power-law) — <1 lifts low values (0.5 = sqrt).', (v) => ({ gamma: v }));
-        g.append(gam.wrap);
+            const gam = sw('gamma');
+            ovRange(gam.range, os.gamma ?? 0.5, (v) => { set({ gamma: v }); engine.recolor(); },
+                    { min: 0.2, max: 1.5, step: 0.05 },
+                    'Colormap gamma (power-law) — <1 lifts low values (0.5 = sqrt).', (v) => ({ gamma: v }));
+            g.append(gam.wrap);
 
-        // Colour limits: explicit V min / V max (the scale's lower & upper bounds — vmin maps to the
-        // bottom of the colormap, vmax to the top). Recolour only. Defaults to the data-derived range.
-        const liveClim = () => { const c = overlayStyle(config, i).clim; return Array.isArray(c) ? c : null; };
-        const dLo = ov.diverging ? -maxAbs : 0, dHi = maxAbs;
-        const setClim = (lo, hi) => { set({ clim: [lo, hi] }); engine.recolor(); engine.applyStyle(); };
-        const rng = { min: -maxAbs * 2, max: maxAbs * 2, step: Math.max(maxAbs / 100, 0.01) };
-        const vmn = sw('vmin');
-        ovRange(vmn.range, (liveClim() || [dLo, dHi])[0], (v) => setClim(v, (liveClim() || [dLo, dHi])[1]),
-                rng, 'Colour-scale minimum — maps to the bottom of the colormap.');
-        g.append(vmn.wrap);
-        const vmx = sw('vmax');
-        ovRange(vmx.range, (liveClim() || [dLo, dHi])[1], (v) => setClim((liveClim() || [dLo, dHi])[0], v),
-                rng, 'Colour-scale maximum — maps to the top of the colormap.');
-        g.append(vmx.wrap);
+            // Colour limits: explicit V min / V max. These are numeric-stat controls, not atlas controls.
+            const liveClim = () => { const c = overlayStyle(config, i).clim; return Array.isArray(c) ? c : null; };
+            const dLo = ov.diverging ? -maxAbs : 0, dHi = maxAbs;
+            const setClim = (lo, hi) => { set({ clim: [lo, hi] }); engine.recolor(); engine.applyStyle(); };
+            const rng = { min: -maxAbs * 2, max: maxAbs * 2, step: Math.max(maxAbs / 100, 0.01) };
+            const vmn = sw('vmin');
+            ovRange(vmn.range, (liveClim() || [dLo, dHi])[0], (v) => setClim(v, (liveClim() || [dLo, dHi])[1]),
+                    rng, 'Colour-scale minimum — maps to the bottom of the colormap.');
+            g.append(vmn.wrap);
+            const vmx = sw('vmax');
+            ovRange(vmx.range, (liveClim() || [dLo, dHi])[1], (v) => setClim((liveClim() || [dLo, dHi])[0], v),
+                    rng, 'Colour-scale maximum — maps to the top of the colormap.');
+            g.append(vmx.wrap);
 
-        const pos = btn('+only');
-        bindToggle(pos, !!os.positiveOnly, (on) => { set({ positiveOnly: on }); engine.applyStyle(); }, 'Show only positive values.');
-        g.append(pos);
+            const pos = btn('+only');
+            bindToggle(pos, !!os.positiveOnly, (on) => { set({ positiveOnly: on }); engine.applyStyle(); }, 'Show only positive values.');
+            g.append(pos);
+        }
 
         const edges = btn('Edges');
         bindToggle(edges, os.edges.enabled !== false, (on) => set({ voxel: { edges: { enabled: on } } }), 'Blob edge outlines.');
