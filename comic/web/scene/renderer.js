@@ -12,7 +12,7 @@ import { frameContent, mergeAABB, viewDepthRange, viewDepthRangeOfPositions } fr
 import { normalize, sub } from '../core/units.js?v=depth-auto-v3';
 import { cameraBasis } from '../core/cameras.js?v=depth-auto-v3';
 import { visible } from '../core/visibility.js?v=depth-auto-v3';
-import { resolveColormap, colorizeValues, deriveMaxAbs } from '../core/colormap.js?v=depth-auto-v3';
+import { resolveColormap, colorizeValues, colorizeCategoricalValues, deriveMaxAbs } from '../core/colormap.js?v=atlas-categorical-v1';
 import { overlayStyle } from '../core/config-schema.js?v=depth-auto-v3';
 import { outlinePlan } from '../core/outline-plan.js?v=depth-auto-v3';
 import { meshLayer, anatomyLayer } from '../core/mesh-meta.js?v=depth-auto-v3';
@@ -315,13 +315,17 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
             const neg = !!overlays[i].negativeOnly;
             const { name, mode, divergingMapOnPositive, divergingMapOnNegative } = resolveColormap(os, div, colormaps, neg);
             const cmap = colormaps.get(name) || colormaps.values().next().value;
-            if (!cmap) continue;
+            const categorical = !!overlays[i].categoricalAtlas;
+            if (!categorical && !cmap) continue;
             const mAbs = deriveMaxAbs(os.clim, overlays[i].maxAbsValue ?? 1.0);   // clim pins the scale
             if (uniforms[i]) uniforms[i].uMaxAbs.value = mAbs;                    // keep the uniform in sync (live clim)
             const climRange = Array.isArray(os.clim) ? os.clim : null;           // explicit [vmin,vmax] → linear map
             for (const tm of sceneModel.meshes) {
                 if (tm.meta.role !== 'voxel' || (tm.meta.overlay ?? 0) !== i || !tm.values) continue;
-                const lin = colorizeValues(tm.values, cmap, mAbs, mode, os.gamma, divergingMapOnPositive, divergingMapOnNegative, climRange);
+                const lin = categorical
+                    ? colorizeCategoricalValues(tm.values)
+                    : colorizeValues(tm.values, cmap, mAbs, mode, os.gamma,
+                        divergingMapOnPositive, divergingMapOnNegative, climRange);
                 tm.mesh.geometry.attributes.color.copyArray(lin);
                 tm.mesh.geometry.attributes.color.needsUpdate = true;
             }
