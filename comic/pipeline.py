@@ -213,12 +213,12 @@ def _warn_if_not_mni(affine, shape):
         print("WARNING:", msg)
 
 
-def load_stat_map(src, filename=None, threshold=2.3):
-    """Load a NIfTI from a path (CLI) or raw bytes (browser upload) and threshold.
+def _load_nifti_raw(src, filename=None):
+    """Load a 3D NIfTI without interpreting its voxel values.
 
-    Bytes branch: nibabel chooses (de)compression by file EXTENSION, so a gzipped
-    upload named foo.nii would be read as garbage. Detect the gzip magic (1f 8b)
-    and pick the .nii.gz path regardless of name — the one defensive check worth it.
+    Statistical maps and integer label atlases share the same container format but not the same
+    semantics. Keeping raw loading separate lets process_nifti decide which path it has BEFORE a
+    statistical threshold destroys low-valued parcel IDs (AAL region 1 is a label, not z=1).
     """
     if isinstance(src, (str, os.PathLike)):
         img = nib.load(str(src))
@@ -232,22 +232,54 @@ def load_stat_map(src, filename=None, threshold=2.3):
             f.write(b)
         img = nib.load(path)
     data = np.asarray(img.dataobj, dtype=np.float32)
-    # The first three axes are spatial even when one has length one: dropping it
-    # would either reject a valid slab or reinterpret time as a spatial dimension.
     trailing_singletons = tuple(i for i in range(3, data.ndim) if data.shape[i] == 1)
     if trailing_singletons:
         data = np.squeeze(data, axis=trailing_singletons)
     if data.ndim != 3:
         raise ValueError(
-            f"Expected a 3D statistical map, got shape {np.asarray(img.dataobj).shape}. "
-            "Upload a 3D stat map in MNI152 space (not a 4D timeseries).")
+            f"Expected a 3D map, got shape {np.asarray(img.dataobj).shape}. "
+            "Upload a 3D statistical map or labelled atlas in MNI152 space (not a 4D timeseries).")
     _warn_if_not_mni(img.affine, data.shape)
-    # NaN/inf in a masked map mean "no data here" — zero them so they neither mesh nor
-    # poison the colour limit. np.abs(nan) < threshold is False, so without this they would
-    # survive thresholding and make np.percentile(maxAbsValue) NaN, breaking the whole overlay.
+    return data, img.affine
+
+
+def _looks_like_label_atlas(data, filename=None):
+    """Conservative content test for a deterministic integer label atlas.
+
+    Exact, non-negative integer-valued volumes with several repeated labels are categoricals in
+    ordinary neuroimaging practice (AAL, Harvard-Oxford max-probability, cluster-index maps, etc.).
+    Requiring >=8 labels avoids hijacking the common binary/ternary masks. A filename containing a
+    strong atlas hint lowers that floor to two so tiny test/ROI atlases still do the right thing.
+    """
+    x = np.asarray(data)
+    finite = x[np.isfinite(x)]
+    nz = finite[finite != 0]
+    if not nz.size or (nz < 0).any():
+        return False
+    rounded = np.rint(nz)
+    if np.max(np.abs(nz - rounded)) > 1e-5:
+        return False
+    labels = np.unique(rounded.astype(np.int64))
+    if len(labels) > 512:
+        return False
+    name = (filename or '').lower()
+    hint = any(token in name for token in (
+        'aal', 'roi_mni_v4', 'atlas', 'parcell', 'parcel', 'labels', 'labelmap', 'segmentation',
+    ))
+    return len(labels) >= (2 if hint else 8)
+
+
+def _threshold_stat_data(data, threshold):
+    data = np.array(data, dtype=np.float32, copy=True)
     data[~np.isfinite(data)] = 0.0
     data[np.abs(data) < threshold] = 0.0
-    return data, img.affine
+    return data
+
+
+def load_stat_map(src, filename=None, threshold=2.3):
+    """Load a statistical NIfTI and apply an absolute-value threshold."""
+    data, affine = _load_nifti_raw(src, filename)
+    return _threshold_stat_data(data, threshold), affine
 
 
 def load_surface_map(src, filename=None):
@@ -597,6 +629,96 @@ def _stage_cut_volume(data, cluster_data, affine):
     }
 
 
+def _process_label_atlas(data, affine, name, classify=True):
+    """Mesh an integer label volume as categorical parcels, not as a continuous statistic.
+
+    Each parcel is meshed independently so parcel interfaces remain real geometric boundaries.
+    The scalar carried by every vertex is a dense 1..K parcel index used only for deterministic
+    qualitative colouring in the renderer. Raw atlas IDs are retained in metadata for provenance.
+    """
+    clean = np.array(data, dtype=np.float32, copy=True)
+    clean[~np.isfinite(clean)] = 0.0
+    labels = np.unique(np.rint(clean[clean != 0]).astype(np.int64))
+    labels.sort()
+    if not len(labels):
+        return {
+            'name': name, 'threshold': 0.5, 'maxAbsValue': 1.0, 'maxClusterSize': 0,
+            'diverging': False, 'negativeOnly': False, 'regionCounts': {}, 'structures': {},
+            'categoricalAtlas': True, 'atlasLabels': [],
+        }
+
+    aseg_d, aseg_a = _ASEG['data'], _ASEG['affine']
+    structures = {}
+    region_counts = {}
+    max_region = 0
+
+    # Atlas geometry should look smooth without a 64x 0.5-mm upsample of a whole parcellation.
+    # Never make the display grid finer than 1 mm; a 1-mm source therefore stays 1 mm.
+    vox = np.sqrt((affine[:3, :3] ** 2).sum(axis=0))
+    target_mm = max(1.0, float(np.min(vox)))
+    sigma_mm = min(0.75, target_mm * 0.75)
+
+    for dense, raw_label in enumerate(labels, start=1):
+        parcel = np.rint(clean).astype(np.int64) == raw_label
+        n_region = int(parcel.sum())
+        if not n_region:
+            continue
+        region_counts[str(int(raw_label))] = n_region
+        max_region = max(max_region, n_region)
+
+        if classify and aseg_d is not None:
+            cats = classify_overlay_voxels(
+                parcel.astype(np.float32), affine, aseg_d, aseg_a,
+                _ASEG.get('categories'), _ASEG.get('structureCategories'))
+            covered = np.zeros(parcel.shape, dtype=bool)
+            for m in cats.values():
+                covered |= m
+            if np.any(parcel & ~covered):
+                cats = dict(cats)
+                cats['volume'] = parcel & ~covered
+        else:
+            cats = {'volume': parcel}
+
+        for cat, mask in cats.items():
+            if not np.any(mask):
+                continue
+            vals = np.where(mask, float(dense), 0.0).astype(np.float32)
+            # Cluster thresholding is not meaningful for an atlas. Carry the parcel size so any
+            # inherited non-zero cutoff still cannot fragment a parcel accidentally.
+            clu = np.where(mask, float(n_region), 0.0).astype(np.float32)
+            verts, faces, (vvals, vclu) = _voxel_mesh(mask, vals, clu)
+            if len(verts) == 0:
+                continue
+            n = verts.shape[0]
+            world = (affine @ np.hstack([verts, np.ones((n, 1))]).T).T[:, :3].astype(np.float32)
+            entry = {
+                'category': cat,
+                'parcelIndex': int(dense),
+                'sourceLabel': int(raw_label),
+                'blocky': _stage_mesh(world, faces, vvals, vclu),
+            }
+            sv, sf, svals, sclu = build_smooth_mesh(
+                mask, vals, affine, sigma_mm=sigma_mm, target_mm=target_mm,
+                cluster_data=clu, max_upsampled_voxels=1_500_000, warn_on_coarsen=False)
+            entry['smooth'] = (_stage_mesh(sv.astype(np.float32), sf, svals, sclu)
+                               if len(sv) else entry['blocky'])
+            structures[f'parcel_{dense:03d}_{cat}'] = entry
+
+    return {
+        'name': name,
+        'threshold': 0.5,
+        'maxAbsValue': float(len(labels)),
+        'maxClusterSize': max_region,
+        'diverging': False,
+        'negativeOnly': False,
+        'regionCounts': region_counts,
+        'structures': structures,
+        'categoricalAtlas': True,
+        'atlasLabels': [int(x) for x in labels],
+        'atlasRegionCount': int(len(labels)),
+    }
+
+
 def process_nifti(src, name, threshold=2.3, classify=True, surface=False):
     """Run the full pipeline on a NIfTI (path or bytes). Returns a JSON meta string;
     geometry arrays are staged in _BUFFERS for retrieval via get_all_buffers().
@@ -605,7 +727,11 @@ def process_nifti(src, name, threshold=2.3, classify=True, surface=False):
     is the no-template / volume-only mode (M7): every supra-threshold voxel goes into one
     'volume' bucket, meshed in the map's own space with no anatomical classification."""
     _BUFFERS.clear()
-    data, affine = load_stat_map(src, name, threshold)
+    raw, affine = _load_nifti_raw(src, name)
+    if _looks_like_label_atlas(raw, name):
+        return json.dumps(_process_label_atlas(raw, affine, name, classify=classify))
+
+    data = _threshold_stat_data(raw, threshold)
     cluster_data = cluster_sizes(data)
 
     aseg_d, aseg_a = _ASEG['data'], _ASEG['affine']
