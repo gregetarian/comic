@@ -11,7 +11,7 @@ import { aabbOfPositions, mergeAABB, frameContent, viewDepthRangeOfPositions } f
 import { layoutGrid, freeRect } from './grid.js';
 import { visible } from './visibility.js';
 import { outlinePlan } from './outline-plan.js';
-import { valueToT, resolveColormap, loadColormaps, sampleLUT, deriveMaxAbs, colorbarScale } from './colormap.js';
+import { valueToT, resolveColormap, loadColormaps, sampleLUT, deriveMaxAbs, colorbarScale, categoricalColor, colorizeCategoricalValues } from './colormap.js';
 import { normalizeConfig, validateConfig, overlayStyle, DEFAULTS } from './config-schema.js';
 import { applyView, panelViewName, VIEWS } from './views.js';
 import { resolveConfig } from './presets.js';
@@ -678,4 +678,18 @@ test('voxel edges default OFF in surface mode, but a per-overlay setting still w
 
 test('the depth veil is off by default', () => {
     assert.equal(DEFAULTS.style.voxel.veil.strength, 0);
+});
+
+
+test('categorical parcel colours are deterministic, discrete and valid', () => {
+    const a = categoricalColor(1), again = categoricalColor(1), b = categoricalColor(2);
+    assert.deepEqual(a, again);
+    assert.notDeepEqual(a, b);
+    for (const rgb of [a, b, categoricalColor(116)])
+        for (const channel of rgb) assert.ok(channel >= 0 && channel <= 1);
+
+    const out = colorizeCategoricalValues(new Float32Array([1, 2, 1]));
+    assert.equal(out.length, 9);
+    assert.deepEqual([...out.slice(0, 3)], [...out.slice(6, 9)]);
+    assert.notDeepEqual([...out.slice(0, 3)], [...out.slice(3, 6)]);
 });
