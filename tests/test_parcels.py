@@ -42,10 +42,28 @@ def test_atlas_registry_declares_provenance_for_every_entry():
     for name, spec in P.ATLASES.items():
         assert spec["source"] and spec["license"], name
         assert isinstance(spec["shipped"], bool), name
-        # Only MIT-licensed atlases may be vendored into the repo.
+        # Vendored atlas payloads must use a redistribution-compatible licence. Schaefer is MIT;
+        # DK68 is the BSD-3-Clause ENIGMA mapping, with the underlying FreeSurfer terms retained.
         if spec["shipped"]:
-            assert spec["license"] == "MIT", f"{name} is marked shipped but is {spec['license']!r}"
+            assert spec["license"] == "MIT" or "BSD-3-Clause" in spec["license"], (
+                f"{name} is marked shipped but is {spec['license']!r}")
 
+
+def test_bundled_dk68_is_complete_and_expands_to_ico7():
+    meta = json.loads((PARCELS / "dk68.json").read_text())
+    assert meta["sourceNverts"] == 10242
+    assert meta["nverts"] == P.ICO7_NVERTS
+    assert len(meta["names"]) == len(meta["hemis"]) == 68
+    assert meta["hemis"].count("lh") == meta["hemis"].count("rh") == 34
+    assert meta["names"][:34] == meta["names"][34:]
+    assert set(meta["sourceLabels"]["lh"]) == {-1, *range(34)}
+    assert set(meta["sourceLabels"]["rh"]) == {-1, *range(34, 68)}
+
+    vals = {str(i + 1): float(i + 1) for i in range(68)}
+    maps = P.values_to_vertex_maps(vals, "dk68", PARCELS)
+    assert maps["lh"].shape == maps["rh"].shape == (P.ICO7_NVERTS,)
+    assert {0.0, 1.0, 34.0}.issubset(set(np.unique(maps["lh"])))
+    assert {0.0, 35.0, 68.0}.issubset(set(np.unique(maps["rh"])))
 
 def test_network_parsed_from_schaefer_names_not_colours():
     assert P.network_of("7Networks_LH_Vis_1") == "Vis"
