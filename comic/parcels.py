@@ -18,8 +18,9 @@ differs from FreeSurfer's by 79 vertices, which would otherwise draw a spurious 
 the corpus callosum when two atlases are compared.
 
 Licensing drives where each atlas comes from. Schaefer is MIT (CBIG) and ships in the repo.
-FreeSurfer's own atlases and Glasser are NOT redistributable under an OSI licence, so they are
-fetched on demand into the same directory and git-ignored.
+DK68 ships from the BSD-3-Clause ENIGMA Toolbox as an fsaverage5 label vector and is expanded
+to ico7 by nearest-neighbour using Comic's baked fsaverage surface. FreeSurfer's own atlas files
+and Glasser are fetched on demand into the same directory and git-ignored.
 """
 
 from __future__ import annotations
@@ -68,6 +69,10 @@ def _schaefer_entries():
 # so nothing non-redistributable is ever vendored into the repo.
 ATLASES = {
     **_schaefer_entries(),
+    "dk68": {"label": "Desikan–Killiany (DK68)",
+             "source": "ENIGMA Toolbox aparc_fsa5 (fsaverage5 Desikan–Killiany)",
+             "license": "BSD-3-Clause; underlying FreeSurfer terms apply",
+             "shipped": True, "inline": "dk68.json"},
     "aparc": {"label": "Desikan-Killiany (68)", "source": "FreeSurfer fsaverage",
               "license": "FreeSurfer (not OSI)", "shipped": False, "fs": "aparc"},
     "a2009s": {"label": "Destrieux (148)", "source": "FreeSurfer fsaverage",
@@ -145,6 +150,8 @@ def _fsaverage_label_dir():
 def _annot_paths(name, cache):
     """Resolve one atlas to {hemi: path}, downloading into `cache` when it is a URL atlas."""
     spec = ATLASES[name]
+    if "inline" in spec:
+        raise ValueError(f"{name} is bundled as compact labels and does not need an annot bake")
     if "fs" in spec:
         d = _fsaverage_label_dir()
         return {h: d / f"{h}.{spec['fs']}.annot" for h in ("lh", "rh")}
@@ -260,6 +267,48 @@ def _match_regions(key, names, hemis):
     return [i for i, n in enumerate(names) if n == k and (want is None or hemis[i] == want)]
 
 
+_INLINE_LABEL_INDEX = {}
+
+
+def _labels_for_hemi(meta, parcels_dir, hemi):
+    """Return one atlas hemisphere as full ico7 int16 labels.
+
+    Ordinary baked atlases read their gzip payload directly. Compact bundled atlases such as
+    DK68 carry fsaverage5 labels in the JSON sidecar; because standard fsaverage ico meshes are
+    nested, the first 10,242 ico7 vertices are exactly the fsaverage5 vertices. Expand them with
+    the same nearest-neighbour rule used for lower-resolution surface maps.
+    """
+    d = Path(parcels_dir)
+    if not meta.get("sourceLabels"):
+        buf = gzip.decompress((d / f"{meta['_atlas_name']}.bin.gz").read_bytes())
+        off, ln = meta[hemi]
+        return np.frombuffer(buf[off:off + ln], "<i2")
+
+    src = np.asarray(meta["sourceLabels"][hemi], dtype=np.int16)
+    source_n = int(meta.get("sourceNverts", len(src)))
+    if len(src) != source_n:
+        raise ValueError(f"{meta['_atlas_name']} {hemi}: {len(src)} source labels, expected {source_n}")
+    target_n = int(meta.get("nverts", ICO7_NVERTS))
+    if source_n == target_n:
+        return src
+
+    key = (str(d.resolve()), hemi, source_n, target_n)
+    idx = _INLINE_LABEL_INDEX.get(key)
+    if idx is None:
+        layout = json.loads((d.parent / "cortex_surface.json").read_text())
+        raw = gzip.decompress((d.parent / "cortex_surface.bin.gz").read_bytes())
+        off, ln = layout[hemi]["pial"]
+        verts = np.frombuffer(raw[off:off + ln], np.float32).reshape(-1, 3)
+        if len(verts) != target_n:
+            raise ValueError(
+                f"{meta['_atlas_name']} targets {target_n} vertices but the template has {len(verts)}")
+        from scipy.spatial import cKDTree
+        _, idx = cKDTree(verts[:source_n]).query(verts, k=1)
+        idx = np.asarray(idx, dtype=np.int32)
+        _INLINE_LABEL_INDEX[key] = idx
+    return np.ascontiguousarray(src[idx], dtype=np.int16)
+
+
 def values_to_vertex_maps(values, atlas, parcels_dir):
     """Expand {region: value} into per-vertex fsaverage maps: {'lh': (163842,), 'rh': (163842,)}.
 
@@ -271,7 +320,7 @@ def values_to_vertex_maps(values, atlas, parcels_dir):
     """
     d = Path(parcels_dir)
     meta = json.loads((d / f"{atlas}.json").read_text())
-    buf = gzip.decompress((d / f"{atlas}.bin.gz").read_bytes())
+    meta["_atlas_name"] = atlas
     names = meta["names"]
 
     per_parcel = np.zeros(len(names), dtype=np.float32)
@@ -291,8 +340,7 @@ def values_to_vertex_maps(values, atlas, parcels_dir):
 
     out = {}
     for hemi in ("lh", "rh"):
-        off, ln = meta[hemi]
-        labels = np.frombuffer(buf[off:off + ln], "<i2")
+        labels = _labels_for_hemi(meta, d, hemi)
         vals = np.zeros(len(labels), dtype=np.float32)
         inside = labels >= 0
         vals[inside] = per_parcel[labels[inside]]
@@ -306,7 +354,7 @@ def bake_parcellations(out_dir, names=None, cache=None):
     index.json accumulates: baking one extra atlas locally never drops the ones already there.
     """
     out = Path(out_dir)
-    names = list(names) if names else [k for k, v in ATLASES.items() if v["shipped"]]
+    names = list(names) if names else [k for k, v in ATLASES.items() if v["shipped"] and "inline" not in v]
     unknown = [n for n in names if n not in ATLASES]
     assert not unknown, f"unknown parcellation(s): {unknown}. Known: {sorted(ATLASES)}"
 
@@ -314,7 +362,8 @@ def bake_parcellations(out_dir, names=None, cache=None):
     index = json.loads(index_path.read_text())["atlases"] if index_path.exists() else {}
     # Drop entries whose payload is gone (e.g. a locally-baked, git-ignored atlas on a fresh
     # clone) so the viewer's picker never offers something that cannot load.
-    index = {k: v for k, v in index.items() if (out / f"{k}.bin.gz").exists()}
+    index = {k: v for k, v in index.items()
+             if (out / f"{k}.bin.gz").exists() or (v.get("inlineLabels") and (out / f"{k}.json").exists())}
     for name in names:
         index[name] = bake_parcellation(name, out, cache=cache)
     out.mkdir(parents=True, exist_ok=True)
