@@ -38,7 +38,7 @@ test('parseValueTable fails loudly on a non-numeric value, naming the row', () =
 
 const ATLASES = {
     schaefer400_7: { nparcels: 400 }, schaefer400_17: { nparcels: 400 },
-    schaefer100_7: { nparcels: 100 }, aparc: { nparcels: 68 },
+    schaefer100_7: { nparcels: 100 }, dk68: { nparcels: 68 },
 };
 
 test('inferAtlas resolves a unique parcel count on its own', () => {
@@ -96,4 +96,10 @@ test('a bare region name is bilateral; an lh_/rh_ prefix is not', () => {
 
 test('an unmatched region name raises rather than silently dropping the row', () => {
     assert.throws(() => namedValuesToParcelOrder(['nope'], [1], ATLAS), /not in this atlas.*"nope"/);
+});
+
+
+test('DK68 is uniquely inferred from a 68-value vector', () => {
+    const got = inferAtlas({ names: null, values: new Array(68).fill(0) }, ATLASES);
+    assert.deepEqual(got.candidates, ['dk68']);
 });
