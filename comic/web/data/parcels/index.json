@@ -1,6 +1,17 @@
 {
-  "version": "fsaverage-ico7-v1",
+  "version": "fsaverage-ico7-v2",
   "atlases": {
+    "dk68": {
+      "label": "Desikan–Killiany (DK68)",
+      "nparcels": 68,
+      "source": "ENIGMA Toolbox aparc_fsa5 (fsaverage5 Desikan–Killiany)",
+      "license": "BSD-3-Clause; underlying FreeSurfer terms apply",
+      "shipped": true,
+      "inlineLabels": true,
+      "sourceNverts": 10242,
+      "canonicalOrder": "ENIGMA-DK68: 34 left then 34 right, FreeSurfer aparc order",
+      "uniqueNames": false
+    },
     "schaefer400_7": {
       "label": "Schaefer 400 (7 networks)",
       "nparcels": 400,
