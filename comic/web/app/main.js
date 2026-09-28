@@ -289,7 +289,7 @@ async function runHeadless() {
     // be a wrong figure, so a missing/mismatched atlas must fail the render loudly.
     const parc = config.style.parcellation;
     if ((parc?.enabled || parc?.maskMedialWall) && parc.atlas)
-        engine.setParcellation(parc.atlas, await loadParcellation(parc.atlas, DATA));
+        engine.setParcellation(parc.atlas, await loadParcellation(parc.atlas, DATA, baseScene));
 
     // Brain fills the full figure (no strip → never squashed); render.py hides/shows the
     // colorbar to screenshot it separately. Wait for the web font so colorbar ticks settle.
@@ -647,6 +647,11 @@ async function setCutOverlay(on) {
  * count alone is ambiguous — every Schaefer size exists in both a 7- and a 17-network variant, and
  * the two disagree about which parcel each row is — the user is asked rather than guessed at.
  */
+async function atlasPayloadPresent(name, spec) {
+    const path = spec?.inlineLabels ? `${DATA}parcels/${name}.json` : `${DATA}parcels/${name}.bin.gz`;
+    return fetch(path, { method: 'HEAD' }).then((r) => r.ok).catch(() => false);
+}
+
 async function loadParcelValues(file, thr, note) {
     setLoading('Reading ' + file.name + '…', note);
     const parsed = parseValueTable(await file.text());
@@ -655,7 +660,7 @@ async function loadParcelValues(file, thr, note) {
     // non-redistributable atlases are git-ignored, so it can over-promise on a fresh clone).
     const { atlases } = await loadParcellationIndex(DATA);
     const present = Object.fromEntries(await Promise.all(Object.entries(atlases).map(async ([k, v]) =>
-        [k, (await fetch(`${DATA}parcels/${k}.bin.gz`, { method: 'HEAD' }).then((r) => r.ok).catch(() => false)) ? v : null])));
+        [k, (await atlasPayloadPresent(k, v)) ? v : null])));
     const available = Object.fromEntries(Object.entries(present).filter(([, v]) => v));
 
     // When the file carries region names they can settle a length tie outright, but that needs the
@@ -671,8 +676,7 @@ async function loadParcelValues(file, thr, note) {
     const { candidates, reason } = inferAtlas(parsed, available, nameLists);
     if (!candidates.length) {
         const sizes = [...new Set(Object.values(available).map((a) => a.nparcels))].sort((a, b) => a - b);
-        throw new Error(`${file.name}: ${reason}. Baked atlases have ${sizes.join(', ')} parcels`
-            + ' — bake more with `comic parcels bake`.');
+        throw new Error(`${file.name}: ${reason}. Available atlases have ${sizes.join(', ')} parcels.`);
     }
     const atlasName = candidates.length === 1 ? candidates[0]
         : await askAtlas(candidates, (k) => available[k].label || k,
@@ -680,15 +684,15 @@ async function loadParcelValues(file, thr, note) {
     if (!atlasName) { setLoading(null); return; }             // dismissed
 
     setLoading('Loading ' + atlasName + '…', note);
-    const atlas = await loadParcellation(atlasName, DATA);
+    const atlas = await loadParcellation(atlasName, DATA, baseScene);
 
     // A bare vector is positional, so it is only safe where the parcel ORDER is canonical. For an
     // atlas that spells a region identically in both hemispheres (aparc, yeo7) the order is the
     // FreeSurfer colour-table order, which is not alphabetical — while most exports of those
     // atlases are. Accepting a bare vector there would mis-assign nearly every region silently.
-    if (!parsed.names && available[atlasName].uniqueNames === false)
+    if (!parsed.names && available[atlasName].uniqueNames === false && !available[atlasName].canonicalOrder)
         throw new Error(`${atlasName} needs a table with region names: its regions are named the same in`
-            + ' both hemispheres and its parcel order is not alphabetical, so a bare list of numbers'
+            + ' both hemispheres and its parcel order is not declared canonical, so a bare list of numbers'
             + ' cannot be matched up safely.');
 
     const ordered = parsed.names
@@ -726,8 +730,7 @@ async function populateAtlasPicker() {
     // One HEAD each, in parallel, keeps the picker honest about what this install can actually
     // load instead of offering a choice that 404s.
     const listed = Object.keys(atlases);
-    const ok = await Promise.all(listed.map((n) => fetch(`${DATA}parcels/${n}.bin.gz`, { method: 'HEAD' })
-        .then((r) => r.ok).catch(() => false)));
+    const ok = await Promise.all(listed.map((n) => atlasPayloadPresent(n, atlases[n])));
     const names = listed.filter((_, i) => ok[i]);
     if (!names.length) {
         sel.innerHTML = '<option>none baked</option>';
@@ -753,7 +756,7 @@ async function setParcellationUI({ enabled, atlas, mask }) {
     if (mask) {
         if (p.maskMedialWall && !parcAtlas && p.atlas) {
             setLoading('Loading ' + p.atlas + '…');
-            parcAtlas = await loadParcellation(p.atlas, DATA);
+            parcAtlas = await loadParcellation(p.atlas, DATA, baseScene);
             engine.setParcellation(p.atlas, parcAtlas);
             setLoading(null);
         }
@@ -767,7 +770,7 @@ async function setParcellationUI({ enabled, atlas, mask }) {
     if (!p.atlas) { p.enabled = false; btn?.classList.remove('active'); return; }
     try {
         setLoading(`Loading ${p.atlas} boundaries…`);
-        parcAtlas = await loadParcellation(p.atlas, DATA);
+        parcAtlas = await loadParcellation(p.atlas, DATA, baseScene);
         engine.setParcellation(p.atlas, parcAtlas);
         setLoading(null);
         btn?.classList.add('active');
