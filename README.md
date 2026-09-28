@@ -15,7 +15,7 @@ does not upload them to a server. Nothing needs to be installed for ordinary use
 - Draws volumetric results as exposed voxel faces or smooth isosurfaces, or
   samples them onto pial, white or inflated cortical surfaces.
 - Loads native fsaverage GIFTI, MGH, MGZ and morphometry maps.
-- Paints CSV or TSV parcel values onto the cortex with atlas boundaries.
+- Paints CSV or TSV parcel values onto the cortex with atlas boundaries, including bundled DK68 and Schaefer atlases.
 - Combines several independently styled overlays, each with its own colourmap,
   threshold, colour limits, transparency and legend.
 - Arranges, rotates, resizes, overlaps and cuts brain panels on a free canvas.
