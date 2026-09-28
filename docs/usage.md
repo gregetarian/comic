@@ -37,10 +37,15 @@ Native surface inputs must correspond to the bundled fsaverage surface. Lower-re
 standard icosahedral fsaverage maps are expanded to the bundled surface; arbitrary vertex
 counts are rejected rather than silently misregistered.
 
-Parcel tables may use region names or atlas row order. Schaefer 100, 200, 400 and 1000
-parcel atlases in both 7- and 17-network versions are bundled. A row count alone cannot
-distinguish the 7- and 17-network variants, so Comic asks when names do not resolve the
-ambiguity. Unmatched region names are errors.
+Parcel tables may use region names or atlas row order. **Desikan–Killiany DK68** is
+bundled, together with Schaefer 100, 200, 400 and 1000 atlases in both 7- and 17-network
+versions. A bare 68-value vector is interpreted in the ENIGMA/FreeSurfer DK order: 34 left
+hemisphere regions followed by the same 34 right-hemisphere regions. Named DK tables may use
+bare bilateral names such as `bankssts`, or hemisphere-qualified forms such as
+`lh_bankssts`, `rh_bankssts`, `bankssts-lh` and `bankssts-rh`.
+
+A row count alone cannot distinguish the 7- and 17-network Schaefer variants, so Comic asks
+when names do not resolve the ambiguity. Unmatched region names are errors.
 
 ## Scripted rendering
 
