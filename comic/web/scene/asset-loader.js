@@ -16,6 +16,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js?v=depth-auto-v3';
 import { hemiOfCategory, categoryOfStructure } from '../core/mesh-meta.js?v=depth-auto-v3';
 import { asF32, asU32, sliceBuffers } from '../core/buffers.js?v=depth-auto-v3';
 import { validateTemplateBundle } from '../core/template-bundle.js?v=depth-auto-v3';
+import { nearestSourceMap, upsampleLabels } from '../core/parcel-resample.js?v=dk68-v1';
 
 const gltfLoader = new GLTFLoader();
 
@@ -100,7 +101,39 @@ export function loadAnatomyVolume(base = 'data/', bundle = null) {
 // rather than shipped inside the 7 MB cortex GLBs.
 const _parcelCache = new Map();
 let _parcelIndex = null;
-const PARCEL_VER = 'fsaverage-ico7-v1';
+const _parcelNearest = new WeakMap();   // pial BufferGeometry -> Map<sourceN, Uint32Array>
+const PARCEL_VER = 'fsaverage-ico7-v2';
+
+function cortexGeometry(sceneModel, hemi) {
+    return sceneModel?.meshes?.find((tm) =>
+        tm.meta?.role === 'cortex' && tm.meta?.hemisphere === hemi && tm.meta?.variant === 'pial')?.mesh?.geometry || null;
+}
+
+function expandInlineLabels(meta, hemi, sceneModel) {
+    const raw = new Int16Array(meta.sourceLabels?.[hemi] || []);
+    if (!raw.length) throw new Error(`parcellation has no ${hemi} labels`);
+    if (raw.length === meta.nverts) return raw;
+
+    const geo = cortexGeometry(sceneModel, hemi);
+    const pos = geo?.attributes?.position?.array;
+    if (!geo || !pos)
+        throw new Error(`parcellation '${meta.label || ''}' needs the loaded fsaverage cortex to expand ${raw.length} source vertices`);
+    if (geo.attributes.position.count !== meta.nverts)
+        throw new Error(`parcellation targets ${meta.nverts} vertices but Comic's ${hemi} cortex has ${geo.attributes.position.count}`);
+
+    const sourceN = meta.sourceNverts || raw.length;
+    if (raw.length !== sourceN)
+        throw new Error(`parcellation ${hemi} label vector has ${raw.length} values; expected ${sourceN}`);
+
+    let byN = _parcelNearest.get(geo);
+    if (!byN) { byN = new Map(); _parcelNearest.set(geo, byN); }
+    let nearest = byN.get(sourceN);
+    if (!nearest) {
+        nearest = nearestSourceMap(pos, sourceN);
+        byN.set(sourceN, nearest);
+    }
+    return upsampleLabels(raw, nearest);
+}
 
 /** {version, atlases:{name:{label,nparcels,…}}} — what this install can draw. */
 export function loadParcellationIndex(base = 'data/') {
@@ -109,17 +142,32 @@ export function loadParcellationIndex(base = 'data/') {
     return _parcelIndex;
 }
 
-/** One atlas → {lh, rh} Int16Array per-vertex labels (-1 = medial wall), + names/colors. */
-export function loadParcellation(name, base = 'data/') {
+/** One atlas → {lh, rh} Int16Array per-vertex labels (-1 = medial wall), + names/colors.
+ *
+ * Most atlases ship as full ico7 gzip payloads. Compact bundled atlases (currently DK68) may
+ * instead embed an fsaverage5 label vector in the JSON sidecar; those are expanded lazily against
+ * the already-loaded pial mesh, using the same nearest-neighbour rule as the Python pipeline.
+ */
+export function loadParcellation(name, base = 'data/', sceneModel = null) {
     if (!_parcelCache.has(name)) _parcelCache.set(name, (async () => {
         const meta = await fetch(`${base}parcels/${name}.json?${PARCEL_VER}`)
-            .then((r) => { if (!r.ok) throw new Error(`parcellation '${name}' is not baked — run: comic parcels bake ${name}`); return r.json(); });
-        const gz = await fetch(`${base}parcels/${name}.bin.gz?${PARCEL_VER}`).then((r) => r.arrayBuffer());
-        const buf = await new Response(new Blob([gz]).stream()
-            .pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();
-        const cut = (h) => new Int16Array(buf.slice(meta[h][0], meta[h][0] + meta[h][1]));
-        return { lh: cut('lh'), rh: cut('rh'), names: meta.names, colors: meta.colors,
-                 networks: meta.networks, nverts: meta.nverts };
+            .then((r) => { if (!r.ok) throw new Error(`parcellation '${name}' is not available`); return r.json(); });
+
+        let lh, rh;
+        if (meta.sourceLabels) {
+            lh = expandInlineLabels(meta, 'lh', sceneModel);
+            rh = expandInlineLabels(meta, 'rh', sceneModel);
+        } else {
+            const response = await fetch(`${base}parcels/${name}.bin.gz?${PARCEL_VER}`);
+            if (!response.ok) throw new Error(`parcellation '${name}' is not baked — run: comic parcels bake ${name}`);
+            const gz = await response.arrayBuffer();
+            const buf = await new Response(new Blob([gz]).stream()
+                .pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();
+            const cut = (h) => new Int16Array(buf.slice(meta[h][0], meta[h][0] + meta[h][1]));
+            lh = cut('lh'); rh = cut('rh');
+        }
+        return { lh, rh, names: meta.names, colors: meta.colors, hemis: meta.hemis,
+                 networks: meta.networks, nverts: meta.nverts, sourceNverts: meta.sourceNverts || meta.nverts };
     })());
     return _parcelCache.get(name);
 }
