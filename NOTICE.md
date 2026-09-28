@@ -36,6 +36,21 @@ for rendering exposed cut faces.
 
 ## Atlas and demonstration data
 
+### Desikan–Killiany DK68
+
+The bundled `comic/web/data/parcels/dk68.json` label vector is derived from the
+`aparc_fsa5.csv` fsaverage5 Desikan–Killiany mapping distributed by the ENIGMA Toolbox.
+Comic expands the 10,242-vertex labels to its ico7 fsaverage mesh by nearest-neighbour
+assignment without changing parcel identities.
+
+- Source: [MICA-MNI/ENIGMA](https://github.com/MICA-MNI/ENIGMA)
+- ENIGMA licence: BSD 3-Clause
+- Underlying atlas: FreeSurfer `aparc` / Desikan–Killiany
+- Citation: Desikan et al. (2006), *NeuroImage*, 31(3), 968–980
+- FreeSurfer terms: [FreeSurfer Software License Agreement](https://surfer.nmr.mgh.harvard.edu/fswiki/FreeSurferSoftwareLicense)
+
+The ENIGMA BSD 3-Clause text is retained in `licenses/ENIGMA-BSD-3-Clause.txt`.
+
 ### Schaefer parcellations
 
 The bundled Schaefer 2018 fsaverage parcellations under
