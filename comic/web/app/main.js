@@ -11,24 +11,24 @@
  *     for the Playwright driver to screenshot. Same engine + same array geometry as the browser.
  */
 import * as THREE from 'three';
-import { resolveConfig } from '../core/presets.js?v=atlas-categorical-v1';
-import { loadColormaps } from '../core/colormap.js?v=atlas-categorical-v1';
-import { setOverlayStyle, overlayStyle } from '../core/config-schema.js?v=atlas-categorical-v1';
-import { createPresetsUI, randomColormapName } from '../controls/style-presets.js?v=atlas-categorical-v1';
-import { contentBBoxPx } from '../core/bbox.js?v=atlas-categorical-v1';
-import { loadBaseScene, buildOverlayMeshes, buildCutVolume, loadOverlayArrays, loadAnatomyVolume, loadParcellation, loadParcellationIndex } from '../scene/asset-loader.js?v=atlas-categorical-v1';
-import { createEngine } from '../scene/renderer.js?v=atlas-categorical-v1';
-import { createColorbar } from '../controls/colorbar.js?v=atlas-categorical-v1';
-import { initKapow } from '../controls/kapow.js?v=atlas-categorical-v1';
-import { bindGlobalControls, buildOverlayRows } from '../controls/bind.js?v=atlas-categorical-v1';
+import { resolveConfig } from '../core/presets.js?v=dk68-v1';
+import { loadColormaps } from '../core/colormap.js?v=dk68-v1';
+import { setOverlayStyle, overlayStyle } from '../core/config-schema.js?v=dk68-v1';
+import { createPresetsUI, randomColormapName } from '../controls/style-presets.js?v=dk68-v1';
+import { contentBBoxPx } from '../core/bbox.js?v=dk68-v1';
+import { loadBaseScene, buildOverlayMeshes, buildCutVolume, loadOverlayArrays, loadAnatomyVolume, loadParcellation, loadParcellationIndex } from '../scene/asset-loader.js?v=dk68-v1';
+import { createEngine } from '../scene/renderer.js?v=dk68-v1';
+import { createColorbar } from '../controls/colorbar.js?v=dk68-v1';
+import { initKapow } from '../controls/kapow.js?v=dk68-v1';
+import { bindGlobalControls, buildOverlayRows } from '../controls/bind.js?v=dk68-v1';
 import { buildRenderText, usesFigureSpec, buildSpec } from '../controls/cli-export.js?v=lossless-cli-v2';
-import { createFreeCanvasEditor } from '../controls/freecanvas.js?v=atlas-categorical-v1';
-import { exportSpinGif } from '../controls/gif-export.js?v=atlas-categorical-v1';
-import { processNifti, processSurface, processParcelValues } from '../pyodide/bootstrap.js?v=atlas-categorical-v1';
-import { VOL_RE, isSurfaceFile, isParcelValueFile, groupSurfaceFiles, surfaceOverlayName } from '../core/surface-files.js?v=atlas-categorical-v1';
-import { parseValueTable, inferAtlas, valuesToVertexMaps, namedValuesToParcelOrder } from '../core/parcel-values.js?v=atlas-categorical-v1';
-import { askAtlas } from '../controls/atlas-prompt.js?v=atlas-categorical-v1';
-import { createSessionState } from './state.js?v=atlas-categorical-v1';
+import { createFreeCanvasEditor } from '../controls/freecanvas.js?v=dk68-v1';
+import { exportSpinGif } from '../controls/gif-export.js?v=dk68-v1';
+import { processNifti, processSurface, processParcelValues } from '../pyodide/bootstrap.js?v=dk68-v1';
+import { VOL_RE, isSurfaceFile, isParcelValueFile, groupSurfaceFiles, surfaceOverlayName } from '../core/surface-files.js?v=dk68-v1';
+import { parseValueTable, inferAtlas, valuesToVertexMaps, namedValuesToParcelOrder } from '../core/parcel-values.js?v=dk68-v1';
+import { askAtlas } from '../controls/atlas-prompt.js?v=dk68-v1';
+import { createSessionState } from './state.js?v=dk68-v1';
 
 const DATA = 'data/';
 const DEMO_ASSET_VER = 'voxel-centres-v2';
