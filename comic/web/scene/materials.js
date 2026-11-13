@@ -210,6 +210,7 @@ export function makeSharedVoxelUniforms(style = {}) {
         uMaskApply: { value: 0.0 },
         uMaskColor: { value: new THREE.Color(0xdcdcdc) },
         uBaseColor: { value: new THREE.Color(0xcccccc) },
+        uNoDataColor: { value: new THREE.Color(0xcccccc) },
         ...sliceUniforms(),
     };
 }
@@ -276,13 +277,13 @@ export function makeSurfaceMaterial(style = {}, shared) {
         Object.assign(shader.uniforms, shared);
         shader.vertexShader = shader.vertexShader
             .replace('#include <common>',
-                `#include <common>\n attribute float aValue;\n attribute float aMask;\n varying float vThreshValue;\n varying float vMask;\n varying float vViewZ;\n ${SLICE_VERT_PARS}`)
+                `#include <common>\n attribute float aValue;\n attribute float aMask;\n attribute float aNoData;\n varying float vThreshValue;\n varying float vMask;\n varying float vNoData;\n varying float vViewZ;\n ${SLICE_VERT_PARS}`)
             .replace('#include <begin_vertex>',
-                `#include <begin_vertex>\n vThreshValue = aValue;\n vMask = aMask;`)
+                `#include <begin_vertex>\n vThreshValue = aValue;\n vMask = aMask;\n vNoData = aNoData;`)
             .replace('#include <project_vertex>',
                 `#include <project_vertex>\n vViewZ = -mvPosition.z;\n ${SLICE_VERT_ASSIGN}`);
         shader.fragmentShader =
-            `uniform float uThreshold, uMaxAbs, uPositiveOnly, uNearZ, uFarZ, uDepthNearZ, uDepthFarZ, uDepthCut, uVeilStrength, uVeilK, uEmissiveBoost, uGlintAmt, uGlintPow;\n             uniform vec3 uVeilColor, uBaseColor;\n             uniform float uBaseApply, uMaskApply;\n             uniform vec3 uMaskColor;\n             varying float vThreshValue; varying float vMask; varying float vViewZ;\n             ${SLICE_FRAG_PARS}\n` + shader.fragmentShader;
+            `uniform float uThreshold, uMaxAbs, uPositiveOnly, uNearZ, uFarZ, uDepthNearZ, uDepthFarZ, uDepthCut, uVeilStrength, uVeilK, uEmissiveBoost, uGlintAmt, uGlintPow;\n             uniform vec3 uVeilColor, uBaseColor;\n             uniform float uBaseApply, uMaskApply;\n             uniform vec3 uMaskColor, uNoDataColor;\n             varying float vThreshValue; varying float vMask; varying float vNoData; varying float vViewZ;\n             ${SLICE_FRAG_PARS}\n` + shader.fragmentShader;
         shader.fragmentShader = shader.fragmentShader.replace('#include <color_fragment>',
             `#include <color_fragment>
              if (gbSliceDiscard(vWorldPos)) discard;
@@ -294,6 +295,10 @@ export function makeSurfaceMaterial(style = {}, shared) {
                        || (uPositiveOnly > 0.5 && vThreshValue < 0.0);
              if (gbMasked) {
                  diffuseColor.rgb = uMaskColor;
+             } else if (vNoData > 0.5) {
+                 // No measurement here (NaN / unmodelled vertex): a flat grey at ANY threshold,
+                 // never a colormap colour and never a hole.
+                 diffuseColor.rgb = uNoDataColor;
              } else if (gbSub) {
                  if (uBaseApply < 0.5) discard;
                  diffuseColor.rgb = uBaseColor;

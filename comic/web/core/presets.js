@@ -6,7 +6,7 @@
  * 9-panel view are expressed in the SAME vocabulary — no code branches on panel
  * identity, so both render identically in the browser and headlessly.
  */
-import { normalizeConfig } from './config-schema.js?v=depth-auto-v3';
+import { normalizeConfig } from './config-schema.js?v=fslr-v1';
 import { VIEWS } from './views.js?v=depth-auto-v3';
 
 const cortexVoxel = (hemisphere) => ({ roles: ['cortex', 'voxel'], hemisphere });

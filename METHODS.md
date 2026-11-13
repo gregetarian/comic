@@ -65,6 +65,18 @@ morphometry files. A pair of left- and right-hemisphere files may be supplied, o
 hemisphere may be used alone. Supported lower-resolution icosahedral maps are expanded
 onto the bundled fsaverage vertex ordering before rendering.
 
+Maps on the HCP fs_LR 32k mesh (32,492 vertices per hemisphere) are identified by their
+vertex count and are not resampled. Each value is assigned to the fs_LR vertex with the same
+index and drawn on a bundled copy of that mesh: the fs_LR group-average midthickness surface
+in MNI152 space, distributed by TemplateFlow from the HCP Pipelines standard mesh atlases.
+Per-hemisphere GIFTI files and CIFTI-2 dense scalar files are read; for CIFTI, the first map
+is taken and the cortical brain models are expanded to full vertex arrays. NaN values and
+vertices absent from a CIFTI brain model are flagged as carrying no data and are drawn in a
+uniform grey, independently of the threshold and colour scale; they do not contribute to the
+automatic colour limits. The inflated and very inflated fs_LR display surfaces are produced
+by Laplacian smoothing of the midthickness surface (8 and 60 iterations) with rescaling about
+the centroid, so they remain in the template's world coordinates.
+
 ### Parcel tables
 
 Parcel-wise results are read from CSV or TSV tables. Region names are matched to the

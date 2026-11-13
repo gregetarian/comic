@@ -84,7 +84,7 @@ def _override_recipe_style(style, args, supplied, n):
         'voxel_edge_w': 'voxel.edges.width', 'voxel_alpha': 'voxel.opacity',
         'voxel_edge_alpha': 'voxel.edges.opacity', 'line_color': 'outline.color',
         'anat_line_color': 'outline.anatomyColor', 'voxel_edge_color': 'voxel.edges.color',
-        'surface_base': 'voxel.surfaceBase', 'silhouette_color': 'outline.silhouette.color',
+        'surface_base': 'voxel.surfaceBase', 'no_data_color': 'voxel.noDataColor', 'silhouette_color': 'outline.silhouette.color',
         'silhouette_w': 'outline.silhouette.width', 'border_color': 'parcellation.color',
         'border_w': 'parcellation.width', 'mask_color': 'parcellation.maskColor',
         'edge_mode': 'voxel.edges.mode', 'depth_mode': 'voxel.depthMode',
@@ -227,13 +227,17 @@ def cli(argv=None):
                         'is one overlay, with its own colormap/colorbar). With --spec, the i-th '
                         'map fills the i-th overlay slot (style.overlays[i]).')
     r.add_argument('--surface-map', action='append', default=None, metavar='lh=..,rh=..',
-                   help='a NATIVE fsaverage SURFACE overlay (per-vertex .gii/.mgh/.mgz), drawn on '
+                   help='a NATIVE SURFACE overlay (per-vertex .gii/.mgh/.mgz), drawn on '
                         'the cortex sheet with no blocky/smooth geometry. Format: '
-                        "'lh=lh.gii,rh=rh.gii[,name=Label]' (either hemi optional). Repeat for "
-                        'several surface overlays. Volume overlays (positional) come first.')
+                        "'lh=lh.gii,rh=rh.gii[,name=Label]' (either hemi optional), or "
+                        "'cifti=map.dscalar.nii[,name=Label]'. The mesh follows the map: fsaverage "
+                        'sizes use the template cortex; 32492 vertices per hemisphere (HCP fs_LR '
+                        '32k, incl. every CIFTI dscalar) use the bundled fs_LR mesh unresampled, '
+                        'with NaN drawn in the no-data grey. A positional *.dscalar.nii is routed '
+                        'here too. Repeat for several surface overlays. Volume overlays come first.')
     r.add_argument('--input-json', action='append', metavar='JSON',
                    help='ordered volume/surface/parcel descriptor; repeat in overlay order. '
-                        'Use type+path for volumes, type+lh/rh for surfaces, type+path+atlas for parcels. '
+                        'Use type+path for volumes, type+lh/rh (or type+cifti) for surfaces, type+path+atlas for parcels. '
                         'Cannot be combined with positional inputs, --surface-map or --parcel-values.')
     r.add_argument('-o', '--out', required=True, help='output PNG path')
     r.add_argument('--grid', default='2x4', help='grid as RxC, e.g. 2x2')
@@ -272,7 +276,9 @@ def cli(argv=None):
                    help='render against a CUSTOM template dir (as produced by `comic bake '
                         '--out DIR ...`) instead of the bundled fsaverage')
     # style overrides (unset = use viewer defaults)
-    r.add_argument('--surface', choices=['inflated', 'pial'], default=None)
+    r.add_argument('--surface', choices=['inflated', 'pial', 'veryinflated'], default=None,
+                   help="cortical shell. 'veryinflated' exists only on the fs_LR mesh (an fs_LR 32k map is loaded); "
+                        "there 'pial' is the group midthickness")
     r.add_argument('--voxels', default=None, help='blocky|smooth|surface; scalar or per-overlay comma list')
     r.add_argument('--smooth', type=int, default=None,
                    help='extra surface smoothing of the smooth (0.5mm-grid) mesh: Taubin iterations (0 = off)')
@@ -334,6 +340,9 @@ def cli(argv=None):
                         'letting the glass shell show through. Makes the cortical sheet solid, so an '
                         'unpainted medial wall reads as grey surface rather than a window onto the far '
                         'side of the hemisphere. Defaults on (#cccccc) with --parcel-values')
+    r.add_argument('--no-data-color', default=None, metavar='#RRGGBB',
+                   help='colour of surface vertices with NO data: NaN in an fs_LR map, or vertices a '
+                        'CIFTI file does not model (the medial wall). Default #cccccc')
     r.add_argument('--positive-only', action=argparse.BooleanOptionalAction, default=None)
     r.add_argument('--no-edges', action='store_true')
     r.add_argument('--no-outline', action='store_true')
@@ -455,9 +464,16 @@ def cli(argv=None):
             surface_maps = []
             for spec in (args.surface_map or []):
                 d = dict(kv.split('=', 1) for kv in spec.split(',') if '=' in kv)
-                if 'lh' not in d and 'rh' not in d:
-                    parser.error(f"--surface-map '{spec}' needs at least lh=<file> or rh=<file>")
+                if 'lh' not in d and 'rh' not in d and 'cifti' not in d:
+                    parser.error(f"--surface-map '{spec}' needs lh=<file>, rh=<file> or cifti=<file.dscalar.nii>")
+                if 'cifti' in d and ('lh' in d or 'rh' in d):
+                    parser.error(f"--surface-map '{spec}': cifti= already holds both hemispheres; drop lh=/rh=")
                 surface_maps.append(d)
+            # A CIFTI dense scalar ends in .nii but is a surface map, not a volume: take it out of
+            # the positional volumes so it reaches the surface path (after the volumes, as above).
+            if not input_maps:
+                surface_maps += [{'cifti': p} for p in args.nifti if str(p).lower().endswith('.dscalar.nii')]
+                args.nifti = [p for p in args.nifti if not str(p).lower().endswith('.dscalar.nii')]
             # --parcel-values: expand a per-region table into per-vertex maps and hand them to the
             # SAME native-surface path a .gii would take. The atlas doubles as the border source, so
             # `--parcel-values t.csv --parcel-atlas schaefer400_7` is the whole figure in one flag.

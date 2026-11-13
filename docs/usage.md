@@ -9,7 +9,8 @@ Open [Comic](https://gregetarian.github.io/comic/) and drop one of the following
 the page:
 
 - a 3D NIfTI volume;
-- left and/or right fsaverage GIFTI, MGH, MGZ or morphometry files; or
+- left and/or right fsaverage GIFTI, MGH, MGZ or morphometry files;
+- left and/or right HCP fs_LR 32k GIFTI files (`.func.gii`), or one CIFTI `.dscalar.nii`; or
 - a CSV, TSV or text table containing one value per atlas parcel.
 
 The processing pipeline runs locally through Pyodide. The application is a static site:
@@ -36,6 +37,39 @@ effect-size or label map before loading it. The hosted template assumes MNI152 a
 Native surface inputs must correspond to the bundled fsaverage surface. Lower-resolution
 standard icosahedral fsaverage maps are expanded to the bundled surface; arbitrary vertex
 counts are rejected rather than silently misregistered.
+
+### HCP fs_LR 32k maps
+
+A map with 32,492 vertices per hemisphere is treated as HCP fs_LR 32k and drawn on a bundled
+fs_LR surface, vertex for vertex. It is never resampled to fsaverage. Two forms are accepted:
+
+- one GIFTI per hemisphere, for example `stat.L.func.gii` and `stat.R.func.gii` (`lh`/`rh`
+  and BIDS `hemi-L`/`hemi-R` names pair up in the same way); or
+- one CIFTI dense scalar file, `stat.dscalar.nii`, which holds both hemispheres. Its first
+  map is used, and any subcortical voxels in the file are ignored.
+
+A vertex whose value is NaN, and any vertex a CIFTI file does not model (normally the medial
+wall), is drawn in a flat grey "no data" colour at every threshold. Set the colour with
+`--no-data-color` or `style.voxel.noDataColor`. Zero is an ordinary value, not "no data".
+
+```bash
+comic render stat.dscalar.nii -o figure.png
+comic render --surface-map 'lh=stat.L.func.gii,rh=stat.R.func.gii' -o figure.png
+comic render --surface-map 'cifti=stat.dscalar.nii,name=Effect' --surface veryinflated -o figure.png
+```
+
+While an fs_LR map is loaded, the cortical shell of the whole figure is the fs_LR mesh. It
+offers three surfaces: the group-average midthickness (selected by `pial` or `white`, since
+fs_LR has no group pial or white surface), `inflated` and `veryinflated`. Both inflated
+surfaces are made by smoothing the midthickness in place, so they stay in MNI152 space.
+
+Limits of the fs_LR mesh:
+
+- fs_LR and fsaverage surface maps, including parcel tables, cannot share one figure.
+- Atlas boundaries and the medial-wall mask are defined on fsaverage and are unavailable.
+- Volumes can still be shown as voxels or isosurfaces beside an fs_LR map, but projecting a
+  volume onto the cortex uses the fsaverage surface and will not sit on the fs_LR shell.
+- Other densities (164k, 59k) and CIFTI types (`.dtseries.nii`, `.dlabel.nii`) are not read.
 
 Parcel tables may use region names or atlas row order. **Desikan–Killiany DK68** is
 bundled, together with Schaefer 100, 200, 400 and 1000 atlases in both 7- and 17-network

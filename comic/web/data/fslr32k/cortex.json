@@ -1,0 +1,63 @@
+{
+ "mesh": "fslr32k",
+ "version": "fslr32k-midthickness-v1",
+ "space": "MNI152",
+ "surface": "midthickness",
+ "inflateIterations": {
+  "inflated": 8,
+  "veryinflated": 60
+ },
+ "source": {
+  "template": "TemplateFlow tpl-fsLR (HCP Pipelines standard mesh atlases)",
+  "files": {
+   "lh": {
+    "name": "tpl-fsLR_den-32k_hemi-L_midthickness.surf.gii",
+    "sha256": "036a8b6c84fa4b581b7ad7b36d99190b57ad6755c9d7ef7adc3e9ffc6448f1af"
+   },
+   "rh": {
+    "name": "tpl-fsLR_den-32k_hemi-R_midthickness.surf.gii",
+    "sha256": "9d2cef05096c433b134870456abebe7ff201cdda60ce5741d7b794018eeccda7"
+   }
+  }
+ },
+ "lh": {
+  "nverts": 32492,
+  "ntris": 64980,
+  "pial": [
+   0,
+   389904
+  ],
+  "inflated": [
+   389904,
+   389904
+  ],
+  "veryinflated": [
+   779808,
+   389904
+  ],
+  "faces": [
+   1169712,
+   779760
+  ]
+ },
+ "rh": {
+  "nverts": 32492,
+  "ntris": 64980,
+  "pial": [
+   1949472,
+   389904
+  ],
+  "inflated": [
+   2339376,
+   389904
+  ],
+  "veryinflated": [
+   2729280,
+   389904
+  ],
+  "faces": [
+   3119184,
+   779760
+  ]
+ }
+}

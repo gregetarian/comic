@@ -183,10 +183,12 @@ def _wants_surface(style, layout=None):
 def _surface_map_name(sm):
     """Default display name for a surface overlay: strip a lh./rh. prefix + surface suffix."""
     import re
-    src = sm.get("lh") or sm.get("rh") or "surface"
+    src = sm.get("cifti") or sm.get("lh") or sm.get("rh") or "surface"
     base = Path(str(src)).name
-    base = re.sub(r"\.(gii|mgh|mgz|surfdat)$", "", base, flags=re.I)
+    base = re.sub(r"\.(dscalar\.nii|gii|mgh|mgz|surfdat)$", "", base, flags=re.I)
+    base = re.sub(r"\.(func|shape)$", "", base, flags=re.I)
     base = re.sub(r"^(lh|rh)[._-]", "", base, flags=re.I)
+    base = re.sub(r"(^|[._-])[LR]$", "", base)          # HCP-style <name>.L.func.gii
     return base or "surface"
 
 
@@ -197,9 +199,10 @@ def prepare_render_dir(nifti=None, threshold=2.3, include_subcortical=True, name
     (overlay_<i>.bin + meta in scene.json) — no GLB, no per-render template re-bake.
 
     `nifti` is a single path (str/Path) OR a list of paths for a multi-overlay figure;
-    `surface_maps` is an optional list of {lh, rh, name?} dicts — each a NATIVE fsaverage
-    surface overlay (per-vertex .gii/.mgh/.mgz), rendered on the cortex sheet with no
-    blocky/smooth geometry. Volume overlays come first, then surface overlays.
+    `surface_maps` is an optional list of {lh, rh, name?} dicts — each a NATIVE surface overlay
+    (per-vertex .gii/.mgh/.mgz on fsaverage, or .func.gii on HCP fs_LR 32k), rendered on the
+    cortex sheet with no blocky/smooth geometry. {cifti, name?} gives a CIFTI .dscalar.nii
+    instead, which holds both fs_LR hemispheres. Volume overlays come first, then surface overlays.
     `threshold` is a scalar (applied to every overlay) OR a per-overlay list spanning both;
     `names` (optional) is a per-overlay display name. Returns the dir path."""
     from . import pipeline as P
@@ -227,6 +230,15 @@ def prepare_render_dir(nifti=None, threshold=2.3, include_subcortical=True, name
         # Native surface overlays (and volume->surface projection) both need the cortex sidecar.
         if (surface or any(d['type'] != 'volume' for d in inputs)) and (data / "cortex_surface.bin.gz").exists():
             P.init_cortex((data / "cortex_surface.bin.gz").read_bytes(), (data / "cortex_surface.json").read_text())
+        # The bundled fs_LR 32k mesh lives in MNI152 world space, so it is offered only beside a
+        # template in that space. It is small (1.8 MB), and whether a .gii needs it is known only
+        # once the file is read, so it is loaded for any native surface input.
+        fslr = data / "fslr32k"
+        space = json.loads((data / "scene.json").read_text()).get("space")
+        P._CORTEX_MESHES.pop("fslr32k", None)
+        if (space == "MNI152" and (fslr / "cortex.bin.gz").exists()
+                and any(d['type'] == 'surface' for d in inputs)):
+            P.init_cortex((fslr / "cortex.bin.gz").read_bytes(), (fslr / "cortex.json").read_text(), mesh="fslr32k")
 
         metas = []
         for i, item in enumerate(inputs):
@@ -241,8 +253,18 @@ def prepare_render_dir(nifti=None, threshold=2.3, include_subcortical=True, name
                     sm = parcels.values_to_vertex_maps(parcels.load_value_table(item['path']), item['atlas'],
                                                        data / 'parcels')
                 name = names[i] or item.get('name') or (Path(item['path']).stem if item['type'] == 'parcel' else _surface_map_name(sm))
-                meta = json.loads(P.process_surface(sm.get('lh'), sm.get('rh'), name, thresholds[i]))
+                if sm.get('cifti') is not None:
+                    meta = json.loads(P.process_surface(str(sm['cifti']), None, name, thresholds[i]))
+                else:
+                    meta = json.loads(P.process_surface(sm.get('lh'), sm.get('rh'), name, thresholds[i]))
             metas.append(write_overlay_arrays(data, meta, P.get_all_buffers(), index=i))
+
+        # One figure has one cortical shell. A native fsaverage map would be drawn on a sheet that
+        # does not coincide with the fs_LR shell (and vice versa), so refuse the combination.
+        native = {m.get('cortexMesh', 'fsaverage') for m in metas if m.get('surfaceOnly')}
+        if len(native) > 1:
+            raise ValueError("a figure cannot mix native fs_LR 32k and fsaverage surface maps: "
+                             "they are drawn on different cortical meshes. Render them separately.")
 
         scene = json.loads((data / "scene.json").read_text())
         if not include_subcortical:

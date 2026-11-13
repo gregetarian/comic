@@ -176,3 +176,34 @@ if __name__ == "__main__":
     test_process_surface_rejects_non_fsaverage_vertex_count()
     test_prepare_render_dir_stages_surface_only_overlay()
     print("PASS — surface projection sampling + native surface overlays")
+
+
+def test_fslr_map_renders_on_fslr_shell_with_grey_no_data(tmp_path):
+    """Headless: an fs_LR 32k GIFTI is drawn on the bundled fs_LR mesh, its NaN vertices in the
+    no-data colour and its values through the colormap, at a threshold that hides neither."""
+    import gzip
+    import nibabel as nib
+    from PIL import Image
+    from comic.render import build_layout, render_to_png
+    layout = json.loads((DATA / "fslr32k" / "cortex.json").read_text())
+    raw = gzip.decompress((DATA / "fslr32k" / "cortex.bin.gz").read_bytes())
+    off, ln = layout["lh"]["pial"]
+    y = np.frombuffer(raw[off:off + ln], np.float32).reshape(-1, 3)[:, 1]
+    vals = np.full(len(y), 5.0, np.float32)
+    vals[y > 0] = np.nan                                  # anterior half: no data
+    arr = nib.gifti.GiftiDataArray(vals, intent="NIFTI_INTENT_NONE", datatype="NIFTI_TYPE_FLOAT32")
+    nib.save(nib.gifti.GiftiImage(darrays=[arr]), str(tmp_path / "t.L.func.gii"))
+
+    out = tmp_path / "fslr.png"
+    render_to_png(None, str(out), surface_maps=[{"lh": str(tmp_path / "t.L.func.gii")}],
+                  layout=build_layout("1x1", ["left_lateral"]),
+                  style={"voxel": {"noDataColor": "#00ff00", "emissive": 1.0}},
+                  threshold=2.3, width=600, height=450, scale=1, colorbar=False, timeout_ms=90000)
+    px = np.asarray(Image.open(out).convert("RGB"), dtype=np.int32)
+    r, g, b = px[..., 0], px[..., 1], px[..., 2]
+    nodata = (g > 180) & (r < 90) & (b < 90)
+    data = (r > 200) & (g > 200) & (b < 90)        # top of the default colormap (viridis yellow)
+    assert nodata.mean() > 0.05 and data.mean() > 0.05
+    # left lateral view looks along +x, anterior (+y) is to the LEFT of the image
+    xs = np.arange(px.shape[1])[None, :]
+    assert (xs * nodata).sum() / nodata.sum() < (xs * data).sum() / data.sum()

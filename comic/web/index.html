@@ -288,7 +288,7 @@
     <!-- Global surface row -->
     <div class="row">
       <div class="grp">
-        <label class="btn file" title="Load NIfTI volumes, fsaverage surface maps (.gii/.mgh/.mgz; drop lh + rh together), or a table of per-parcel values (.csv/.tsv/.txt — one value per atlas parcel) — processed in your browser (no upload to any server)">+ map<input type="file" id="c-upload" accept=".nii,.nii.gz,.gz,.gii,.mgh,.mgz,.csv,.tsv,.txt" multiple></label>
+        <label class="btn file" title="Load NIfTI volumes, surface maps on fsaverage (.gii/.mgh/.mgz) or HCP fs_LR 32k (.func.gii, or a CIFTI .dscalar.nii; drop both hemispheres together), or a table of per-parcel values (.csv/.tsv/.txt — one value per atlas parcel) — processed in your browser (no upload to any server)">+ map<input type="file" id="c-upload" accept=".nii,.nii.gz,.gz,.gii,.mgh,.mgz,.csv,.tsv,.txt" multiple></label>
         <div class="sw" title="Load threshold: voxels with |value| below this are dropped. Set 0 for a continuous, unthresholded whole-brain map; dense maps automatically use memory-safe smooth geometry."><span>threshold</span><input type="number" class="thrbox" id="c-threshold" value="0" min="0" step="0.1"></div>
         <button class="btn" id="c-demo" title="Demo: load example Neurosynth maps (faces · addiction · default-network · language), meshed in your browser">Demo</button>
         <button class="btn" id="c-save-brain" title="Save the brains at full resolution (no colorbars, never squashed)">Save brain</button>
@@ -377,7 +377,7 @@
         <section>
           <h3>Load data</h3>
           <ul>
-            <li><b>+ map</b> — load NIfTI volumes (<code>.nii/.nii.gz</code>) in MNI152 space, or fsaverage <b>surface</b> maps (<code>.gii/.mgh/.mgz</code>; drop <code>lh</code>+<code>rh</code> together). Drag onto the canvas or use the button.</li>
+            <li><b>+ map</b> — load NIfTI volumes (<code>.nii/.nii.gz</code>) in MNI152 space, or <b>surface</b> maps on fsaverage (<code>.gii/.mgh/.mgz</code>) or HCP fs_LR 32k (<code>.func.gii</code>, CIFTI <code>.dscalar.nii</code>); drop both hemispheres together. fs_LR maps are drawn on the fs_LR mesh without resampling, with NaN in grey. Drag onto the canvas or use the button.</li>
             <li><b>Demo</b> — load example Neurosynth maps.</li>
             <li><b>threshold</b> — voxels below |value| are dropped when the map is meshed (set it <i>before</i> loading).</li>
           </ul>
@@ -435,7 +435,7 @@
   }
   </script>
   <script type="module">
-    import('./app/main.js?v=dk68-v1').catch((err) => {
+    import('./app/main.js?v=fslr-v1').catch((err) => {
       console.error(err);
       const el = document.getElementById('loading');
       if (el) el.textContent = 'Error: ' + err.message;

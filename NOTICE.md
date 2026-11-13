@@ -34,6 +34,19 @@ for rendering exposed cut faces.
   that the upstream copyright notice appears in copies; the material is provided without
   warranty.
 
+### HCP fs_LR 32k surface
+
+`comic/web/data/fslr32k/` holds the fs_LR 32k group-average midthickness surface for each
+hemisphere, plus two inflated display surfaces that Comic derives from it by smoothing.
+
+- Source: [TemplateFlow `tpl-fsLR`](https://www.templateflow.org/), files
+  `tpl-fsLR_den-32k_hemi-{L,R}_midthickness.surf.gii` (checksums pinned in `comic/fslr.py`)
+- Origin: [HCP Pipelines standard mesh atlases](https://github.com/Washington-University/HCPpipelines/tree/master/global/templates)
+- Copyright: 2011-2021 The Human Connectome Project and The Connectome Coordination Facility
+- Licence: HCP Pipelines licence (BSD-style), retained in `licenses/HCP-Pipelines-LICENSE.txt`
+- Citations: Van Essen et al. (2012), *Cerebral Cortex*, 22, 2241-2262; Glasser et al.
+  (2013), *NeuroImage*, 80, 105-124
+
 ## Atlas and demonstration data
 
 ### Desikan–Killiany DK68

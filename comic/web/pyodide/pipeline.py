@@ -50,6 +50,11 @@ _ASEG = {'data': None, 'affine': None, 'categories': None, 'structureCategories'
 # Cortical surface (pial verts + faces + curvature + inward offset to the white surface),
 # loaded once via init_cortex() for surface-projection mode (M8). None until loaded.
 _CORTEX = {'lh': None, 'rh': None}
+# Every loaded cortical mesh by id. 'fsaverage' is the template's own surface (_CORTEX, the only
+# one volumes are projected onto); 'fslr32k' is the bundled HCP fs_LR 32k mesh, loaded so that
+# maps computed on that mesh are painted vertex-for-vertex instead of being resampled.
+_CORTEX_MESHES = {'fsaverage': _CORTEX}
+FSLR32K_NVERTS = 32492
 SURFACE_DEPTH = 6   # samples along the pial->white ribbon (nilearn vol_to_surf 'line' kind)
 
 # Staging for the most recent process_nifti() result (flat buffer list).
@@ -73,22 +78,31 @@ def init_aseg(gz_bytes, meta_json):
     _ASEG['structureCategories'] = meta.get('structureCategories') or STRUCTURE_CATEGORIES
 
 
-def init_cortex(gz_bytes, meta_json):
-    """Load the cortical-surface sidecar (pial verts/faces/curv + inward offset to white) for
-    surface-projection mode (M8). meta_json is cortex_surface.json (per-hemi byte layout)."""
+def init_cortex(gz_bytes, meta_json, mesh='fsaverage'):
+    """Load a cortical-surface sidecar (pial verts/faces/curv + inward offset to white) for
+    surface-projection mode (M8). meta_json is cortex_surface.json (per-hemi byte layout).
+
+    `mesh` names which mesh this is. The default is the template's own surface; 'fslr32k' loads
+    the bundled fs_LR mesh (data/fslr32k/cortex.*), which carries vertices and faces only, so its
+    absent curvature / inward offset are zero-filled."""
     layout = json.loads(meta_json)
     raw = gzip.decompress(bytes(gz_bytes))
+    target = _CORTEX_MESHES.setdefault(mesh, {'lh': None, 'rh': None})
     for hemi in ('lh', 'rh'):
         h = layout.get(hemi)
         if not h:
-            _CORTEX[hemi] = None
+            target[hemi] = None
             continue
         def arr(name, dtype, cols):
             off, ln = h[name]
             a = np.frombuffer(raw[off:off + ln], dtype=dtype)
             return a.reshape(-1, cols) if cols > 1 else a
-        _CORTEX[hemi] = {'verts': arr('pial', np.float32, 3), 'inward': arr('inward', np.float32, 3),
-                         'faces': arr('faces', np.uint32, 3), 'curv': arr('curv', np.float32, 1)}
+        verts = arr('pial', np.float32, 3)
+        target[hemi] = {
+            'verts': verts,
+            'inward': arr('inward', np.float32, 3) if 'inward' in h else np.zeros_like(verts),
+            'faces': arr('faces', np.uint32, 3),
+            'curv': arr('curv', np.float32, 1) if 'curv' in h else np.zeros(len(verts), np.float32)}
 
 
 # fsaverage icosahedral vertex counts (per hemisphere) -> ico order. Lower orders are a strict
@@ -113,14 +127,19 @@ def _upsample_to_template(vals, C):
     return np.ascontiguousarray(vals[idx], np.float32)
 
 
-def _stage_surface(vals_by_hemi):
+def _stage_surface(vals_by_hemi, mesh='fsaverage', nodata_by_hemi=None):
     """Stage the baked cortex sheet per hemisphere, coloured by a caller-supplied per-vertex
     scalar array (float32, length == that hemi's vertex count). Shared by the volume->surface
     projection and the native-surface path so both feed the engine identically. Returns
-    {hemi: descriptor} for meta['surface']; staged into _BUFFERS in lh-then-rh order."""
+    {hemi: descriptor} for meta['surface']; staged into _BUFFERS in lh-then-rh order.
+
+    `nodata_by_hemi` optionally flags vertices that carry NO measurement (boolean per vertex).
+    They are staged as a separate 0/1 float buffer (descriptor key 'nodata') rather than left as
+    NaN in the values, because a NaN vertex attribute poisons every triangle it touches."""
     out = {}
+    cortex = _CORTEX_MESHES.get(mesh) or {}
     for hemi in ('lh', 'rh'):
-        C = _CORTEX.get(hemi)
+        C = cortex.get(hemi)
         vals = vals_by_hemi.get(hemi)
         if C is None or vals is None:
             continue
@@ -132,6 +151,9 @@ def _stage_surface(vals_by_hemi):
         clu = np.zeros(len(vals), np.float32)
         desc = _stage_mesh(C['verts'].astype(np.float32), C['faces'], vals, clu)
         desc['crv'] = _stage(np.ascontiguousarray(C['curv'], np.float32), np.float32)[0]
+        nodata = (nodata_by_hemi or {}).get(hemi)
+        if nodata is not None and np.any(nodata):
+            desc['nodata'] = _stage(np.ascontiguousarray(nodata, np.float32), np.float32)[0]
         out[hemi] = desc
     return out
 
@@ -282,12 +304,61 @@ def load_stat_map(src, filename=None, threshold=2.3):
     return _threshold_stat_data(data, threshold), affine
 
 
-def load_surface_map(src, filename=None):
-    """Read a per-vertex scalar map (one value per fsaverage vertex) from a path or raw bytes.
+def is_cifti_dscalar(name):
+    """True for a CIFTI-2 dense scalar filename (`*.dscalar.nii`)."""
+    return bool(name) and str(name).lower().endswith('.dscalar.nii')
+
+
+def load_cifti_dscalar(src, filename=None, map_index=0):
+    """Read one map of a CIFTI-2 dense scalar file into per-hemisphere vertex arrays.
+
+    A dscalar stores values only for the "grayordinates" it models: cortical vertices outside
+    the medial wall, plus (optionally) subcortical voxels. Returns {'lh': ..., 'rh': ...} with
+    one float32 per SURFACE vertex of each cortical brain model present; vertices the file does
+    not model are NaN (no data). Subcortical voxel models are ignored: this is the surface path.
+    A file with several maps yields `map_index` (default: the first)."""
+    import nibabel as nib
+    if hasattr(src, 'to_py'):
+        src = src.to_py()
+    if not isinstance(src, (str, os.PathLike)):
+        b = bytes(src)
+        src = '/tmp/gb_surf_upload.dscalar.nii'
+        with open(src, 'wb') as f:
+            f.write(b)
+    img = nib.load(str(src))
+    if not isinstance(img, nib.Cifti2Image):
+        raise ValueError(f"{filename or src} is not a CIFTI-2 file")
+    data = np.asarray(img.dataobj, dtype=np.float32)
+    bm = next((img.header.get_axis(i) for i in range(data.ndim)
+               if isinstance(img.header.get_axis(i), nib.cifti2.BrainModelAxis)), None)
+    if bm is None or data.ndim != 2:
+        raise ValueError(f"{filename or src}: expected a dense scalar (maps x grayordinates) CIFTI")
+    if not isinstance(img.header.get_axis(1), nib.cifti2.BrainModelAxis):
+        data = data.T
+    if not 0 <= map_index < data.shape[0]:
+        raise ValueError(f"{filename or src} has {data.shape[0]} map(s); map {map_index} does not exist")
+    row = data[map_index]
+    out = {}
+    for name, sl, sub in bm.iter_structures():
+        hemi = {'CIFTI_STRUCTURE_CORTEX_LEFT': 'lh', 'CIFTI_STRUCTURE_CORTEX_RIGHT': 'rh'}.get(name)
+        if hemi is None:
+            continue
+        vals = np.full(int(sub.nvertices[name]), np.nan, np.float32)
+        vals[sub.vertex] = row[sl]
+        out[hemi] = vals
+    if not out:
+        raise ValueError(f"{filename or src} has no cortical surface model (CORTEX_LEFT/CORTEX_RIGHT)")
+    return out
+
+
+def load_surface_map(src, filename=None, keep_nan=False):
+    """Read a per-vertex scalar map (one value per surface vertex) from a path or raw bytes.
 
     Handles the formats a surface analysis emits: GIFTI (.gii, e.g. func.gii/shape.gii),
     FreeSurfer volume-encoded scalars (.mgh/.mgz), and FreeSurfer morphometry/curv binary.
-    Returns a 1-D float32 array; the caller checks its length against the template vertex count."""
+    Returns a 1-D float32 array; the caller checks its length against the mesh vertex count.
+    Non-finite values become 0 unless `keep_nan`, which returns them as NaN so the caller can
+    mark those vertices as carrying no data."""
     import nibabel as nib
     # A JS TypedArray handed across the Pyodide FFI (the browser's parcel-vector upload). It is a
     # JsProxy, NOT an ndarray, and bytes() on a Float32Array raises — so convert first. .to_py()
@@ -298,8 +369,8 @@ def load_surface_map(src, filename=None):
     # An already-computed per-vertex array (e.g. a parcel value table expanded by comic.parcels)
     # is handed straight through — there is no file to read.
     if isinstance(src, np.ndarray):
-        vals = np.ravel(np.asarray(src, dtype=np.float32))
-        vals[~np.isfinite(vals)] = 0.0
+        vals = np.ravel(np.array(src, dtype=np.float32))
+        vals[~np.isfinite(vals)] = np.nan if keep_nan else 0.0
         return vals
     name = (filename or (str(src) if isinstance(src, (str, os.PathLike)) else '')).lower()
     if not isinstance(src, (str, os.PathLike)):
@@ -311,36 +382,75 @@ def load_surface_map(src, filename=None):
             f.write(b)
     src = str(src)
     if src.endswith('.gii'):
-        vals = np.asarray(nib.load(src).agg_data(), dtype=np.float32)
+        vals = nib.load(src).agg_data()
+        # A multi-map GIFTI (several data arrays of one length) aggregates to a tuple: take the first.
+        vals = np.asarray(vals[0] if isinstance(vals, tuple) else vals, dtype=np.float32)
     elif src.endswith(('.mgh', '.mgz')):
         vals = np.asarray(nib.load(src).dataobj, dtype=np.float32)
     else:                                        # FreeSurfer morphometry/curv binary (thickness, curv, ...)
         import nibabel.freesurfer as fs
         vals = np.asarray(fs.read_morph_data(src), dtype=np.float32)
-    vals = np.ravel(np.squeeze(vals))
-    vals[~np.isfinite(vals)] = 0.0
+    vals = np.array(np.ravel(np.squeeze(vals)), dtype=np.float32)
+    vals[~np.isfinite(vals)] = np.nan if keep_nan else 0.0
     return vals
 
 
 def process_surface(lh_src, rh_src, name, threshold=2.3, lh_name=None, rh_name=None):
-    """Native fsaverage surface overlay: per-vertex scalars (lh and/or rh) painted directly on the
-    baked cortex sheet — no volume, no aseg classification, no blocky/smooth voxel geometry.
-    Requires init_cortex() to have loaded the template surface. Returns a JSON meta string with
-    surfaceOnly=True (so the engine forces representation='surface'); buffers are staged in
-    _BUFFERS like process_nifti. Values are staged RAW so the shader thresholds live."""
+    """Native surface overlay: per-vertex scalars (lh and/or rh) painted directly on a baked cortex
+    sheet. No volume, no aseg classification, no blocky/smooth voxel geometry.
+
+    The mesh is inferred from the map itself. An fsaverage-sized map (ico1..7) goes on the
+    template cortex, upsampled by nearest neighbour if it is below ico7. A map with 32,492
+    vertices per hemisphere is HCP fs_LR 32k and goes on the bundled fs_LR mesh UNCHANGED, with
+    no resampling; there NaN means "no data" and is staged as a per-vertex flag the viewer draws
+    in its no-data grey. A CIFTI dense scalar (`*.dscalar.nii`, passed as `lh_src`) carries both
+    hemispheres and leaves the vertices it does not model (the medial wall) as no data.
+
+    The needed mesh must already be loaded with init_cortex(); otherwise this raises a
+    RuntimeError starting "[needs-cortex:<mesh>]", which the browser uses to fetch that mesh on
+    demand and retry. Returns a JSON meta string with surfaceOnly=True (so the engine forces
+    representation='surface'); buffers are staged in _BUFFERS like process_nifti. Values are
+    staged RAW so the shader thresholds live."""
     _BUFFERS.clear()
-    if _CORTEX.get('lh') is None and _CORTEX.get('rh') is None:
-        raise RuntimeError("process_surface needs the cortical surface loaded — call init_cortex() first.")
     # A missing hemisphere is None in CPython, but Pyodide hands a JS null across as a JsNull
     # proxy (not Python None), so normalise by type name — else bytes(JsNull) would blow up.
     def _present(x):
         return None if x is None or type(x).__name__ in ('JsNull', 'JsUndefined') else x
-    vals_by_hemi = {}
-    for hemi, src, fn in (('lh', _present(lh_src), lh_name), ('rh', _present(rh_src), rh_name)):
-        if src is not None:
-            vals_by_hemi[hemi] = _upsample_to_template(load_surface_map(src, fn), _CORTEX[hemi])
-    if not vals_by_hemi:
+    lh_src, rh_src, lh_name, rh_name = (_present(x) for x in (lh_src, rh_src, lh_name, rh_name))
+    raw = {}
+    cifti_name = lh_name or (lh_src if isinstance(lh_src, (str, os.PathLike)) else None)
+    if lh_src is not None and is_cifti_dscalar(cifti_name):
+        if rh_src is not None:
+            raise ValueError("a CIFTI dscalar already holds both hemispheres; pass it alone")
+        raw = load_cifti_dscalar(lh_src, lh_name)
+    else:
+        for hemi, src, fn in (('lh', lh_src, lh_name), ('rh', rh_src, rh_name)):
+            if src is not None:
+                raw[hemi] = load_surface_map(src, fn, keep_nan=True)
+    if not raw:
         raise ValueError("process_surface got no readable hemisphere (both lh and rh were empty).")
+
+    sizes = {len(v) for v in raw.values()}
+    fslr = sizes == {FSLR32K_NVERTS}
+    if FSLR32K_NVERTS in sizes and not fslr:
+        raise ValueError(f"hemispheres are on different meshes ({sorted(len(v) for v in raw.values())} "
+                         "vertices): fs_LR 32k and fsaverage maps cannot be paired.")
+    mesh = 'fslr32k' if fslr else 'fsaverage'
+    cortex = _CORTEX_MESHES.get(mesh) or {}
+    if all(cortex.get(h) is None for h in raw):
+        what = ("the fs_LR 32k mesh: call init_cortex(..., mesh='fslr32k') with data/fslr32k/cortex.*"
+                if fslr else "the cortical surface: call init_cortex() first")
+        raise RuntimeError(f"[needs-cortex:{mesh}] process_surface needs {what}.")
+
+    vals_by_hemi, nodata_by_hemi = {}, {}
+    for hemi, vals in raw.items():
+        nan = np.isnan(vals)
+        vals = np.where(nan, np.float32(0), vals).astype(np.float32)
+        if fslr:
+            nodata_by_hemi[hemi] = nan       # the map IS the mesh: one value per vertex, as given
+        elif cortex.get(hemi) is not None:
+            vals = _upsample_to_template(vals, cortex[hemi])
+        vals_by_hemi[hemi] = vals
 
     # Colour scale + sign from the SUPRA-threshold vertices only (matches process_nifti, and
     # ignores the medial-wall zeros / sub-threshold noise).
@@ -361,8 +471,11 @@ def process_surface(lh_src, rh_src, name, threshold=2.3, lh_name=None, rh_name=N
         'regionCounts': {},
         'structures': {},                   # NO blocky/smooth voxel geometry
         'surfaceOnly': True,                # engine forces representation='surface'; UI hides blocky/smooth
-        'surface': _stage_surface(vals_by_hemi),
+        'surface': _stage_surface(vals_by_hemi, mesh, nodata_by_hemi),
     }
+    if fslr:                                # fsaverage metas stay byte-identical to before
+        meta['cortexMesh'] = mesh
+        meta['noDataVertices'] = int(sum(int(m.sum()) for m in nodata_by_hemi.values()))
     return json.dumps(meta)
 
 

@@ -13,19 +13,19 @@
 import * as THREE from 'three';
 import { resolveConfig } from '../core/presets.js?v=dk68-v1';
 import { loadColormaps } from '../core/colormap.js?v=dk68-v1';
-import { setOverlayStyle, overlayStyle } from '../core/config-schema.js?v=dk68-v1';
+import { setOverlayStyle, overlayStyle } from '../core/config-schema.js?v=fslr-v1';
 import { createPresetsUI, randomColormapName } from '../controls/style-presets.js?v=dk68-v1';
 import { contentBBoxPx } from '../core/bbox.js?v=dk68-v1';
-import { loadBaseScene, buildOverlayMeshes, buildCutVolume, loadOverlayArrays, loadAnatomyVolume, loadParcellation, loadParcellationIndex } from '../scene/asset-loader.js?v=dk68-v1';
-import { createEngine } from '../scene/renderer.js?v=dk68-v1';
+import { loadBaseScene, loadCortexMesh, buildOverlayMeshes, buildCutVolume, loadOverlayArrays, loadAnatomyVolume, loadParcellation, loadParcellationIndex } from '../scene/asset-loader.js?v=fslr-v1';
+import { createEngine } from '../scene/renderer.js?v=fslr-v1';
 import { createColorbar } from '../controls/colorbar.js?v=dk68-v1';
 import { initKapow } from '../controls/kapow.js?v=dk68-v1';
 import { bindGlobalControls, buildOverlayRows } from '../controls/bind.js?v=dk68-v1';
-import { buildRenderText, usesFigureSpec, buildSpec } from '../controls/cli-export.js?v=lossless-cli-v2';
+import { buildRenderText, usesFigureSpec, buildSpec } from '../controls/cli-export.js?v=fslr-v1';
 import { createFreeCanvasEditor } from '../controls/freecanvas.js?v=dk68-v1';
 import { exportSpinGif } from '../controls/gif-export.js?v=dk68-v1';
-import { processNifti, processSurface, processParcelValues } from '../pyodide/bootstrap.js?v=dk68-v1';
-import { VOL_RE, isSurfaceFile, isParcelValueFile, groupSurfaceFiles, surfaceOverlayName } from '../core/surface-files.js?v=dk68-v1';
+import { processNifti, processSurface, processParcelValues } from '../pyodide/bootstrap.js?v=fslr-v1';
+import { VOL_RE, isSurfaceFile, isParcelValueFile, groupSurfaceFiles, surfaceOverlayName } from '../core/surface-files.js?v=fslr-v1';
 import { parseValueTable, inferAtlas, valuesToVertexMaps, namedValuesToParcelOrder } from '../core/parcel-values.js?v=dk68-v1';
 import { askAtlas } from '../controls/atlas-prompt.js?v=dk68-v1';
 import { createSessionState } from './state.js?v=dk68-v1';
@@ -45,8 +45,36 @@ let anatomyVol = null;   // the cut-cap volume asset {data,dims,affine}, loaded 
 let parcAtlas = null;    // the active parcellation's {lh,rh} label arrays, kept across rebuilds
 let zoomEls = [];
 let fcEditor = null;   // Free Canvas editor overlay (only in layout.mode === 'free')
+// Cortex shells on a mesh other than the template's (id -> tagged meshes), loaded on first use.
+// A native fs_LR 32k map is painted on the fs_LR mesh, so while one is loaded the figure's shell
+// IS that mesh; removing it returns to the template cortex (see rebuild()).
+const altCortex = {};
 let surfaceLayoutPromise = null; // coalesce rapid switches into a view that needs surface geometry
 let container, canvas;
+
+/** The non-template cortical mesh the current overlays are drawn on, or null (template cortex). */
+function activeCortexMesh() {
+    return overlays.find((o) => o.meta?.surfaceOnly && o.meta?.cortexMesh)?.meta.cortexMesh || null;
+}
+
+/** Load the shell for a native surface overlay's mesh before the engine is built for it. */
+async function ensureCortexMeshFor(meta) {
+    const id = meta?.surfaceOnly && meta.cortexMesh;
+    if (!id || altCortex[id]) return;
+    if (baseScene.manifest.space !== 'MNI152')
+        throw new Error(`${id} maps need an MNI152 template; this one is in ${baseScene.manifest.space || 'an unknown space'}`);
+    altCortex[id] = (await loadCortexMesh(id, DATA)).meshes;
+}
+
+/** Why a new native surface overlay cannot join the figure, or null. One figure has one cortical
+ *  shell, and an fsaverage sheet does not coincide with the fs_LR shell (nor the reverse). */
+function cortexMeshClash(meta) {
+    const mesh = (m) => m.cortexMesh || 'fsaverage';
+    const other = overlays.find((o) => o.meta?.surfaceOnly && mesh(o.meta) !== mesh(meta));
+    if (!other) return null;
+    const label = (id) => (id === 'fslr32k' ? 'fs_LR 32k' : id);
+    return `${meta.name} is on ${label(mesh(meta))}, but ${other.meta.name} is on ${label(mesh(other.meta))}.`;
+}
 
 function makeOverlay(meta, buffers, oi, src) {
     return {
@@ -274,9 +302,15 @@ async function runHeadless() {
     overlays = [];
     for (let oi = 0; oi < metas.length; oi++) {
         const buffers = await loadOverlayArrays(DATA, metas[oi]);
+        await ensureCortexMeshFor(metas[oi]);
         overlays.push(makeOverlay(metas[oi], buffers, oi));
     }
     rebuild();   // engine + (colorbar, no ✕) for the current overlays
+    // 'veryinflated' exists only on the fs_LR mesh. Asked for on another shell it would match no
+    // cortex mesh and silently render a brain with no cortex, so say so instead.
+    if (config.style.cortexSurface === 'veryinflated' && engine.getSurfaceVariants().length
+        && !engine.getSurfaceVariants().includes('veryinflated'))
+        throw new Error("surface 'veryinflated' is only available on the fs_LR mesh (load an fs_LR 32k map); use 'inflated'");
 
     // Scissor cut-cap: if the spec asks for it, load the anatomy volume + attach it BEFORE the
     // screenshot (the load is async; without awaiting it here __GB_DONE__ would fire cap-less).
@@ -288,6 +322,8 @@ async function runHeadless() {
     // wrapped in a try: a figure that asked for an atlas and silently rendered without it would
     // be a wrong figure, so a missing/mismatched atlas must fail the render loudly.
     const parc = config.style.parcellation;
+    if ((parc?.enabled || parc?.maskMedialWall) && parc.atlas && activeCortexMesh())
+        throw new Error(`parcellation '${parc.atlas}' is defined on fsaverage and cannot be drawn on the ${activeCortexMesh()} mesh`);
     if ((parc?.enabled || parc?.maskMedialWall) && parc.atlas)
         engine.setParcellation(parc.atlas, await loadParcellation(parc.atlas, DATA, baseScene));
 
@@ -459,7 +495,8 @@ async function setOverlaySurface(i, repSel) {
 }
 
 /** Process uploaded File(s) entirely in-browser (lazy-loads Pyodide). Routes NIfTI volumes and
- *  native fsaverage surface maps (.gii/.mgh/.mgz, paired by hemisphere) to their own pipelines. */
+ *  native surface maps (fsaverage .gii/.mgh/.mgz or fs_LR 32k .func.gii, paired by hemisphere;
+ *  or a CIFTI .dscalar.nii holding both) to their own pipelines. */
 async function handleUpload(files) {
     const parcelFiles = files.filter((f) => isParcelValueFile(f.name));
     const surfaceFiles = files.filter((f) => isSurfaceFile(f.name));
@@ -495,14 +532,24 @@ async function handleUpload(files) {
             const g = groups[gi];
             const name = surfaceOverlayName(g);
             const tag = groups.length > 1 ? ` (${gi + 1}/${groups.length})` : '';
-            const { meta, buffers } = await processSurface(g.lh, g.rh, name, thr, (m) => setLoading(m + tag, note));
+            const { meta, buffers } = await processSurface(g.cifti || g.lh, g.cifti ? null : g.rh, name, thr,
+                (m) => setLoading(m + tag, note));
             if (!meta.surface || Object.keys(meta.surface).length === 0) {
                 setLoading('No supra-threshold vertices for ' + name + '.',
-                    'Surface maps must be on fsaverage (163842 vertices/hemisphere).');
+                    'Surface maps must be on fsaverage (163842 vertices/hemisphere) or fs_LR 32k (32492).');
                 await new Promise((r) => setTimeout(r, 2500));
                 continue;
             }
-            addOverlay(meta, buffers, { surface: true, lh: g.lh, rh: g.rh, threshold: thr });
+            const clash = cortexMeshClash(meta);
+            if (clash) {
+                setLoading('Cannot mix cortical meshes in one figure.', clash + ' Remove one to load the other.');
+                await new Promise((r) => setTimeout(r, 4000));
+                continue;
+            }
+            await ensureCortexMeshFor(meta);
+            addOverlay(meta, buffers, g.cifti ? { surface: true, cifti: g.cifti, threshold: thr }
+                : { surface: true, lh: g.lh, rh: g.rh, threshold: thr });
+            if (meta.cortexMesh && config.style.parcellation?.enabled) await setParcellationUI({ enabled: false });
         }
         // Per-parcel value tables: infer the atlas, expand onto the vertices, paint through the
         // same surface path, and switch the matching borders on.
@@ -707,6 +754,12 @@ async function loadParcelValues(file, thr, note) {
     const eps = 1e-9;
     const { meta, buffers } = await processParcelValues(maps.lh, maps.rh, name, eps,
         (m) => setLoading(m, note));
+    const clash = cortexMeshClash(meta);
+    if (clash) {
+        setLoading('Cannot mix cortical meshes in one figure.', clash + ' Parcel tables are painted on fsaverage.');
+        await new Promise((r) => setTimeout(r, 4000));
+        return;
+    }
     // surfaceBase makes the cortical sheet SOLID. Without it the unpainted medial wall is a hole
     // in the geometry, and you see the far side of the same hemisphere through it.
     addOverlay(meta, buffers, { surface: true, parcel: true, file, atlas: atlasName, threshold: eps },
@@ -766,6 +819,14 @@ async function setParcellationUI({ enabled, atlas, mask }) {
     const btn = document.getElementById('c-parc');
     if (atlas) p.atlas = atlas;
     if (enabled != null) p.enabled = enabled;
+    if (p.enabled && activeCortexMesh()) {
+        // Atlas labels are per-vertex on fsaverage; there is nothing to draw on another mesh.
+        p.enabled = false; btn?.classList.remove('active');
+        setLoading('Atlas boundaries are not available on the fs_LR mesh.',
+            'The bundled parcellations are defined on fsaverage.');
+        setTimeout(() => setLoading(null), 3000);
+        return;
+    }
     if (!p.enabled) { btn?.classList.remove('active'); return; }
     if (!p.atlas) { p.enabled = false; btn?.classList.remove('active'); return; }
     try {
@@ -791,8 +852,16 @@ function rebuild() {
     // Re-tag each overlay mesh with its CURRENT index (so removals renumber layers/styles).
     overlays.forEach((o, i) => o.meshObjs.forEach((mo) => { mo.meta.overlay = i; }));
 
+    // Swap the template's cortex for the shell of the mesh the native maps are on (fs_LR 32k),
+    // in place, so every other mesh keeps its position in the list. A template with no cortex
+    // (volume-only) stays shell-less.
+    const alt = altCortex[activeCortexMesh()];
+    const hasShell = baseScene.meshes.some((tm) => tm.meta.role === 'cortex');
+    const baseMeshes = (alt && hasShell)
+        ? [...alt, ...baseScene.meshes.filter((tm) => tm.meta.role !== 'cortex')]
+        : baseScene.meshes;
     const sceneModel = {
-        meshes: [...baseScene.meshes, ...overlays.flatMap((o) => o.meshObjs)],
+        meshes: [...baseMeshes, ...overlays.flatMap((o) => o.meshObjs)],
         manifest: { ...baseScene.manifest, overlays: overlays.map((o) => o.meta) },
         cutVolumes: overlays.map((o) => o.cutVolume || null),
     };

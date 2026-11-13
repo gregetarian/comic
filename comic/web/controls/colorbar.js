@@ -5,7 +5,7 @@
  *   → sRGB→linear albedo → ×emissive + glint → linear→sRGB.
  */
 import { resolveColormap, sampleLUT, categoricalColor, srgbToLinear, linearToSrgb, valueToT, clamp01, deriveMaxAbs, colorbarScale } from '../core/colormap.js?v=atlas-categorical-v1';
-import { overlayStyle } from '../core/config-schema.js?v=depth-auto-v3';
+import { overlayStyle } from '../core/config-schema.js?v=fslr-v1';
 
 // View-space half-vector z for a front-facing swatch (matches the shader glint).
 const GLINT_NDOTH = 2.0 / Math.hypot(-0.3, 0.4, 2.0);

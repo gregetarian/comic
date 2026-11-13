@@ -217,7 +217,7 @@ To reuse a parcel recipe, pass the converted table with `--parcel-values`, the s
 
 ## Use a native surface map
 
-Native surface values must use the supported fsaverage vertex ordering. Supply them with `--surface-map`:
+Native surface values must use the fsaverage vertex ordering or HCP fs_LR 32k (see [HCP fs_LR 32k maps](usage.md#hcp-fs_lr-32k-maps)). Supply them with `--surface-map`:
 
 ```bash
 comic render --surface-map 'lh=lh.effect.func.gii,rh=rh.effect.func.gii,name=Effect' \

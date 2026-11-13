@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { isParcelValueFile, isSurfaceFile, detectHemi, groupSurfaceFiles, surfaceOverlayName, VOL_RE } from './surface-files.js';
+import { isCiftiScalar, isParcelValueFile, isSurfaceFile, detectHemi, groupSurfaceFiles, surfaceOverlayName, VOL_RE } from './surface-files.js';
 
 test('isSurfaceFile: surface extensions and hemi-marked morph files, not NIfTI', () => {
     for (const n of ['lh.thickness.gii', 'rh.stat.mgh', 'sub-01_hemi-L_stat.gii', 'lh.curv', 'stat.mgz'])
@@ -58,4 +58,24 @@ test('a per-parcel value table is NOT a surface file, even with a hemi marker', 
     assert.equal(isParcelValueFile('lh.thickness.gii'), false);
     assert.equal(isSurfaceFile('lh_schaefer_values.csv'), false);
     assert.equal(isSurfaceFile('lh.thickness.gii'), true);
+});
+
+test('fs_LR inputs: HCP L/R GIFTI pairs and CIFTI dscalar', () => {
+    assert.equal(detectHemi('tstat.L.func.gii'), 'lh');
+    assert.equal(detectHemi('tstat.R.func.gii'), 'rh');
+    assert.equal(detectHemi('a_l_b.mgh'), null);          // the bare letter only counts on a GIFTI
+    assert.equal(isCiftiScalar('map.dscalar.nii'), true);
+    assert.equal(isCiftiScalar('map.nii'), false);
+    // .dscalar.nii ends in .nii, so it must be claimed as a surface before the volume route sees it
+    assert.equal(isSurfaceFile('map.dscalar.nii'), true);
+    assert.equal(isSurfaceFile('map.nii'), false);
+
+    const f = (name) => ({ name });
+    const g = groupSurfaceFiles([f('tstat.L.func.gii'), f('tstat.R.func.gii'), f('a.dscalar.nii'), f('b.dscalar.nii')]);
+    assert.equal(g.length, 3);
+    assert.equal(g[0].lh.name, 'tstat.L.func.gii');
+    assert.equal(g[0].rh.name, 'tstat.R.func.gii');
+    assert.equal(g[1].cifti.name, 'a.dscalar.nii');
+    assert.equal(g[1].lh, null);
+    assert.deepEqual(g.map(surfaceOverlayName), ['tstat', 'a', 'b']);
 });

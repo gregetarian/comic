@@ -55,6 +55,9 @@ export const DEFAULTS = {
             // solid, which is what an atlas figure wants — an unpainted medial wall is then a grey
             // surface rather than a hole you can see the far side of the hemisphere through.
             surfaceBase: null,
+            // Colour for surface vertices that carry NO measurement (NaN in an fs_LR map, or a
+            // vertex a CIFTI file does not model, i.e. the medial wall). Always drawn, at any threshold.
+            noDataColor: '#cccccc',
             // Viewer-relative front-depth gate. 0 shows the full anatomical depth; higher values
             // discard farther overlay fragments independently in each panel/view.
             depthCut: 0.0,
@@ -168,6 +171,7 @@ export function overlayStyle(config, i = 0) {
         emissive: ov.emissive ?? v.emissive,
         surfaceDepth: ov.surfaceDepth ?? v.surfaceDepth,
         surfaceBase: ov.surfaceBase ?? v.surfaceBase,
+        noDataColor: ov.noDataColor ?? v.noDataColor ?? '#cccccc',
         veil: { ...(v.veil || {}), ...(ov.veil || {}) },
         // Voxel edges default OFF in surface mode. The edge pass finds depth steps in VOXEL
         // geometry; a continuous cortical sheet has none, so it just traces the threshold boundary

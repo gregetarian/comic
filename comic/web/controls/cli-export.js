@@ -39,6 +39,7 @@ export function buildInputDescriptors(overlays = []) {
         }
         if (src.surface || (!src.file && o.meta?.surfaceOnly)) {
             const d = { type: 'surface', name };
+            if (src.cifti?.name) { d.cifti = src.cifti.name; return d; }
             if (src.lh?.name) d.lh = src.lh.name;
             if (src.rh?.name) d.rh = src.rh.name;
             if (!d.lh && !d.rh) d.lh = `REPLACE_WITH_lh.map${i + 1}.gii`;
@@ -75,7 +76,7 @@ export function buildSpec(config, overlays = []) {
             const input = { slot: i + 1, name: inputName(o, i), type: d.type };
             if (o.meta?.name) input.label = o.meta.name;
             if (d.type === 'surface') {
-                input.files = { ...(d.lh ? { lh: d.lh } : {}), ...(d.rh ? { rh: d.rh } : {}) };
+                input.files = { ...(d.cifti ? { cifti: d.cifti } : {}), ...(d.lh ? { lh: d.lh } : {}), ...(d.rh ? { rh: d.rh } : {}) };
             } else if (d.type === 'parcel') input.atlas = d.atlas;
             const threshold = o.meta?.threshold ?? o.src?.threshold;
             if (typeof threshold === 'number' && Number.isFinite(threshold)) input.processingThreshold = threshold;

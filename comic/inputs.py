@@ -22,8 +22,11 @@ def input_descriptors(nifti=None, surface_maps=None, input_maps=None):
             raise ValueError(f"input {i + 1}: unknown type {kind!r}")
         if kind in ("volume", "parcel") and (not isinstance(d.get("path"), (str, Path)) or not str(d["path"]).strip()):
             raise ValueError(f"input {i + 1}: {kind} needs a path")
-        if kind == "surface" and d.get("lh") is None and d.get("rh") is None:
-            raise ValueError(f"input {i + 1}: surface needs lh or rh")
+        if kind == "surface" and d.get("cifti") is not None:
+            if d.get("lh") is not None or d.get("rh") is not None:
+                raise ValueError(f"input {i + 1}: a cifti surface already holds both hemispheres; drop lh/rh")
+        elif kind == "surface" and d.get("lh") is None and d.get("rh") is None:
+            raise ValueError(f"input {i + 1}: surface needs lh or rh (or cifti)")
         if kind == "parcel" and (not isinstance(d.get("atlas"), str) or not d["atlas"].strip()):
             raise ValueError(f"input {i + 1}: parcel needs an atlas")
         d["type"] = kind

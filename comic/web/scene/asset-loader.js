@@ -213,6 +213,55 @@ export async function loadBaseScene(base = 'data/') {
     return { meshes, manifest, templateBundle };
 }
 
+// Alternative cortical meshes (comic/fslr.py bakes data/fslr32k/). A map computed on HCP fs_LR
+// 32k is painted on that mesh vertex-for-vertex, so the SHELL it lies on must be that mesh too.
+// One gzipped sidecar holds, per hemisphere, the midthickness and inflated vertices plus the
+// shared faces; the pipeline reads the same file. Returned meshes are tagged exactly like the
+// template's cortex GLBs (role/hemisphere/variant), so the engine needs no special case: the
+// midthickness stands in for both 'pial' and 'white' (fs_LR ships no group pial/white pair).
+const _cortexMeshCache = new Map();
+const CORTEX_MESH_VER = 'fslr32k-midthickness-v1';
+export function loadCortexMesh(id, base = 'data/') {
+    if (!_cortexMeshCache.has(id)) _cortexMeshCache.set(id, (async () => {
+        const meta = await fetch(`${base}${id}/cortex.json?${CORTEX_MESH_VER}`)
+            .then((r) => { if (!r.ok) throw new Error(`cortical mesh '${id}' is not bundled with this template`); return r.json(); });
+        const gz = await fetchStaticAsset(`${base}${id}/cortex.bin.gz?${CORTEX_MESH_VER}`);
+        const buf = await new Response(new Blob([gz]).stream()
+            .pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();
+        const cut = ([off, len]) => buf.slice(off, off + len);
+        // 'veryinflated' is an extra, fs_LR-only variant: it simply appears in the surface menu.
+        const extra = ['veryinflated'].filter((v) => meta.lh?.[v] || meta.rh?.[v]);
+        const byVariant = { pial: {}, inflated: {}, ...Object.fromEntries(extra.map((v) => [v, {}])) };
+        for (const hemi of ['lh', 'rh']) {
+            const h = meta[hemi];
+            if (!h) continue;
+            const index = new THREE.BufferAttribute(new Uint32Array(cut(h.faces)), 1);
+            for (const variant of ['pial', 'inflated', ...extra]) {
+                if (!h[variant]) continue;
+                const g = new THREE.BufferGeometry();
+                g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(cut(h[variant])), 3));
+                g.setIndex(index);
+                g.computeVertexNormals();
+                byVariant[variant][hemi] = g;
+            }
+        }
+        // Same creation order as loadBaseScene: (pial, inflated) per hemisphere, then white.
+        const meshes = [];
+        const push = (variant, hemi, geometry) => {
+            if (!geometry) return;
+            const mesh = new THREE.Mesh(geometry);
+            meshes.push({ mesh, values: null, aabb: bboxOf(mesh),
+                meta: { role: 'cortex', hemisphere: hemi, structure: `cortex_${hemi}`,
+                        category: `${hemi}_cortex`, variant, cortexMesh: id } });
+        };
+        for (const hemi of ['lh', 'rh']) for (const variant of ['pial', 'inflated']) push(variant, hemi, byVariant[variant][hemi]);
+        for (const hemi of ['lh', 'rh']) push('white', hemi, byVariant.pial[hemi]);
+        for (const variant of extra) for (const hemi of ['lh', 'rh']) push(variant, hemi, byVariant[variant][hemi]);
+        return { id, meta, meshes };
+    })());
+    return _cortexMeshCache.get(id);
+}
+
 /** Fetch a static overlay's `.bin` and slice it back into per-buffer Uint8Arrays via
  *  the meta's `bufferLayout` ([offset,length] per buffer index). Used for the baked
  *  demo (data/demo/) and for the CLI render (one overlay_<i>.bin) — the same arrays a
@@ -278,6 +327,10 @@ export function buildOverlayMeshes(meta, buffers, oi) {
         g.setAttribute('aCurv', new THREE.BufferAttribute(asF32(buffers[d.crv]), 1));
         // 1 = show. An atlas overwrites this with its cortex mask (see renderer.setParcellation).
         g.setAttribute('aMask', new THREE.BufferAttribute(new Float32Array(values.length).fill(1), 1));
+        // 1 = this vertex carries no measurement (drawn in the no-data grey). Staged only by maps
+        // that have such vertices; otherwise all zero.
+        const noData = d.nodata != null ? asF32(buffers[d.nodata]) : new Float32Array(values.length);
+        g.setAttribute('aNoData', new THREE.BufferAttribute(noData, 1));
         g.computeVertexNormals();
         const mesh = new THREE.Mesh(g);
         out.push({
@@ -286,7 +339,8 @@ export function buildOverlayMeshes(meta, buffers, oi) {
                     structure: `${meta.name}_${hemi}_cortex`, category: `${hemi}_cortex`, variant: 'surface',
                     // A native surface overlay (process_surface) has ONLY this variant — no blocky/smooth.
                     // Tagging it lets visibility force the 'surface' gate so it always shows.
-                    surfaceOnly: !!meta.surfaceOnly },
+                    surfaceOnly: !!meta.surfaceOnly,
+                    ...(meta.cortexMesh ? { cortexMesh: meta.cortexMesh } : {}) },
             values,
             aabb: bboxOf(mesh),
         });

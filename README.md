@@ -4,7 +4,7 @@
 
 ## [Open Comic](https://gregetarian.github.io/comic/)
 
-Drop in a 3D NIfTI volume, an fsaverage surface map, or a table containing one
+Drop in a 3D NIfTI volume, an fsaverage or HCP fs_LR surface map, or a table containing one
 value per cortical parcel. Comic processes the data locally in your browser and
 does not upload them to a server. Nothing needs to be installed for ordinary use.
 
@@ -15,6 +15,8 @@ does not upload them to a server. Nothing needs to be installed for ordinary use
 - Draws volumetric results as exposed voxel faces or smooth isosurfaces, or
   samples them onto pial, white or inflated cortical surfaces.
 - Loads native fsaverage GIFTI, MGH, MGZ and morphometry maps.
+- Loads HCP fs_LR 32k maps (GIFTI `.func.gii` or CIFTI `.dscalar.nii`) and draws them on a
+  bundled fs_LR surface without resampling, with NaN shown as grey "no data".
 - Paints CSV or TSV parcel values onto the cortex with atlas boundaries, including bundled DK68 and Schaefer atlases.
 - Combines several independently styled overlays, each with its own colourmap,
   threshold, colour limits, transparency and legend.

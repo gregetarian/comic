@@ -13,11 +13,11 @@ import { normalize, sub } from '../core/units.js?v=depth-auto-v3';
 import { cameraBasis } from '../core/cameras.js?v=depth-auto-v3';
 import { visible } from '../core/visibility.js?v=depth-auto-v3';
 import { resolveColormap, colorizeValues, colorizeCategoricalValues, deriveMaxAbs } from '../core/colormap.js?v=atlas-categorical-v1';
-import { overlayStyle } from '../core/config-schema.js?v=depth-auto-v3';
+import { overlayStyle } from '../core/config-schema.js?v=fslr-v1';
 import { outlinePlan } from '../core/outline-plan.js?v=depth-auto-v3';
 import { meshLayer, anatomyLayer } from '../core/mesh-meta.js?v=depth-auto-v3';
 import { createAnatomyCap } from './anatomy-cap.js?v=depth-auto-v3';
-import { makeGlassMaterial, makeAnatomyMaterial, makeOpaqueAnatomyMaterial, makeVoxelMaterial, makeSurfaceMaterial, makeSharedVoxelUniforms } from './materials.js?v=depth-auto-v3';
+import { makeGlassMaterial, makeAnatomyMaterial, makeOpaqueAnatomyMaterial, makeVoxelMaterial, makeSurfaceMaterial, makeSharedVoxelUniforms } from './materials.js?v=fslr-v1';
 import { makeBorderMaterial, makeBorderGeometry, applyLabels } from './parcellation.js?v=depth-auto-v3';
 import { OutlinePass, makeThresholdDepthMaterial, makePlainDepthMaterial, makeHardOccluderDepthMaterial, DEPTH_CLEAR } from './passes.js?v=depth-auto-v3';
 
@@ -118,6 +118,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
         u.uThreshold.value = os.threshold ?? overlays[i].threshold ?? 0;
         u.uBaseApply.value = os.surfaceBase ? 1 : 0;
         if (os.surfaceBase) u.uBaseColor.value.set(os.surfaceBase);
+        u.uNoDataColor.value.set(os.noDataColor);
         uniforms.push(u);
         const mat = makeVoxelMaterial({}, u);
         // Row order = display priority: where overlays coincide in depth, the
@@ -209,7 +210,9 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
     // Borders attach to the cortex shells only. Now that a sheet shares the shell's positions the
     // two coincide exactly, so one border per shell is enough.
     const borderMat = makeBorderMaterial(config.style.parcellation || {});
-    const borderSources = sceneModel.meshes.filter((tm) => tm.meta.role === 'cortex');
+    // Atlases are per-vertex labels on the TEMPLATE mesh (fsaverage), so a shell on another mesh
+    // (meta.cortexMesh, e.g. fs_LR 32k) has no labels to draw and gets no border geometry.
+    const borderSources = sceneModel.meshes.filter((tm) => tm.meta.role === 'cortex' && !tm.meta.cortexMesh);
     const borderMeshes = borderSources.map((tm) => {
         const geo = makeBorderGeometry(tm.mesh.geometry);
         const mesh = new THREE.Mesh(geo, borderMat);
@@ -1034,6 +1037,7 @@ export function createEngine({ renderer, width, height, sceneModel, colormaps, c
             u.uDepthMode.value = os.depthMode === 'manual' ? 0 : 1;
             u.uBaseApply.value = os.surfaceBase ? 1 : 0;
             if (os.surfaceBase) u.uBaseColor.value.set(os.surfaceBase);
+            u.uNoDataColor.value.set(os.noDataColor);
             applyVoxelAlpha(voxelMats[i], os.opacity ?? 1);
             const em = edgePasses[i].outlineMaterial.uniforms;
             em.uOpacity.value = os.edges.opacity;

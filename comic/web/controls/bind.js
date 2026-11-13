@@ -9,7 +9,7 @@
  *    Pyodide pipeline and rebuilds the engine in-place) instead of POSTing + reloading.
  */
 import { resolveColormap } from '../core/colormap.js?v=depth-auto-v3';
-import { overlayStyle, setOverlayStyle } from '../core/config-schema.js?v=depth-auto-v3';
+import { overlayStyle, setOverlayStyle } from '../core/config-schema.js?v=fslr-v1';
 import { createCmapPicker } from './cmap-picker.js?v=depth-auto-v3';
 import { PRESET_LABELS } from '../core/presets.js?v=depth-auto-v3';
 import { loadSavedLayouts, saveLayout, deleteLayout } from './layout-presets.js?v=depth-auto-v3';

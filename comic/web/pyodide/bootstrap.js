@@ -14,7 +14,7 @@ const PYODIDE_CDN = `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full/`
 const DATA = 'data/';
 
 let _ready = null;      // memoised init promise (load runtime + packages + aseg + pipeline)
-let _cortexReady = null; // memoised cortical-surface load (lazy: only when surface mode is used)
+const _cortexReady = new Map(); // mesh id -> memoised cortical-surface load (lazy: only when used)
 
 /** Load Pyodide, the package stack, the pipeline module, and the aseg volume — once. */
 export function ensurePyodide(onProgress = () => {}) {
@@ -37,7 +37,7 @@ export function ensurePyodide(onProgress = () => {}) {
         micropip.destroy();
 
         onProgress('Loading pipeline…');
-        const src = await fetch('pyodide/pipeline.py?v=atlas-categorical-v1').then((r) => r.text());
+        const src = await fetch('pyodide/pipeline.py?v=fslr-v1').then((r) => r.text());
         py.FS.writeFile('/pipeline.py', src);
         py.runPython('import sys; sys.path.insert(0, "/")');
         const pipeline = py.pyimport('pipeline');
@@ -54,17 +54,39 @@ export function ensurePyodide(onProgress = () => {}) {
 
 /** Load the cortical-surface sidecar into the pipeline — lazily, only when surface mode is first
  *  used (it is ~11 MB, so we don't pay it on boot or for volume-only sessions). */
-export async function ensureCortex(onProgress = () => {}) {
+export async function ensureCortex(onProgress = () => {}, mesh = 'fsaverage') {
     const { pipeline } = await ensurePyodide(onProgress);
-    if (!_cortexReady) {
-        _cortexReady = (async () => {
-            onProgress('Loading cortical surface…');
-            const json = await fetch(DATA + 'cortex_surface.json').then((r) => r.text());
-            const gz = new Uint8Array(await fetch(DATA + 'cortex_surface.bin.gz').then((r) => r.arrayBuffer()));
-            pipeline.init_cortex(gz, json);
+    if (!_cortexReady.has(mesh)) {
+        // The template's own surface is data/cortex_surface.*; any other mesh (the bundled fs_LR
+        // 32k) is data/<mesh>/cortex.* and is fetched only when a map on that mesh arrives.
+        const stem = mesh === 'fsaverage' ? DATA + 'cortex_surface' : `${DATA}${mesh}/cortex`;
+        const get = async (url) => {
+            const r = await fetch(url);
+            if (!r.ok) throw new Error(`cortical mesh '${mesh}' is not available (${url}: ${r.status})`);
+            return r;
+        };
+        const job = (async () => {
+            onProgress(mesh === 'fsaverage' ? 'Loading cortical surface…' : `Loading ${mesh} surface…`);
+            const json = await (await get(stem + '.json')).text();
+            const gz = new Uint8Array(await (await get(stem + '.bin.gz')).arrayBuffer());
+            pipeline.init_cortex(gz, json, mesh);
         })();
+        _cortexReady.set(mesh, job);
+        job.catch(() => _cortexReady.delete(mesh));   // a failed fetch must stay retryable
     }
-    return _cortexReady;
+    return _cortexReady.get(mesh);
+}
+
+/** Run process_surface, fetching whichever cortical mesh the map turns out to need. The mesh is
+ *  only known once the file is read (fsaverage vs fs_LR is decided by vertex count), so the
+ *  pipeline reports a missing one as "[needs-cortex:<mesh>]" and the call is repeated once. */
+async function withCortexMesh(call, onProgress) {
+    try { return call(); } catch (err) {
+        const need = /\[needs-cortex:([a-z0-9]+)\]/.exec(String(err?.message || err));
+        if (!need) throw err;
+        await ensureCortex(onProgress, need[1]);
+        return call();
+    }
 }
 
 /**
@@ -88,18 +110,20 @@ export async function processNifti(file, threshold = 2.3, onProgress = () => {},
 }
 
 /**
- * Process a NATIVE fsaverage surface overlay (per-vertex .gii/.mgh/.mgz files) in the browser.
- * Needs the cortical surface sidecar (loaded on demand, ~11 MB). Either hemisphere may be null.
- * @returns {{ meta: object, buffers: Uint8Array[] }} — meta.surfaceOnly === true, structures === {}.
+ * Process a NATIVE surface overlay (per-vertex .gii/.mgh/.mgz files) in the browser. The map's
+ * own vertex count picks the mesh: fsaverage sizes use the template sidecar (~11 MB, on demand);
+ * 32492 per hemisphere is HCP fs_LR 32k and uses the bundled fs_LR mesh (~1.8 MB) unresampled.
+ * Either hemisphere may be null. A CIFTI `.dscalar.nii` holds both: pass it as `lhFile` alone.
+ * @returns {{ meta: object, buffers: Uint8Array[] }} — meta.surfaceOnly === true, structures === {};
+ *   meta.cortexMesh === 'fslr32k' for an fs_LR map.
  */
 export async function processSurface(lhFile, rhFile, name, threshold = 2.3, onProgress = () => {}) {
     const { pipeline } = await ensurePyodide(onProgress);
-    await ensureCortex(onProgress);
     onProgress('Processing surface ' + name + '…');
     const lhBytes = lhFile ? new Uint8Array(await lhFile.arrayBuffer()) : null;
     const rhBytes = rhFile ? new Uint8Array(await rhFile.arrayBuffer()) : null;
-    const metaStr = pipeline.process_surface(lhBytes, rhBytes, name, threshold,
-        lhFile ? lhFile.name : null, rhFile ? rhFile.name : null);
+    const metaStr = await withCortexMesh(() => pipeline.process_surface(lhBytes, rhBytes, name, threshold,
+        lhFile ? lhFile.name : null, rhFile ? rhFile.name : null), onProgress);
     const meta = JSON.parse(metaStr);
     const proxy = pipeline.get_all_buffers();
     const buffers = proxy.toJs();
